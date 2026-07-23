@@ -90,6 +90,18 @@ class NoThinkChatDataset:
         return [len(tokens) for tokens, _ in self.items]
 
 
+def completion_training_view(
+    tokens: list[int], *, completion_offset: int
+) -> tuple[list[int], list[int]]:
+    """Return hidden-state positions and shifted targets for completion loss."""
+
+    if not 1 <= completion_offset < len(tokens):
+        raise ContractError("completion offset is outside the token sequence")
+    positions = list(range(completion_offset - 1, len(tokens)))
+    shifted = tokens[1:] + [0]
+    return positions, [shifted[position] for position in positions]
+
+
 class DeterministicCursor:
     def __init__(self, *, size: int, seed: int) -> None:
         if size <= 0:
@@ -220,22 +232,38 @@ class StatefulMlxTrainer:
         schedule = optim.join_schedules([warmup, decay], [self.config.warmup_updates])
         self.optimizer = optim.Adam(learning_rate=schedule)
 
-        def completion_loss(model: Any, batch: Any, lengths: Any) -> tuple[Any, Any]:
+        def completion_loss(
+            model: Any,
+            batch: Any,
+            positions: Any,
+            completion_targets: Any,
+        ) -> tuple[Any, Any]:
             inputs = batch[:, :-1]
-            targets = batch[:, 1:]
-            logits = model(inputs)
-            steps = mx.arange(1, targets.shape[1] + 1)
-            mask = mx.logical_and(steps >= lengths[:, 0:1], steps <= lengths[:, 1:])
-            ce = nn.losses.cross_entropy(logits, targets) * mask
-            ntoks = mask.sum()
-            return ce.astype(mx.float32).sum() / ntoks, ntoks
+            text_model = model.language_model
+            hidden = text_model.model(inputs)
+            selected_hidden = mx.take(hidden, positions, axis=1)
+            if text_model.args.tie_word_embeddings:
+                logits = text_model.model.embed_tokens.as_linear(selected_hidden)
+            else:
+                logits = text_model.lm_head(selected_hidden)
+            ce = nn.losses.cross_entropy(logits, completion_targets)
+            ntoks = mx.array(completion_targets.size)
+            return ce.astype(mx.float32).mean(), ntoks
 
         value_and_grad = nn.value_and_grad(self.model, completion_loss)
         state = [self.model.state, self.optimizer.state, mx.random.state]
 
         @partial(mx.compile, inputs=state, outputs=state)
-        def step(batch: Any, lengths: Any, previous: Any, do_update: bool) -> tuple[Any, Any, Any]:
-            (loss, tokens), gradient = value_and_grad(self.model, batch, lengths)
+        def step(
+            batch: Any,
+            positions: Any,
+            completion_targets: Any,
+            previous: Any,
+            do_update: bool,
+        ) -> tuple[Any, Any, Any]:
+            (loss, tokens), gradient = value_and_grad(
+                self.model, batch, positions, completion_targets
+            )
             if previous is not None:
                 gradient = tree_map(lambda left, right: left + right, gradient, previous)
             if do_update:
@@ -252,7 +280,7 @@ class StatefulMlxTrainer:
         self._compiled_state = state
         self.model.train()
 
-    def _batch(self, dataset_index: int) -> tuple[Any, Any]:
+    def _batch(self, dataset_index: int) -> tuple[Any, Any, Any]:
         import numpy as np
 
         tokens, offset = self.dataset[dataset_index]
@@ -261,7 +289,14 @@ class StatefulMlxTrainer:
         padded_length = len(tokens) + 1
         array = np.zeros((1, padded_length), dtype=np.int32)
         array[0, : len(tokens)] = tokens
-        return self._mx.array(array), self._mx.array([[offset, len(tokens)]])
+        positions, targets = completion_training_view(
+            tokens, completion_offset=offset
+        )
+        return (
+            self._mx.array(array),
+            self._mx.array(positions, dtype=self._mx.int32),
+            self._mx.array([targets], dtype=self._mx.int32),
+        )
 
     def _save_checkpoint(self) -> Path:
         mx = self._mx
@@ -364,11 +399,15 @@ class StatefulMlxTrainer:
         latest_checkpoint: Path | None = None
         while self.global_update < target_updates:
             index = self.cursor.next_index()
-            batch, lengths = self._batch(index)
+            batch, positions, completion_targets = self._batch(index)
             accumulated += 1
             do_update = accumulated == self.config.gradient_accumulation
             loss, token_count, gradient_accumulator = self._step(
-                batch, lengths, gradient_accumulator, do_update
+                batch,
+                positions,
+                completion_targets,
+                gradient_accumulator,
+                do_update,
             )
             self._mx.eval(
                 self._compiled_state,

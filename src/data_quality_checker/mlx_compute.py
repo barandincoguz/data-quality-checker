@@ -103,6 +103,16 @@ def assert_equivalent_training_state(
             raise IntegrityError(f"real MLX resume mismatch in {field}")
 
 
+def assert_thinking_is_disabled(prompt: str) -> None:
+    """Validate Qwen3.5's documented empty, closed no-thinking sentinel."""
+
+    sentinel = "<think>\n\n</think>\n\n"
+    if not prompt.endswith(sentinel):
+        raise IntegrityError(
+            "Qwen3.5 thinking-disable sentinel is missing, open, or non-empty"
+        )
+
+
 def _existing_passed_attempt(stage_dir: Path, request_fingerprint: str) -> dict[str, Any] | None:
     for attempt in sorted(stage_dir.glob("attempt_*")):
         result_path = attempt / "result.json"
@@ -249,8 +259,7 @@ def _tokenizer_preflight(model_path: Path, data_dir: Path) -> dict[str, Any]:
     )
     if not isinstance(probe, str):
         raise ContractError("tokenizer chat template did not render a string")
-    if "<think>" in probe.lower():
-        raise ContractError("enable_thinking=False still rendered a thinking block")
+    assert_thinking_is_disabled(probe)
     combined: list[tuple[int, str, int]] = []
     for split, dataset in datasets.items():
         combined.extend(
@@ -312,6 +321,9 @@ def _training_request(
         "target_updates": target_updates,
         "input_fingerprint": sha256_file(train_path),
         "model_fingerprint": model_fingerprint,
+        "trainer_implementation_sha256": sha256_file(
+            Path(__file__).with_name("mlx_stateful.py")
+        ),
     }
     if resume_checkpoint is not None:
         request["resume_checkpoint"] = str(resume_checkpoint)

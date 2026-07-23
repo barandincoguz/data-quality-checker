@@ -5,13 +5,14 @@ from pathlib import Path
 
 import pytest
 
-from data_quality_checker.errors import IntegrityError
+from data_quality_checker.errors import FingerprintMismatch, IntegrityError
 from data_quality_checker.mlx_compute import (
     assert_thinking_is_disabled,
     assert_equivalent_training_state,
     build_snapshot_manifest,
     parse_worker_result,
 )
+from data_quality_checker.mlx_worker import _cached_validation_record
 
 
 def test_qwen_disabled_thinking_requires_the_empty_closed_sentinel() -> None:
@@ -72,11 +73,26 @@ def test_worker_result_must_be_successful_and_match_action(tmp_path: Path) -> No
         parse_worker_result(result, expected_action="train")
 
 
+def test_validation_record_resume_requires_the_same_request_fingerprint(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "doc_7.json"
+    path.write_text(
+        json.dumps({"request_fingerprint": "a" * 64, "doc_id": 7}),
+        encoding="utf-8",
+    )
+    assert _cached_validation_record(
+        path, request_fingerprint="a" * 64, doc_id=7
+    ) == {"request_fingerprint": "a" * 64, "doc_id": 7}
+    with pytest.raises(FingerprintMismatch, match="request mismatch"):
+        _cached_validation_record(path, request_fingerprint="b" * 64, doc_id=7)
+
+
 def test_resume_equivalence_compares_every_recoverable_state_component() -> None:
     state = {
-        "adapter_sha256": "a",
-        "optimizer_sha256": "b",
-        "mlx_rng_sha256": "c",
+        "adapter_tensor_fingerprint": "a",
+        "optimizer_tensor_fingerprint": "b",
+        "mlx_rng_tensor_fingerprint": "c",
         "scheduler_state": {"global_update": 2},
         "data_cursor": {"micro_steps": 8},
         "python_rng_state_fingerprint": "d",
@@ -84,6 +100,6 @@ def test_resume_equivalence_compares_every_recoverable_state_component() -> None
     assert_equivalent_training_state(state, dict(state))
 
     changed = dict(state)
-    changed["optimizer_sha256"] = "different"
-    with pytest.raises(IntegrityError, match="optimizer_sha256"):
+    changed["optimizer_tensor_fingerprint"] = "different"
+    with pytest.raises(IntegrityError, match="optimizer_tensor_fingerprint"):
         assert_equivalent_training_state(state, changed)

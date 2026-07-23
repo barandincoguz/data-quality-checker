@@ -63,8 +63,31 @@ içindedir.
 `train-bootstrap` varsayılan olarak canonical veriyi, split'i, checksum'ları ve
 fake full-state resume testini hazırlar; model indirmez. `--execute` gerçek MLX
 train/generate ve failure-resume kabul smoke'larını çalıştırır, fakat uzun G0
-development eğitimi başlatmaz. Uzun koşu ancak bu preflight geçtiğinde ve ayrı
-bir runbook adımıyla başlatılmalıdır.
+development eğitimi başlatmaz.
+
+Uzun development koşusunun kilitli planını compute başlatmadan görmek için:
+
+```bash
+dqcheck train-g0 \
+  --run-id dqcheck_g0_qwen3_5_9b_<fingerprint> \
+  --candidate lr5e-5 --target-updates 50
+```
+
+`train-g0` gerçek koşuyu 25-update segmentlere böler. Her segmentten sonra
+full-state checkpoint'i doğrular, validation-50 generation ve canonical metrik
+değerlendirmesini tamamlar. `--execute` yalnız yeşil compute preflight ve `tmux`
+içinde çalışır; `--resume` tamamlanmış segment/validation kayıtlarını atlar.
+İki başlangıç adayı yalnız peak LR bakımından farklıdır: `5e-5` ve `1e-4`.
+
+Mac Studio compute kabulünde tam belge inference/validation bağlamı `10240`,
+backward eğitim bağlamı `1024` token olarak doğrulandı. Uzun train belgeleri
+sessizce kırpılmaz: örtüşmeli ve fingerprint'li pencerelerle `394` belge `2090`
+eğitim satırına dönüşür; kaynak metin ve gold referans coverage'ı eksiksiz
+olmadan koşu açılmaz.
+
+Hiperparametre seçimi validation-50 üzerinde yapılır. Ayrı test-50 seçim
+sonrasında yalnız bir kez açılır; bu iki rol birlikte 100 holdout belgeyi
+oluşturur. Test sonucu görülmeden final 494-belge refit başlamaz.
 
 Gerçek adapter mühürlenmeden `process` komutu G0 registry eksikliği nedeniyle
 durur. Testlerdeki `--fake-backend` seçenekleri yalnız fixture kabulü içindir ve
@@ -78,4 +101,3 @@ cd data-quality-checker-weak-learning-program
 ```
 
 Varsayılan testler model yüklemez. Gerçek MLX kabulü ayrı compute kapısıdır.
-

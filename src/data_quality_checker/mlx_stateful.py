@@ -30,14 +30,22 @@ class StatefulTrainingConfig:
     seed: int = 42
     rank: int = 8
     num_layers: int = 16
+    lora_scale: float = 20.0
+    lora_dropout: float = 0.0
     batch_size: int = 1
     gradient_accumulation: int = 4
     peak_learning_rate: float = 1e-4
     end_learning_rate: float = 1e-5
+    adam_beta1: float = 0.9
+    adam_beta2: float = 0.999
+    adam_eps: float = 1e-8
+    adam_bias_correction: bool = False
     warmup_updates: int = 15
     total_updates: int = 295
     max_sequence_length: int = 8192
     gradient_checkpointing: bool = True
+    compile_gradient_step: bool = True
+    sequence_length_buckets: tuple[int, ...] = (1024, 2048, 4096, 8192, 10241)
     checkpoint_every_updates: int = 25
     checkpoint_max_seconds: int = 600
 
@@ -188,7 +196,11 @@ class StatefulMlxTrainer:
             str(self.model_path), tokenizer_config={"trust_remote_code": True}
         )
         self.model.freeze()
-        self.lora_parameters = {"rank": self.config.rank, "dropout": 0.0, "scale": 20.0}
+        self.lora_parameters = {
+            "rank": self.config.rank,
+            "dropout": self.config.lora_dropout,
+            "scale": self.config.lora_scale,
+        }
         linear_to_lora_layers(
             self.model,
             self.config.num_layers,
@@ -218,7 +230,12 @@ class StatefulMlxTrainer:
             self.config.end_learning_rate,
         )
         schedule = optim.join_schedules([warmup, decay], [self.config.warmup_updates])
-        self.optimizer = optim.Adam(learning_rate=schedule)
+        self.optimizer = optim.Adam(
+            learning_rate=schedule,
+            betas=[self.config.adam_beta1, self.config.adam_beta2],
+            eps=self.config.adam_eps,
+            bias_correction=self.config.adam_bias_correction,
+        )
 
         def completion_loss(model: Any, batch: Any, lengths: Any) -> tuple[Any, Any]:
             inputs = batch[:, :-1]
@@ -231,29 +248,22 @@ class StatefulMlxTrainer:
             return ce.astype(mx.float32).sum() / ntoks, ntoks
 
         value_and_grad = nn.value_and_grad(self.model, completion_loss)
-        state = [self.model.state, self.optimizer.state, mx.random.state]
+        # Keep the large model backward graph independent from gradient
+        # accumulation and the optimizer branch.  Otherwise ``previous=None``
+        # and ``do_update`` create multiple expensive compiled variants.
+        state = [self.model.state, mx.random.state]
 
-        @partial(mx.compile, inputs=state, outputs=state)
-        def step(
-            batch: Any,
-            lengths: Any,
-            previous: Any,
-            do_update: bool,
-        ) -> tuple[Any, Any, Any]:
+        def gradient_step(batch: Any, lengths: Any) -> tuple[Any, Any, Any]:
             (loss, tokens), gradient = value_and_grad(self.model, batch, lengths)
-            if previous is not None:
-                gradient = tree_map(lambda left, right: left + right, gradient, previous)
-            if do_update:
-                gradient = tree_map(
-                    lambda value: value / self.config.gradient_accumulation, gradient
-                )
-                self.optimizer.update(self.model, gradient)
-                gradient = None
             return loss, tokens, gradient
 
         self._mx = mx
         self._tree_map = tree_map
-        self._step = step
+        self._gradient_step = (
+            partial(mx.compile, inputs=state, outputs=state)(gradient_step)
+            if self.config.compile_gradient_step
+            else gradient_step
+        )
         self._compiled_state = state
         self.model.train()
 
@@ -261,9 +271,17 @@ class StatefulMlxTrainer:
         import numpy as np
 
         tokens, offset = self.dataset[dataset_index]
-        # One extra slot mirrors mlx-lm's completion-loss batch contract while
-        # avoiding round-up beyond a boundary-sized sequence candidate.
-        padded_length = len(tokens) + 1
+        # A small fixed set of shapes bounds MLX graph compilation while
+        # preserving every source and completion token. Padding is strictly
+        # after the masked target, so it cannot influence causal target logits.
+        required_length = len(tokens) + 1
+        maximum_length = self.config.max_sequence_length + 1
+        candidates = [
+            int(boundary)
+            for boundary in self.config.sequence_length_buckets
+            if required_length <= int(boundary) <= maximum_length
+        ]
+        padded_length = min(candidates) if candidates else maximum_length
         array = np.zeros((1, padded_length), dtype=np.int32)
         array[0, : len(tokens)] = tokens
         return self._mx.array(array), self._mx.array([[offset, len(tokens)]])
@@ -344,10 +362,10 @@ class StatefulMlxTrainer:
         rng_flat = self._mx.load(str(checkpoint / "mlx_rng.safetensors"))
         self.optimizer.state = tree_unflatten(optimizer_flat)
         self._mx.random.state = tree_unflatten(rng_flat)
-        # The compiled function registers these mutable trees as explicit
-        # state. Repoint those registrations after restoring new tree objects.
-        self._compiled_state[1] = self.optimizer.state
-        self._compiled_state[2] = self._mx.random.state
+        # The compiled gradient function registers these mutable trees as
+        # explicit inputs. Repoint them after restoring new tree objects.
+        self._compiled_state[0] = self.model.state
+        self._compiled_state[1] = self._mx.random.state
         self.global_update = int(trainer_state["global_update"])
         self.cursor.load_state_dict(trainer_state["data_cursor"])
         self.python_rng.setstate(restore_random_state(trainer_state["python_rng_state"]))
@@ -372,22 +390,36 @@ class StatefulMlxTrainer:
             batch, lengths = self._batch(index)
             accumulated += 1
             do_update = accumulated == self.config.gradient_accumulation
-            loss, token_count, gradient_accumulator = self._step(
-                batch,
-                lengths,
-                gradient_accumulator,
-                do_update,
-            )
+            loss, token_count, gradient = self._gradient_step(batch, lengths)
             self._mx.eval(
                 self._compiled_state,
                 loss,
                 token_count,
-                gradient_accumulator,
+                gradient,
             )
+            if gradient_accumulator is None:
+                gradient_accumulator = gradient
+            else:
+                gradient_accumulator = self._tree_map(
+                    lambda left, right: left + right,
+                    gradient_accumulator,
+                    gradient,
+                )
+                self._mx.eval(gradient_accumulator)
             losses.append(float(loss.item()))
             trained_tokens += int(token_count.item())
             if not do_update:
                 continue
+            averaged_gradient = self._tree_map(
+                lambda value: value / self.config.gradient_accumulation,
+                gradient_accumulator,
+            )
+            self.optimizer.update(self.model, averaged_gradient)
+            self._mx.eval(self.model.state, self.optimizer.state)
+            # Optimizer updates replace model leaves; expose the current tree
+            # to the next call of the compiled gradient function.
+            self._compiled_state[0] = self.model.state
+            gradient_accumulator = None
             accumulated = 0
             self.global_update += 1
             due_count = (

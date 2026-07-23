@@ -13,6 +13,7 @@ def test_help_lists_every_public_command() -> None:
     for command in (
         "prepare",
         "train-bootstrap",
+        "train-g0",
         "process",
         "pilot-judges",
         "judge-lock",

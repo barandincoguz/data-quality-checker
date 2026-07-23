@@ -40,7 +40,89 @@ ve public `preflight.json` dosyasıdır. Preflight; exact revision, tokenizer,
 no-think, sequence/memory, iki-update train, adapter generation ve gerçek
 failure-resume eşdeğerliği geçmeden `long_run_allowed=true` yazmaz.
 
-## 4. Batch hazırlama
+Bu makinede inference/forward-only validation bağlamı `10240`, backward eğitim
+bağlamı `1024` olarak kilitlidir. Eğitim girdisi kaynak dokümanı kırpmaz;
+`train_context_1024_manifest.json` içindeki text/reference coverage kapılarını
+geçen örtüşmeli pencereleri kullanır. Run config'teki training-view SHA ile
+manifest/output SHA'ları uyuşmadan resume reddedilir.
+
+## 4. G0 development ve LR pilotları
+
+Önce iki adayın kilitli sözleşmesini compute başlatmadan inceleyin:
+
+```bash
+dqcheck train-g0 --run-id <run-id> --candidate lr5e-5 --target-updates 50
+dqcheck train-g0 --run-id <run-id> --candidate lr1e-4 --target-updates 50
+```
+
+Çıktıda blocker olmamalı; `max_sequence_length=1024`, tam validation bağlamı
+`10240` ve training-view fingerprint'i görülmelidir. İki aday yalnız
+`peak_learning_rate` alanında farklı olmalıdır. Gerçek koşuları aynı anda
+başlatmayın; ortak device lock ikinci yazıcıyı reddeder.
+
+Her adayı ayrı bir `tmux` oturumunda sıralı çalıştırın:
+
+```bash
+tmux -L dqcheck-qwen35 new-session -s dqcheck-g0-lr5
+cd /Users/student2/ner-project
+PYTHONPATH=data-quality-checker-weak-learning-program/src \
+  /opt/llm-lab/.venv/bin/python -m data_quality_checker \
+  train-g0 --run-id <run-id> --candidate lr5e-5 \
+  --target-updates 50 --execute
+```
+
+Kesinti sonrası aynı komuta `--resume` eklenir. Aday dizinindeki `state.json` ve
+`heartbeat.json` izlenir. Akış `25 update → full-state checkpoint → validation-50
+→ 50 update → full-state checkpoint → validation-50` sırasını uygular. Her
+validation belgesi atomik yazılır; aynı fingerprint'le resume tamamlanan belgeyi
+yeniden üretmez.
+
+Kabul edilen Mac Studio sözleşmesinde full-document inference/validation
+`10240` token, backward eğitim `1024` tokendır. `394` train belgesi lossless
+örtüşmeli pencerelerle `2090` satıra dönüşür. Manifest hem metin hem gold
+referans coverage'ını `complete` olarak doğrulamazsa eğitim başlamaz; bu akış
+sessiz truncation değildir.
+
+İki pilot karşılaştırıldıktan sonra seçilen aday aynı trajectory ile `295`
+update'e uzatılır:
+
+```bash
+dqcheck train-g0 --run-id <run-id> --candidate <seçilen-aday> \
+  --target-updates 295 --execute --resume
+```
+
+`295`, kilitli trajectory için sabit development update bütçesidir ve `3 epoch`
+üst sınırını aşmaz. Pencere görünümünde literal üç epoch diye
+yorumlanmamalıdır; en iyi checkpoint her 25 update'teki generation metriğinden
+seçilir.
+
+Checkpoint seçimi validation-50 üzerinde `core-F1 → docwise@1.0 → recall →
+validation loss` sırasındadır. Validation ve sealed test rolleri birleştirilmez:
+toplam 100 holdout belgenin ilk 50'si model/hiperparametre seçimine, son 50'si
+tek-seferlik sonuç kontrolüne ayrılmıştır. Test kapısı geçmeden final refit yoktur.
+
+Canlı izleme:
+
+```bash
+tmux -L dqcheck-qwen35 attach -t <session>
+jq '{status,stage,elapsed_seconds,last_successful_unit,last_error}' \
+  Fine-Tuning/runs/<run-id>/development/<candidate>/heartbeat.json
+```
+
+### 4.1 2026-07-24 G0 pilot sonucu
+
+Run `dqcheck_g0_qwen3_5_9b_ae56ead042b4` için iki 50-update pilotu tamamlandı.
+`lr5e-5`, validation-50'de core F1 `0.4574` ve strict docwise `2/50`
+üretti; `lr1e-4` core F1 `0.0000` ve strict docwise `0/50` kaldı.
+Seçilen aday `lr5e-5`tir. Devam komutu:
+
+```bash
+PYTHONPATH=src /opt/llm-lab/.venv/bin/python -m data_quality_checker \
+  train-g0 --run-id dqcheck_g0_qwen3_5_9b_ae56ead042b4 \
+  --candidate lr5e-5 --target-updates 295 --execute --resume
+```
+
+## 5. Batch hazırlama
 
 Gerçek ZIP'leri repoya kopyalamayın. En az 32 byte HMAC anahtarı kullanın:
 
@@ -54,7 +136,7 @@ dqcheck prepare \
 `READY.json` oluşmadan process veya HITL açılmaz. Quarantine sayısını ve public
 manifest checksum'larını kontrol edin.
 
-## 5. Process, judge ve HITL
+## 6. Process, judge ve HITL
 
 ```bash
 dqcheck process --prepared-batch <batch-id> --generation G0 --resume
@@ -82,7 +164,7 @@ dqcheck serve --batch-id <batch-id> --port 5055
 
 Sunucu yalnız `127.0.0.1:5055` üzerinde dinler.
 
-## 6. Release
+## 7. Release
 
 ```bash
 dqcheck status --batch-id <batch-id>

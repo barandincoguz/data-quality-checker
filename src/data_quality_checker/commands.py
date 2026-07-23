@@ -33,6 +33,21 @@ def train_bootstrap(args: Namespace, config: AppConfig) -> int:
     return 0
 
 
+def train_g0(args: Namespace, config: AppConfig) -> int:
+    from .g0_training import run_development
+
+    result = run_development(
+        config=config,
+        run_id=args.run_id,
+        candidate_id=args.candidate,
+        target_updates=args.target_updates,
+        execute=args.execute,
+        resume=args.resume,
+    )
+    print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0
+
+
 def process(args: Namespace, config: AppConfig) -> int:
     from .processing import process_batch
 

@@ -41,6 +41,25 @@ def build_parser() -> argparse.ArgumentParser:
     )
     train.set_defaults(handler=commands.train_bootstrap)
 
+    develop = subparsers.add_parser(
+        "train-g0", help="run a segmented G0 development candidate"
+    )
+    develop.add_argument("--run-id", required=True)
+    develop.add_argument(
+        "--candidate",
+        choices=["lr5e-5", "lr1e-4"],
+        required=True,
+        help="locked learning-rate candidate",
+    )
+    develop.add_argument("--target-updates", type=int, default=50)
+    develop.add_argument(
+        "--execute",
+        action="store_true",
+        help="start real MLX compute; without this flag only print the locked plan",
+    )
+    develop.add_argument("--resume", action="store_true")
+    develop.set_defaults(handler=commands.train_g0)
+
     process = subparsers.add_parser("process", help="run resumable G0 inference and routing")
     process.add_argument("--prepared-batch", required=True)
     process.add_argument("--generation", choices=["G0"], default="G0")

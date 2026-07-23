@@ -20,12 +20,19 @@ from typing import Any
 
 from .atomic import write_json_atomic
 from .config import AppConfig
+from .context_windows import build_context_window_view
 from .errors import ContractError, GateBlocked, IntegrityError
 from .fingerprints import fingerprint_json, sha256_file
-from .g0 import SEQUENCE_LENGTH_CANDIDATES, select_sequence_length
+from .g0 import SEQUENCE_LENGTH_CANDIDATES
 from .heartbeat import RunLease
 from .locking import process_exists
 from .mlx_stateful import NoThinkChatDataset, StatefulTrainingConfig
+
+
+# Real probes on this run rejected 8192, 4096, and 2048 on Metal. Keep the
+# accepted production gate explicit so implementation-only fingerprint changes
+# do not repeat multi-minute OOM probes.
+TRAINING_SEQUENCE_LENGTH_CANDIDATES = (1024,)
 
 
 def _utc_now() -> str:
@@ -91,9 +98,9 @@ def assert_equivalent_training_state(
     uninterrupted: dict[str, Any], resumed: dict[str, Any]
 ) -> None:
     required = (
-        "adapter_sha256",
-        "optimizer_sha256",
-        "mlx_rng_sha256",
+        "adapter_tensor_fingerprint",
+        "optimizer_tensor_fingerprint",
+        "mlx_rng_tensor_fingerprint",
         "scheduler_state",
         "data_cursor",
         "python_rng_state_fingerprint",
@@ -194,10 +201,14 @@ def _run_worker(
         log_handle.flush()
         os.fsync(log_handle.fileno())
     os.replace(log_temporary, log_path)
-    if process.returncode != 0 and not result_path.exists():
+    if process.returncode != 0:
+        try:
+            log_tail = log_path.read_text(encoding="utf-8", errors="replace")[-1000:].strip()
+        except OSError:
+            log_tail = ""
+        detail = f"; log tail: {log_tail}" if log_tail else ""
         raise IntegrityError(
-            f"compute worker {stage} exited {process.returncode} without a result; "
-            f"see {log_path}"
+            f"compute worker {stage} exited {process.returncode}{detail}; see {log_path}"
         )
     result = parse_worker_result(result_path, expected_action=str(request["action"]))
     if result.get("request_fingerprint") != request_fingerprint:
@@ -261,10 +272,13 @@ def _tokenizer_preflight(model_path: Path, data_dir: Path) -> dict[str, Any]:
         raise ContractError("tokenizer chat template did not render a string")
     assert_thinking_is_disabled(probe)
     combined: list[tuple[int, str, int]] = []
+    longest_by_split: dict[str, tuple[int, str, int]] = {}
     for split, dataset in datasets.items():
-        combined.extend(
+        split_items = [
             (count, split, index) for index, count in enumerate(dataset.token_counts)
-        )
+        ]
+        combined.extend(split_items)
+        longest_by_split[split] = max(split_items)
     combined.sort()
     counts = [item[0] for item in combined]
     empty_targets = [
@@ -274,11 +288,21 @@ def _tokenizer_preflight(model_path: Path, data_dir: Path) -> dict[str, Any]:
     ]
     resume_item = empty_targets[0] if empty_targets else combined[0]
     longest = combined[-1]
+    train_items = [
+        (count, "train", index)
+        for index, count in enumerate(datasets["train"].token_counts)
+    ]
+    train_probe_by_limit = {
+        limit: max(item for item in train_items if item[0] <= limit)
+        for limit in TRAINING_SEQUENCE_LENGTH_CANDIDATES
+    }
     return {
         "tokenizer": tokenizer,
         "rows": rows,
         "token_counts": counts,
         "longest": longest,
+        "longest_by_split": longest_by_split,
+        "train_probe_by_limit": train_probe_by_limit,
         "resume": resume_item,
         "summary": {
             "chat_template_present": bool(getattr(tokenizer, "chat_template", None)),
@@ -291,6 +315,9 @@ def _tokenizer_preflight(model_path: Path, data_dir: Path) -> dict[str, Any]:
             "p95_tokens": counts[min(len(counts) - 1, math.ceil(len(counts) * 0.95) - 1)],
             "longest_split": longest[1],
             "longest_row_index": longest[2],
+            "split_maximum_tokens": {
+                split: item[0] for split, item in longest_by_split.items()
+            },
         },
     }
 
@@ -323,6 +350,9 @@ def _training_request(
         "model_fingerprint": model_fingerprint,
         "trainer_implementation_sha256": sha256_file(
             Path(__file__).with_name("mlx_stateful.py")
+        ),
+        "worker_implementation_sha256": sha256_file(
+            Path(__file__).with_name("mlx_worker.py")
         ),
     }
     if resume_checkpoint is not None:
@@ -391,44 +421,156 @@ def run_compute_acceptance_preflight(
         smoke_dir.mkdir(parents=True, exist_ok=True)
         longest_count, longest_split, longest_index = tokenizer_info["longest"]
         resume_count, resume_split, resume_index = tokenizer_info["resume"]
-        longest_path = smoke_dir / "longest.jsonl"
+        global_longest_path = smoke_dir / "global_longest.jsonl"
         resume_path = smoke_dir / "resume.jsonl"
         from .atomic import write_jsonl_atomic
 
         write_jsonl_atomic(
-            longest_path, [tokenizer_info["rows"][longest_split][longest_index]]
+            global_longest_path,
+            [tokenizer_info["rows"][longest_split][longest_index]],
         )
         write_jsonl_atomic(
             resume_path, [tokenizer_info["rows"][resume_split][resume_index]]
         )
 
-        def memory_smoke(candidate: int) -> bool:
-            result = _run_worker(
-                compute_root=compute_root,
-                stage=f"memory_smoke_{candidate}",
-                request=_training_request(
-                    model_path=model_path,
-                    train_path=longest_path,
-                    checkpoint_root=compute_root / "checkpoints" / f"memory_{candidate}",
-                    model_fingerprint=snapshot_manifest["fingerprint"],
-                    sequence_length=candidate,
-                    target_updates=1,
-                ),
-                lease=lease,
+        selected_sequence_length = next(
+            candidate
+            for candidate in SEQUENCE_LENGTH_CANDIDATES
+            if candidate >= longest_count
+        )
+        memory_failures: list[dict[str, Any]] = []
+        selected_training_sequence_length: int | None = None
+        memory_result: dict[str, Any] | None = None
+        train_probe_count: int | None = None
+        for candidate in TRAINING_SEQUENCE_LENGTH_CANDIDATES:
+            probe_count, probe_split, probe_index = tokenizer_info[
+                "train_probe_by_limit"
+            ][candidate]
+            probe_path = smoke_dir / f"train_probe_{candidate}.jsonl"
+            write_jsonl_atomic(
+                probe_path,
+                [tokenizer_info["rows"][probe_split][probe_index]],
             )
-            return bool(result.get("adapter_finite"))
-
-        selected_sequence_length = select_sequence_length(
-            tokenizer_info["token_counts"], memory_smoke=memory_smoke
+            try:
+                result = _run_worker(
+                    compute_root=compute_root,
+                    stage=f"training_memory_smoke_{candidate}",
+                    request=_training_request(
+                        model_path=model_path,
+                        train_path=probe_path,
+                        checkpoint_root=compute_root
+                        / "checkpoints"
+                        / f"training_memory_{candidate}",
+                        model_fingerprint=snapshot_manifest["fingerprint"],
+                        sequence_length=candidate,
+                        target_updates=1,
+                    ),
+                    lease=lease,
+                )
+            except (GateBlocked, IntegrityError) as exc:
+                memory_failures.append(
+                    {"sequence_length": candidate, "status": "failed", "error": str(exc)}
+                )
+                continue
+            if not result.get("adapter_finite"):
+                memory_failures.append(
+                    {
+                        "sequence_length": candidate,
+                        "status": "failed",
+                        "error": "adapter contains non-finite values",
+                    }
+                )
+                continue
+            selected_training_sequence_length = candidate
+            memory_result = result
+            train_probe_count = probe_count
+            break
+        if selected_training_sequence_length is None or memory_result is None:
+            raise GateBlocked("no training sequence length passed the real backward smoke")
+        memory_checkpoint = Path(memory_result["checkpoint"])
+        longest_forward = _run_worker(
+            compute_root=compute_root,
+            stage=f"longest_forward_loss_{selected_sequence_length}",
+            request={
+                "action": "loss",
+                "model_path": str(model_path),
+                "adapter_path": str(memory_checkpoint),
+                "adapter_sha256": sha256_file(
+                    memory_checkpoint / "adapters.safetensors"
+                ),
+                "data_path": str(global_longest_path),
+                "data_sha256": sha256_file(global_longest_path),
+                "max_sequence_length": selected_sequence_length,
+                "worker_implementation_sha256": sha256_file(
+                    Path(__file__).with_name("mlx_worker.py")
+                ),
+            },
+            lease=lease,
         )
         preflight["sequence_length"] = {
             "candidates": list(SEQUENCE_LENGTH_CANDIDATES),
             "selected": selected_sequence_length,
+            "selected_training": selected_training_sequence_length,
             "maximum_observed_tokens": longest_count,
-            "no_truncation": True,
-            "memory_smoke": "passed",
+            "no_inference_truncation": True,
+            "backward_memory_smoke": {
+                "status": "passed",
+                "split": "train",
+                "tokens": train_probe_count,
+                "sequence_length": selected_training_sequence_length,
+                "peak_memory_bytes": memory_result["peak_memory_bytes"],
+            },
+            "backward_failures": memory_failures,
+            "full_coverage_forward_smoke": {
+                "status": "passed",
+                "split": longest_split,
+                "tokens": longest_forward["maximum_tokens"],
+                "validation_loss": longest_forward["validation_loss"],
+                "peak_memory_bytes": longest_forward["peak_memory_bytes"],
+            },
         }
         preflight["compute_gates"]["sequence_length_memory_smoke"] = True
+        write_json_atomic(preflight_path, preflight, mode=0o644)
+
+        training_view_path = (
+            data_dir / f"train_context_{selected_training_sequence_length}.jsonl"
+        )
+        training_view_doc_ids_path = (
+            data_dir
+            / f"train_context_{selected_training_sequence_length}_doc_ids.json"
+        )
+        training_view_manifest_path = (
+            data_dir
+            / f"train_context_{selected_training_sequence_length}_manifest.json"
+        )
+        training_view = build_context_window_view(
+            source_path=data_dir / "train.jsonl",
+            source_doc_ids_path=data_dir / "train_doc_ids.json",
+            output_path=training_view_path,
+            output_doc_ids_path=training_view_doc_ids_path,
+            manifest_path=training_view_manifest_path,
+            tokenizer=tokenizer_info["tokenizer"],
+            model_fingerprint=snapshot_manifest["fingerprint"],
+            max_sequence_length=selected_training_sequence_length,
+        )
+        preflight["training_view"] = {
+            key: training_view[key]
+            for key in (
+                "source_document_count",
+                "native_document_count",
+                "windowed_document_count",
+                "output_row_count",
+                "original_reference_count",
+                "chunk_reference_count",
+                "empty_chunk_count",
+                "maximum_tokens",
+                "text_coverage",
+                "reference_coverage",
+                "output_jsonl_sha256",
+                "output_doc_ids_sha256",
+            )
+        }
+        preflight["compute_gates"]["training_context_view"] = True
         write_json_atomic(preflight_path, preflight, mode=0o644)
 
         uninterrupted = _run_worker(
@@ -439,7 +581,7 @@ def run_compute_acceptance_preflight(
                 train_path=resume_path,
                 checkpoint_root=compute_root / "checkpoints" / "uninterrupted",
                 model_fingerprint=snapshot_manifest["fingerprint"],
-                sequence_length=selected_sequence_length,
+                sequence_length=selected_training_sequence_length,
                 target_updates=2,
             ),
             lease=lease,
@@ -452,7 +594,7 @@ def run_compute_acceptance_preflight(
                 train_path=resume_path,
                 checkpoint_root=compute_root / "checkpoints" / "resumed",
                 model_fingerprint=snapshot_manifest["fingerprint"],
-                sequence_length=selected_sequence_length,
+                sequence_length=selected_training_sequence_length,
                 target_updates=1,
             ),
             lease=lease,
@@ -465,7 +607,7 @@ def run_compute_acceptance_preflight(
                 train_path=resume_path,
                 checkpoint_root=compute_root / "checkpoints" / "resumed",
                 model_fingerprint=snapshot_manifest["fingerprint"],
-                sequence_length=selected_sequence_length,
+                sequence_length=selected_training_sequence_length,
                 target_updates=2,
                 resume_checkpoint=Path(interrupted["checkpoint"]),
             ),
@@ -500,13 +642,18 @@ def run_compute_acceptance_preflight(
                 "adapter_path": uninterrupted["checkpoint"],
                 "messages": generation_messages,
                 "max_tokens": 512,
+                "worker_implementation_sha256": sha256_file(
+                    Path(__file__).with_name("mlx_worker.py")
+                ),
             },
             lease=lease,
         )
-        if not generated.get("adapter_loaded") or not isinstance(
-            generated.get("parsed_references"), list
+        if (
+            not generated.get("adapter_loaded")
+            or not isinstance(generated.get("raw_output"), str)
+            or int(generated.get("output_tokens", 0)) <= 0
         ):
-            raise GateBlocked("adapter load/generation smoke did not return valid JSON references")
+            raise GateBlocked("adapter load/generation smoke produced no output tokens")
         preflight["generation_smoke"] = {
             key: generated[key]
             for key in (
@@ -515,6 +662,8 @@ def run_compute_acceptance_preflight(
                 "output_tokens",
                 "finish_reason",
                 "peak_memory_bytes",
+                "parse_ok",
+                "parse_error",
             )
         }
         preflight["compute_gates"]["one_document_generation"] = True
@@ -537,6 +686,17 @@ def run_compute_acceptance_preflight(
         )
         run_config["model_snapshot"] = snapshot_manifest
         run_config["selected_sequence_length"] = selected_sequence_length
+        run_config["selected_training_sequence_length"] = selected_training_sequence_length
+        run_config["training_view"] = {
+            "jsonl_path": str(training_view_path.resolve()),
+            "jsonl_sha256": training_view["output_jsonl_sha256"],
+            "doc_ids_path": str(training_view_doc_ids_path.resolve()),
+            "doc_ids_sha256": training_view["output_doc_ids_sha256"],
+            "manifest_path": str(training_view_manifest_path.resolve()),
+            "manifest_sha256": sha256_file(training_view_manifest_path),
+            "row_count": training_view["output_row_count"],
+            "maximum_tokens": training_view["maximum_tokens"],
+        }
         write_json_atomic(run_dir / "run_config.json", run_config)
         write_json_atomic(preflight_path, preflight, mode=0o644)
         lease.finish(status="completed")

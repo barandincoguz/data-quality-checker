@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "canonical_gt_dir": "../../data/ground_truth/gt_v3_triangulated_2026-05-15/validated",
+  "example_bank_path": "../../benchmark/reference/example_sets/few_shot_cot_v3_en_examples.json",
+  "reference_split_manifest_path": "../../Fine-Tuning/data/v2/split_manifest.json",
+  "sensitive_root": "../../data/sensitive/data_quality_checker",
+  "public_root": "../../artifacts/data_quality_checker",
+  "training_runs_root": "../../Fine-Tuning/runs",
+  "model": {
+    "id": "mlx-community/Qwen3.5-9B-MLX-4bit",
+    "revision": "938d8919941c6e7efd3c7150eff7fe9d12afa631",
+    "minimum_mlx_lm": "0.31.0",
+    "enable_thinking": false,
+    "prompt_suffix": "/no_think"
+  },
+  "security": {
+    "max_zip_entries": 10000,
+    "max_zip_entry_bytes": 1073741824,
+    "max_zip_total_bytes": 2147483648,
+    "max_zip_compression_ratio": 200.0
+  },
+  "runtime": {
+    "busy_timeout_ms": 5000,
+    "heartbeat_stale_seconds": 300,
+    "prediction_flush_every": 1
+  }
+}

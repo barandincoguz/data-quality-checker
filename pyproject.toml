@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=82"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "data-quality-checker"
+version = "0.1.0"
+description = "Crash-resilient human-in-the-loop quality checker for Turkish legal-reference annotations"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "Flask>=3.1,<4",
+]
+
+[project.optional-dependencies]
+compute = [
+  "huggingface-hub>=1.4",
+  "mlx>=0.31.1",
+  "mlx-lm>=0.31.0",
+  "numpy>=2",
+]
+test = [
+  "pytest>=9,<10",
+]
+
+[project.scripts]
+dqcheck = "data_quality_checker.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-ra"
+markers = [
+  "compute: requires MLX and the pinned local model",
+]

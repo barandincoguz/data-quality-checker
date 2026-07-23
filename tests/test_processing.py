@@ -1,0 +1,162 @@
+from __future__ import annotations
+
+import json
+import zipfile
+from pathlib import Path
+
+import pytest
+
+from data_quality_checker.config import default_config_path, load_config
+from data_quality_checker.fingerprints import fingerprint_json
+from data_quality_checker.preparation import prepare_batch
+from data_quality_checker.processing import PredictionResult, process_batch
+from data_quality_checker.storage import Store
+
+
+def config_for(tmp_path: Path):
+    live = load_config()
+    payload = json.loads(default_config_path().read_text(encoding="utf-8"))
+    payload.update(
+        {
+            "canonical_gt_dir": str(live.canonical_gt_dir),
+            "example_bank_path": str(live.example_bank_path),
+            "reference_split_manifest_path": str(live.reference_split_manifest_path),
+            "sensitive_root": str(tmp_path / "sensitive"),
+            "public_root": str(tmp_path / "public"),
+            "training_runs_root": str(tmp_path / "runs"),
+        }
+    )
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return load_config(path)
+
+
+def zip_payload(path: Path, payload) -> None:
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("payload.json", json.dumps(payload, ensure_ascii=False))
+
+
+def prepared_fixture(tmp_path: Path, *, two_docs: bool = True):
+    config = config_for(tmp_path)
+    references = [
+        {
+            "kanun_no": "213",
+            "kanun_ad": "Vergi Usul Kanunu",
+            "madde": "413",
+            "fikra": "",
+            "bent": "",
+            "source_text": "213 sayılı Vergi Usul Kanununun 413. maddesi",
+        }
+    ]
+    annotations = [
+        {"document_id": "one", "current_references": references},
+    ]
+    pool = [
+        {
+            "evrakOid": "one",
+            "pdfText": "Metin 213 sayılı Vergi Usul Kanununun 413. maddesi ile ilgilidir.",
+        }
+    ]
+    if two_docs:
+        annotations.append({"document_id": "two", "current_references": []})
+        pool.append({"evrakOid": "two", "pdfText": "Referans içermeyen güvenli metin."})
+    annotation_zip, pool_zip = tmp_path / "a.zip", tmp_path / "p.zip"
+    zip_payload(annotation_zip, {"annotations": annotations})
+    zip_payload(pool_zip, pool)
+    key = tmp_path / "key"
+    key.write_bytes(b"x" * 32)
+    prepare_batch(
+        config=config,
+        annotation_zip=annotation_zip,
+        document_pool_zip=pool_zip,
+        batch_id="batch",
+        hmac_key_file=key,
+    )
+    return config
+
+
+def test_process_atomically_routes_every_document_and_resumes(tmp_path) -> None:
+    config = prepared_fixture(tmp_path)
+    first = process_batch(
+        config=config,
+        batch_id="batch",
+        generation="G0",
+        resume=False,
+        fake_backend=True,
+    )
+    assert first["prediction_count"] == 2
+    assert first["router_counts"] == {
+        "GREEN": 2,
+        "YELLOW": 0,
+        "RED": 0,
+        "QUARANTINE": 0,
+    }
+    outputs = sorted(
+        (config.sensitive_root / "batches" / "batch" / "predictions" / "G0").glob(
+            "*.json"
+        )
+    )
+    assert len(outputs) == 2
+
+    resumed = process_batch(
+        config=config,
+        batch_id="batch",
+        generation="G0",
+        resume=True,
+        fake_backend=True,
+    )
+    assert resumed["prediction_count"] == 2
+    assert resumed["router_counts"]["GREEN"] == 2
+
+
+class CountingBackend:
+    model_fingerprint = fingerprint_json({"backend": "counting"})
+
+    def __init__(self):
+        self.calls = 0
+
+    def predict(self, document):
+        self.calls += 1
+        refs = document["human_references"]
+        return PredictionResult(
+            status="success",
+            references=refs,
+            raw_output=json.dumps(refs),
+            operational={"truncated": False, "latency_seconds": 0.0},
+        )
+
+
+def test_resume_recovers_atomically_written_orphan_without_regeneration(
+    monkeypatch, tmp_path
+) -> None:
+    config = prepared_fixture(tmp_path, two_docs=False)
+    backend = CountingBackend()
+    original = Store.persist_prediction
+    failed = {"once": False}
+
+    def fail_after_file(self, **kwargs):
+        if not failed["once"]:
+            failed["once"] = True
+            raise RuntimeError("simulated crash after file promotion")
+        return original(self, **kwargs)
+
+    monkeypatch.setattr(Store, "persist_prediction", fail_after_file)
+    with pytest.raises(RuntimeError, match="simulated crash"):
+        process_batch(
+            config=config,
+            batch_id="batch",
+            generation="G0",
+            resume=False,
+            backend=backend,
+        )
+    assert backend.calls == 1
+
+    summary = process_batch(
+        config=config,
+        batch_id="batch",
+        generation="G0",
+        resume=True,
+        backend=backend,
+    )
+    assert summary["prediction_count"] == 1
+    assert backend.calls == 1

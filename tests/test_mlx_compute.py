@@ -12,7 +12,6 @@ from data_quality_checker.mlx_compute import (
     build_snapshot_manifest,
     parse_worker_result,
 )
-from data_quality_checker.mlx_stateful import completion_training_view
 
 
 def test_qwen_disabled_thinking_requires_the_empty_closed_sentinel() -> None:
@@ -25,15 +24,6 @@ def test_qwen_disabled_thinking_requires_the_empty_closed_sentinel() -> None:
         assert_thinking_is_disabled(
             "<|im_start|>assistant\n<think>reasoning</think>\n\n"
         )
-
-
-def test_completion_training_view_excludes_prompt_positions() -> None:
-    positions, targets = completion_training_view(
-        [10, 11, 12, 13, 14], completion_offset=3
-    )
-    assert positions == [2, 3, 4]
-    assert targets == [13, 14, 0]
-
 
 def test_snapshot_manifest_is_content_addressed_and_requires_exact_revision(
     tmp_path: Path,

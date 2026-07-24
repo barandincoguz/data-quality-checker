@@ -23,6 +23,8 @@ from .atomic import write_json_atomic
 from .errors import ContractError, FingerprintMismatch, IntegrityError
 from .fingerprints import fingerprint_json, sha256_file
 
+LEGAL_TUPLE_FIELDS = ("kanun_no", "kanun_ad", "madde", "fikra", "bent")
+
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -176,6 +178,249 @@ def _generate_one(
     }
 
 
+def _token_intervals(
+    *, token_count: int, window_tokens: int, overlap_tokens: int
+) -> list[tuple[int, int]]:
+    if token_count <= 0:
+        raise ValueError("token_count must be positive")
+    if not 0 <= overlap_tokens < window_tokens:
+        raise ValueError("overlap must be smaller than the window")
+    intervals: list[tuple[int, int]] = []
+    start = 0
+    while True:
+        end = min(start + window_tokens, token_count)
+        intervals.append((start, end))
+        if end == token_count:
+            return intervals
+        start = end - overlap_tokens
+
+
+def _deduplicate_legal_tuples(
+    references: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    unique: list[dict[str, Any]] = []
+    seen: set[tuple[str, ...]] = set()
+    for reference in references:
+        identity = tuple(str(reference.get(field, "")) for field in LEGAL_TUPLE_FIELDS)
+        if identity in seen:
+            continue
+        seen.add(identity)
+        unique.append(reference)
+    return unique
+
+
+def _salvage_repeated_json_prefix(raw_output: str) -> dict[str, Any] | None:
+    """Close only a valid JSON prefix that demonstrably ends in a tuple loop."""
+
+    from .processing import _parse_model_output
+
+    array_start = raw_output.find("[")
+    if array_start < 0:
+        return None
+    search_end = len(raw_output)
+    while True:
+        object_end = raw_output.rfind("}", array_start, search_end)
+        if object_end < 0:
+            return None
+        candidate = raw_output[array_start : object_end + 1].rstrip().rstrip(",") + "]"
+        try:
+            references = _parse_model_output(candidate)
+        except ContractError:
+            search_end = object_end
+            continue
+        if len(references) < 2:
+            return None
+        identities = [
+            tuple(str(reference.get(field, "")) for field in LEGAL_TUPLE_FIELDS)
+            for reference in references
+        ]
+        terminal_identity = identities[-1]
+        terminal_run_length = 0
+        for identity in reversed(identities):
+            if identity != terminal_identity:
+                break
+            terminal_run_length += 1
+        unique = _deduplicate_legal_tuples(references)
+        if terminal_run_length < 2 or len(unique) == len(references):
+            return None
+        return {
+            "references": unique,
+            "complete_reference_count": len(references),
+            "unique_reference_count": len(unique),
+            "duplicate_reference_count": len(references) - len(unique),
+            "terminal_duplicate_run_length": terminal_run_length,
+            "discarded_incomplete_suffix_chars": len(raw_output) - object_end - 1,
+            "synthetic_closing_bracket": True,
+            "repaired_prefix_sha256": hashlib.sha256(
+                candidate.encode("utf-8")
+            ).hexdigest(),
+        }
+
+
+def _generate_window_fallback(
+    *,
+    model: Any,
+    tokenizer: Any,
+    messages: list[dict[str, str]],
+    max_input_tokens: int,
+    window_tokens: int,
+    overlap_tokens: int,
+    max_generation_tokens: int,
+    recover_repetition: bool,
+) -> dict[str, Any]:
+    user_indices = [
+        index for index, message in enumerate(messages) if message.get("role") == "user"
+    ]
+    if len(user_indices) != 1:
+        raise IntegrityError("window fallback requires exactly one user message")
+    user_index = user_indices[0]
+    body = messages[user_index].get("content")
+    if not isinstance(body, str) or not body.strip():
+        raise IntegrityError("window fallback user text is empty")
+    offset_tokenizer = getattr(tokenizer, "_tokenizer", None)
+    if offset_tokenizer is None:
+        raise IntegrityError("window fallback tokenizer exposes no offsets")
+    encoded = offset_tokenizer(
+        body,
+        add_special_tokens=False,
+        return_offsets_mapping=True,
+    )
+    offsets = [tuple(pair) for pair in encoded["offset_mapping"]]
+    if not offsets:
+        raise IntegrityError("window fallback tokenized to an empty document")
+
+    intervals = _token_intervals(
+        token_count=len(offsets),
+        window_tokens=window_tokens,
+        overlap_tokens=overlap_tokens,
+    )
+    covered = [False] * len(offsets)
+    references: list[dict[str, Any]] = []
+    windows: list[dict[str, Any]] = []
+    total_output_tokens = 0
+    total_input_tokens = 0
+    maximum_input_tokens = 0
+    for window_index, (start, end) in enumerate(intervals):
+        char_start = int(offsets[start][0])
+        char_end = int(offsets[end - 1][1])
+        window_messages = [dict(message) for message in messages]
+        window_messages[user_index] = {
+            "role": "user",
+            "content": body[char_start:char_end],
+        }
+        generated = _generate_one(
+            model=model,
+            tokenizer=tokenizer,
+            messages=window_messages,
+            max_tokens=max_generation_tokens,
+            max_input_tokens=max_input_tokens,
+        )
+        model_runaway = generated.get("finish_reason") == "length"
+        repetition_recovery = (
+            _salvage_repeated_json_prefix(generated["raw_output"])
+            if recover_repetition and model_runaway and not generated["parse_ok"]
+            else None
+        )
+        effective_references = (
+            repetition_recovery["references"]
+            if repetition_recovery is not None
+            else generated["parsed_references"]
+        )
+        parse_ok = bool(generated["parse_ok"] or repetition_recovery is not None)
+        runaway = bool(model_runaway and repetition_recovery is None)
+        windows.append(
+            {
+                "window_index": window_index,
+                "token_start": start,
+                "token_end": end,
+                "char_start": char_start,
+                "char_end": char_end,
+                "input_tokens": generated["input_tokens"],
+                "output_tokens": generated["output_tokens"],
+                "finish_reason": generated["finish_reason"],
+                "model_parse_ok": generated["parse_ok"],
+                "parse_ok": parse_ok,
+                "model_runaway": model_runaway,
+                "runaway": runaway,
+                "reference_count": len(effective_references),
+                "parse_error": None if parse_ok else generated["parse_error"],
+                "repetition_recovery": (
+                    {
+                        key: value
+                        for key, value in repetition_recovery.items()
+                        if key != "references"
+                    }
+                    if repetition_recovery is not None
+                    else None
+                ),
+                "raw_output": generated["raw_output"],
+            }
+        )
+        total_output_tokens += int(generated["output_tokens"])
+        total_input_tokens += int(generated["input_tokens"])
+        maximum_input_tokens = max(maximum_input_tokens, int(generated["input_tokens"]))
+        if not parse_ok or runaway:
+            return {
+                "raw_output": generated["raw_output"],
+                "parsed_references": [],
+                "parse_ok": False,
+                "parse_error": (
+                    f"window fallback failed at window={window_index}: "
+                    f"{generated['parse_error'] or generated['finish_reason']}"
+                ),
+                "input_tokens": maximum_input_tokens,
+                "output_tokens": total_output_tokens,
+                "finish_reason": "length" if runaway else "window_fallback_error",
+                "fallback": {
+                    "strategy": "lossless_token_windows_v1",
+                    "recovered": False,
+                    "document_tokens": len(offsets),
+                    "covered_tokens": sum(covered),
+                    "window_tokens": window_tokens,
+                    "overlap_tokens": overlap_tokens,
+                    "window_count": len(intervals),
+                    "completed_window_count": len(windows),
+                    "repetition_recovery_count": sum(
+                        window["repetition_recovery"] is not None
+                        for window in windows
+                    ),
+                    "total_input_tokens": total_input_tokens,
+                    "windows": windows,
+                },
+            }
+        references.extend(effective_references)
+        for token_index in range(start, end):
+            covered[token_index] = True
+
+    if not all(covered):
+        raise IntegrityError("window fallback left an input-token coverage gap")
+    unique = _deduplicate_legal_tuples(references)
+    return {
+        "raw_output": json.dumps(unique, ensure_ascii=False, separators=(",", ":")),
+        "parsed_references": unique,
+        "parse_ok": True,
+        "parse_error": None,
+        "input_tokens": maximum_input_tokens,
+        "output_tokens": total_output_tokens,
+        "finish_reason": "window_fallback_complete",
+        "fallback": {
+            "strategy": "lossless_token_windows_v1",
+            "recovered": True,
+            "document_tokens": len(offsets),
+            "covered_tokens": sum(covered),
+            "window_tokens": window_tokens,
+            "overlap_tokens": overlap_tokens,
+            "window_count": len(intervals),
+            "completed_window_count": len(windows),
+            "repetition_recovery_count": sum(
+                window["repetition_recovery"] is not None for window in windows
+            ),
+            "total_input_tokens": total_input_tokens,
+            "windows": windows,
+        },
+    }
+
+
 def _generate(request: dict[str, Any]) -> dict[str, Any]:
     import mlx.core as mx
     from mlx_lm import load
@@ -287,13 +532,49 @@ def _validate(request: dict[str, Any]) -> dict[str, Any]:
             continue
 
         started = time.perf_counter()
-        generated = _generate_one(
+        primary = _generate_one(
             model=model,
             tokenizer=tokenizer,
             messages=messages[:-1],
             max_tokens=int(request["max_generation_tokens"]),
             max_input_tokens=int(request["max_sequence_length"]),
         )
+        primary_runaway = primary.get("finish_reason") == "length"
+        generated = primary
+        fallback: dict[str, Any] | None = None
+        if (not primary["parse_ok"] or primary_runaway) and request.get(
+            "window_fallback_enabled", False
+        ):
+            generated = _generate_window_fallback(
+                model=model,
+                tokenizer=tokenizer,
+                messages=messages[:-1],
+                max_input_tokens=int(request["max_sequence_length"]),
+                window_tokens=int(request["window_fallback_tokens"]),
+                overlap_tokens=int(request["window_fallback_overlap_tokens"]),
+                max_generation_tokens=int(
+                    request["window_fallback_max_generation_tokens"]
+                ),
+                recover_repetition=bool(
+                    request.get(
+                        "window_fallback_repetition_recovery_enabled", False
+                    )
+                ),
+            )
+            fallback = {
+                "attempted": True,
+                "recovered": bool(generated["parse_ok"])
+                and generated.get("finish_reason") != "length",
+                "primary": {
+                    "parse_ok": primary["parse_ok"],
+                    "parse_error": primary["parse_error"],
+                    "finish_reason": primary["finish_reason"],
+                    "input_tokens": primary["input_tokens"],
+                    "output_tokens": primary["output_tokens"],
+                    "raw_output": primary["raw_output"],
+                },
+                "windowed": generated.get("fallback"),
+            }
         parse_ok = bool(generated["parse_ok"])
         error = generated["parse_error"]
         runaway = generated.get("finish_reason") == "length"
@@ -309,8 +590,9 @@ def _validate(request: dict[str, Any]) -> dict[str, Any]:
             "references": generated["parsed_references"],
             "raw_output": generated["raw_output"],
             "error": error,
+            "fallback": fallback,
             "operational": {
-                "input_tokens": generated["input_tokens"],
+                "input_tokens": primary["input_tokens"],
                 "output_tokens": generated["output_tokens"],
                 "finish_reason": generated["finish_reason"],
                 "latency_seconds": time.perf_counter() - started,
@@ -329,6 +611,7 @@ def _validate(request: dict[str, Any]) -> dict[str, Any]:
             "references": record["references"],
             "error": record["error"],
             "operational": record["operational"],
+            "fallback": record.get("fallback"),
         }
         for record in records
     ]
@@ -371,6 +654,14 @@ def _validate(request: dict[str, Any]) -> dict[str, Any]:
             len(record["references"]) for record in records
         ),
         "runaway_output_count": sum(bool(record["runaway"]) for record in records),
+        "fallback_attempt_count": sum(
+            bool((record.get("fallback") or {}).get("attempted"))
+            for record in records
+        ),
+        "fallback_recovery_count": sum(
+            bool((record.get("fallback") or {}).get("recovered"))
+            for record in records
+        ),
         "validation_loss": validation_loss,
         "predictions_path": str(predictions_path),
         "predictions_sha256": sha256_file(predictions_path),

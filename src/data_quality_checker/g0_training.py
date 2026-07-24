@@ -36,6 +36,9 @@ PILOT_LEARNING_RATES = {
 }
 PILOT_TARGET_UPDATES = 50
 MAX_GENERATION_TOKENS = 2048
+WINDOW_FALLBACK_TOKENS = 1024
+WINDOW_FALLBACK_OVERLAP_TOKENS = 256
+WINDOW_FALLBACK_MAX_GENERATION_TOKENS = 1024
 REFERENCE_POSTPROCESS = "canonical_set"
 CORE_REFERENCE_VIEW = "row"
 RUN_ID_PATTERN = re.compile(r"dqcheck_g0_qwen3_5_9b_[0-9a-f]{12}\Z")
@@ -228,6 +231,26 @@ def _candidate_contract(
             "documents": 50,
             "every_optimizer_updates": 25,
             "max_generation_tokens": MAX_GENERATION_TOKENS,
+            "window_fallback": {
+                "enabled_on": ["parse_failure", "length_runaway"],
+                "window_tokens": WINDOW_FALLBACK_TOKENS,
+                "overlap_tokens": WINDOW_FALLBACK_OVERLAP_TOKENS,
+                "max_generation_tokens": WINDOW_FALLBACK_MAX_GENERATION_TOKENS,
+                "length_runaway_recovery": {
+                    "enabled": True,
+                    "requires_valid_json_object_prefix": True,
+                    "requires_terminal_duplicate_legal_tuple_run": 2,
+                    "action": "deduplicate_complete_objects_and_close_array",
+                },
+                "merge_identity": [
+                    "kanun_no",
+                    "kanun_ad",
+                    "madde",
+                    "fikra",
+                    "bent",
+                ],
+                "input_coverage": "complete",
+            },
             "temperature": 0.0,
             "reference_postprocess": REFERENCE_POSTPROCESS,
             "core_reference_view": CORE_REFERENCE_VIEW,
@@ -352,6 +375,13 @@ def _validation_request(
         "output_dir": str(output_dir),
         "max_sequence_length": context["run_config"]["selected_sequence_length"],
         "max_generation_tokens": MAX_GENERATION_TOKENS,
+        "window_fallback_enabled": True,
+        "window_fallback_tokens": WINDOW_FALLBACK_TOKENS,
+        "window_fallback_overlap_tokens": WINDOW_FALLBACK_OVERLAP_TOKENS,
+        "window_fallback_max_generation_tokens": (
+            WINDOW_FALLBACK_MAX_GENERATION_TOKENS
+        ),
+        "window_fallback_repetition_recovery_enabled": True,
         "worker_implementation_sha256": sha256_file(
             Path(__file__).with_name("mlx_worker.py")
         ),
@@ -489,6 +519,8 @@ def _validation_summary(
         ),
         "predicted_reference_count": int(validation["predicted_reference_count"]),
         "runaway_output_count": int(validation["runaway_output_count"]),
+        "fallback_attempt_count": int(validation.get("fallback_attempt_count", 0)),
+        "fallback_recovery_count": int(validation.get("fallback_recovery_count", 0)),
         "validation_loss": validation_loss,
         "core_law_article_strict": core,
         "docwise_core_accuracy": docwise,
@@ -591,6 +623,8 @@ def _public_summary(
                     "parsed_zero_reference_output_count",
                     "predicted_reference_count",
                     "runaway_output_count",
+                    "fallback_attempt_count",
+                    "fallback_recovery_count",
                     "validation_loss",
                     "core_law_article_strict",
                     "docwise_core_accuracy",

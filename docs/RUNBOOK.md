@@ -40,9 +40,9 @@ ve public `preflight.json` dosyasıdır. Preflight; exact revision, tokenizer,
 no-think, sequence/memory, iki-update train, adapter generation ve gerçek
 failure-resume eşdeğerliği geçmeden `long_run_allowed=true` yazmaz.
 
-Bu makinede inference/forward-only validation bağlamı `10240`, backward eğitim
-bağlamı `1024` olarak kilitlidir. Eğitim girdisi kaynak dokümanı kırpmaz;
-`train_context_1024_manifest.json` içindeki text/reference coverage kapılarını
+Bu makinede inference/forward-only validation bağlamı `12288`, backward eğitim
+bağlamı `1536` olarak kilitlidir. Eğitim girdisi kaynak dokümanı kırpmaz;
+`train_context_1536_manifest.json` içindeki text/reference coverage kapılarını
 geçen örtüşmeli pencereleri kullanır. Run config'teki training-view SHA ile
 manifest/output SHA'ları uyuşmadan resume reddedilir.
 
@@ -53,10 +53,11 @@ manifest/output SHA'ları uyuşmadan resume reddedilir.
 ```bash
 dqcheck train-g0 --run-id <run-id> --candidate lr5e-5 --target-updates 50
 dqcheck train-g0 --run-id <run-id> --candidate lr1e-4 --target-updates 50
+dqcheck train-g0 --run-id <run-id> --candidate lr2.5e-5 --target-updates 25
 ```
 
-Çıktıda blocker olmamalı; `max_sequence_length=1024`, tam validation bağlamı
-`10240` ve training-view fingerprint'i görülmelidir. İki aday yalnız
+Çıktıda blocker olmamalı; `max_sequence_length=1536`, tam validation bağlamı
+`12288` ve training-view fingerprint'i görülmelidir. LR adayları yalnız
 `peak_learning_rate` alanında farklı olmalıdır. Gerçek koşuları aynı anda
 başlatmayın; ortak device lock ikinci yazıcıyı reddeder.
 
@@ -78,23 +79,24 @@ validation belgesi atomik yazılır; aynı fingerprint'le resume tamamlanan belg
 yeniden üretmez.
 
 Kabul edilen Mac Studio sözleşmesinde full-document inference/validation
-`10240` token, backward eğitim `1024` tokendır. `394` train belgesi lossless
-örtüşmeli pencerelerle `2090` satıra dönüşür. Manifest hem metin hem gold
+`12288` token, backward eğitim `1536` tokendır. Güncel full max-10 görünümünde
+`394` train belgesi lossless örtüşmeli/dense-replay pencerelerle `3726` satıra
+dönüşür. Manifest hem metin hem gold
 referans coverage'ını `complete` olarak doğrulamazsa eğitim başlamaz; bu akış
 sessiz truncation değildir.
 
-İki pilot karşılaştırıldıktan sonra seçilen aday aynı trajectory ile `295`
-update'e uzatılır:
+Güncel v9 trajectory'sinde seçilen `lr2.5e-5` önce `25`, sonra `50/75`
+validation kapılarından geçirilir. Üçü de sağlıklıysa aynı stateful trajectory
+bir training-view epoch olan `932=ceil(3726/4)` update'e uzatılır:
 
 ```bash
-dqcheck train-g0 --run-id <run-id> --candidate <seçilen-aday> \
-  --target-updates 295 --execute --resume
+dqcheck train-g0 --run-id <run-id> --candidate lr2.5e-5 \
+  --target-updates 932 --execute --resume
 ```
 
-`295`, kilitli trajectory için sabit development update bütçesidir ve `3 epoch`
-üst sınırını aşmaz. Pencere görünümünde literal üç epoch diye
-yorumlanmamalıdır; en iyi checkpoint her 25 update'teki generation metriğinden
-seçilir.
+`932`, 3726 satırlık kilitli görünümü gradient accumulation `4` ile bir kez
+tüketir. En iyi checkpoint her 25 update'teki generation metriğinden seçilir;
+ara sağlık kapısı düşerse uzun hedefe devam edilmez.
 
 Checkpoint seçimi validation-50 üzerinde `core-F1 → docwise@1.0 → recall →
 validation loss` sırasındadır. Validation ve sealed test rolleri birleştirilmez:
@@ -109,7 +111,7 @@ jq '{status,stage,elapsed_seconds,last_successful_unit,last_error}' \
   Fine-Tuning/runs/<run-id>/development/<candidate>/heartbeat.json
 ```
 
-### 4.1 2026-07-24 G0 pilot sonucu
+### 4.1 2026-07-24 tarihsel ilk G0 pilot sonucu
 
 Run `dqcheck_g0_qwen3_5_9b_ae56ead042b4` için iki 50-update pilotu tamamlandı.
 `lr5e-5`, validation-50'de core F1 `0.4574` ve strict docwise `2/50`
@@ -121,6 +123,24 @@ PYTHONPATH=src /opt/llm-lab/.venv/bin/python -m data_quality_checker \
   train-g0 --run-id dqcheck_g0_qwen3_5_9b_ae56ead042b4 \
   --candidate lr5e-5 --target-updates 295 --execute --resume
 ```
+
+Bu komut tarihsel run içindir; güncel v9 window/loop-recovery trajectory'sini
+başlatmak için kullanılmaz.
+
+### 4.2 Güncel validation fallback kontratı
+
+Primary full-document generation her zaman önce ve `12288` input / `2048`
+output sınırlarıyla çalışır. Yalnız primary parse-fail veya length-runaway
+olursa belge `1024` tokenizer token + `256` overlap ile eksiksiz taranır; her
+pencere en fazla `1024` token üretir. `covered_tokens == document_tokens`
+olmadan fallback başarılı sayılmaz.
+
+Bir pencere generation sınırına ulaşırsa recovery yalnız şu koşulların tamamında
+çalışır: raw çıktı geçerli tam JSON object prefix içerir, terminalde art arda en
+az iki aynı legal tuple vardır ve eksik suffix kullanılmadan prefix array olarak
+kapatılabilir. Tam object'ler `(kanun_no, kanun_ad, madde, fikra, bent)` ile
+dedup edilir; primary/raw window çıktıları provenance içinde korunur. Bu koşullar
+yoksa belge hata olarak kalır. Sealed test bu development akışında açılmaz.
 
 ## 5. Batch hazırlama
 

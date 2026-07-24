@@ -31,7 +31,7 @@ from .fake_training import FakeStatefulTrainer
 from .fingerprints import fingerprint_json, sha256_bytes, sha256_file, sha256_text
 
 PROMPT_VARIANT = "few-shot-cot-v3-en-compact-recall-v2"
-TRAINING_VIEW_POLICY = "adaptive-context-fallback128-rescue-max1empty-dense-max10-half-v5"
+TRAINING_VIEW_POLICY = "adaptive-context-fallback128-rescue-max1empty-dense-max10-five8-v6"
 
 SYSTEM_PROMPT = (
     "You extract every statutory law reference from Turkish tax rulings "

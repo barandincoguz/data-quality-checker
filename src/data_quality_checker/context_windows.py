@@ -17,12 +17,14 @@ MAX_PRIMARY_OVERLAP_TOKENS = 256
 FALLBACK_WINDOW_TOKENS = 128
 FALLBACK_OVERLAP_TOKENS = 48
 DENSE_REPLAY_MAX_REFERENCES = 10
+# Keep the namespace frozen so larger dose probes are strict supersets of the
+# half-dose document set instead of drawing a new random-looking sample.
 DENSE_REPLAY_SAMPLE_NAMESPACE = "dense-replay-half-v1"
-DENSE_REPLAY_SAMPLE_THRESHOLD = 128
+DENSE_REPLAY_SAMPLE_THRESHOLD = 160
 
 
 def _include_dense_replay(doc_id: int) -> bool:
-    """Select a stable, order-independent half of windowed documents."""
+    """Select a stable, order-independent replay subset."""
 
     digest = hashlib.sha256(
         f"{DENSE_REPLAY_SAMPLE_NAMESPACE}:{doc_id}".encode("utf-8")
@@ -268,7 +270,7 @@ def build_context_window_view(
         "fallback_overlap_tokens": FALLBACK_OVERLAP_TOKENS,
         "reference_rescue": "source_text_v1",
         "empty_chunk_sampling": "max_one_per_source_document_v1",
-        "dense_replay": "windowed_documents_source_text_pack_max10_half_v3",
+        "dense_replay": "windowed_documents_source_text_pack_max10_five_eighths_v4",
         "dense_replay_sampling": {
             "policy": "sha256_doc_id_first_byte_threshold_v1",
             "namespace": DENSE_REPLAY_SAMPLE_NAMESPACE,
@@ -562,7 +564,7 @@ def build_context_window_view(
         "maximum_tokens": maximum_tokens,
         "candidate_text_coverage": "complete_before_negative_sampling",
         "training_text_policy": (
-            "all_positive_plus_max_one_empty_plus_half_windowed_document_dense_replay"
+            "all_positive_plus_max_one_empty_plus_five_eighths_dense_replay"
         ),
         "reference_coverage": "complete",
         "output_jsonl_path": str(output_path.resolve()),

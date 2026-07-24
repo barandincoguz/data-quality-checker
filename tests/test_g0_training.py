@@ -166,6 +166,19 @@ def test_dry_run_exposes_every_hidden_training_default(tmp_path: Path) -> None:
     assert plan["long_run_started"] is False
 
 
+def test_lower_lr_candidate_renders_peak_learning_rate(tmp_path: Path) -> None:
+    config = _fixture_context(tmp_path)
+    plan = run_development(
+        config=config,
+        run_id=RUN_ID,
+        candidate_id="lr1e-5",
+        target_updates=50,
+    )
+
+    assert plan["status"] == "ready"
+    assert plan["contract"]["trajectory"]["peak_learning_rate"] == 1e-5
+
+
 def test_failed_compute_preflight_blocks_execute_without_writing_candidate(
     tmp_path: Path,
 ) -> None:

@@ -30,6 +30,7 @@ from .mlx_compute import _run_worker
 from .mlx_stateful import StatefulTrainingConfig
 
 PILOT_LEARNING_RATES = {
+    "lr1e-5": 1e-5,
     "lr2.5e-5": 2.5e-5,
     "lr5e-5": 5e-5,
     "lr1e-4": 1e-4,

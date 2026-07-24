@@ -29,7 +29,11 @@ from .heartbeat import RunLease
 from .mlx_compute import _run_worker
 from .mlx_stateful import StatefulTrainingConfig
 
-PILOT_LEARNING_RATES = {"lr5e-5": 5e-5, "lr1e-4": 1e-4}
+PILOT_LEARNING_RATES = {
+    "lr2.5e-5": 2.5e-5,
+    "lr5e-5": 5e-5,
+    "lr1e-4": 1e-4,
+}
 PILOT_TARGET_UPDATES = 50
 MAX_GENERATION_TOKENS = 2048
 REFERENCE_POSTPROCESS = "canonical_set"

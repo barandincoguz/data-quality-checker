@@ -15,6 +15,7 @@ PRIMARY_RESERVED_TOKENS = 512
 MAX_PRIMARY_OVERLAP_TOKENS = 256
 FALLBACK_WINDOW_TOKENS = 128
 FALLBACK_OVERLAP_TOKENS = 48
+DENSE_REPLAY_MAX_REFERENCES = 10
 
 
 def _primary_window_geometry(max_sequence_length: int) -> tuple[int, int]:
@@ -170,6 +171,11 @@ def _dense_replay_rows(
             raise IntegrityError(
                 f"dense replay reference {reference_index} is absent from source text"
             )
+        if len(current_references) == DENSE_REPLAY_MAX_REFERENCES:
+            row, tokens = render(current_references, current_evidence)
+            packed.append((row, tokens, len(current_references)))
+            current_references = []
+            current_evidence = []
         candidate_references = [*current_references, reference]
         candidate_evidence = list(current_evidence)
         if source_text not in candidate_evidence:
@@ -250,7 +256,7 @@ def build_context_window_view(
         "fallback_overlap_tokens": FALLBACK_OVERLAP_TOKENS,
         "reference_rescue": "source_text_v1",
         "empty_chunk_sampling": "max_one_per_source_document_v1",
-        "dense_replay": "windowed_documents_source_text_pack_v1",
+        "dense_replay": "windowed_documents_source_text_pack_max10_v2",
         "thinking_control": "chat_template_enable_thinking_false",
     }
     request["fingerprint"] = fingerprint_json(request)

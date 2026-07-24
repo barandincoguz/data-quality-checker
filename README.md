@@ -83,7 +83,8 @@ Mac Studio compute kabulünde tam belge inference/validation bağlamı `12288`,
 backward eğitim bağlamı `1536` token olarak doğrulandı. Uzun train belgeleri
 sessizce kırpılmaz: örtüşmeli ve fingerprint'li doğal pencereler, belge başına
 en fazla bir boş pencere ve çok-referanslı dense-replay satırlarıyla `394`
-belge `3680` eğitim satırına dönüşür. Candidate metin coverage'ı negative
+belge `3726` eğitim satırına dönüşür; tek replay hedefi en fazla `10` referans
+taşır. Candidate metin coverage'ı negative
 sampling öncesi, gold referans coverage'ı ise eğitim görünümünde eksiksiz
 olmadan koşu açılmaz.
 

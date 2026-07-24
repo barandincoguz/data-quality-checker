@@ -360,6 +360,12 @@ def _validate(request: dict[str, Any]) -> dict[str, Any]:
         "parse_count": sum(bool(record["parse_ok"]) for record in records),
         "success_count": sum(record["status"] == "success" for record in records),
         "empty_output_count": sum(not record["raw_output"].strip() for record in records),
+        "zero_reference_output_count": sum(
+            not record["references"] for record in records
+        ),
+        "predicted_reference_count": sum(
+            len(record["references"]) for record in records
+        ),
         "runaway_output_count": sum(bool(record["runaway"]) for record in records),
         "validation_loss": validation_loss,
         "predictions_path": str(predictions_path),

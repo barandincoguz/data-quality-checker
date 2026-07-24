@@ -29,10 +29,9 @@ from .locking import process_exists
 from .mlx_stateful import NoThinkChatDataset, StatefulTrainingConfig
 
 
-# Real probes on this run rejected 8192, 4096, and 2048 on Metal. Keep the
-# accepted production gate explicit so implementation-only fingerprint changes
-# do not repeat multi-minute OOM probes.
-TRAINING_SEQUENCE_LENGTH_CANDIDATES = (1024,)
+# Earlier probes established a Metal resource boundary above 1024. Re-probe
+# only the useful neighborhood after prompt/window changes, largest first.
+TRAINING_SEQUENCE_LENGTH_CANDIDATES = (4096, 3072, 2048, 1792, 1536, 1280, 1024)
 
 
 def _utc_now() -> str:
@@ -257,11 +256,11 @@ def _tokenizer_preflight(model_path: Path, data_dir: Path) -> dict[str, Any]:
         for split in ("train", "valid", "test")
     }
     if any(
-        not row["messages"][1]["content"].endswith("/no_think")
+        row["messages"][1]["content"].rstrip().endswith("/no_think")
         for split_rows in rows.values()
         for row in split_rows
     ):
-        raise ContractError("not every canonical chat carries the /no_think suffix")
+        raise ContractError("Qwen3.5 chat must not carry the unsupported /no_think suffix")
     probe = tokenizer.apply_chat_template(
         rows["train"][0]["messages"][:-1],
         tokenize=False,
@@ -288,26 +287,18 @@ def _tokenizer_preflight(model_path: Path, data_dir: Path) -> dict[str, Any]:
     ]
     resume_item = empty_targets[0] if empty_targets else combined[0]
     longest = combined[-1]
-    train_items = [
-        (count, "train", index)
-        for index, count in enumerate(datasets["train"].token_counts)
-    ]
-    train_probe_by_limit = {
-        limit: max(item for item in train_items if item[0] <= limit)
-        for limit in TRAINING_SEQUENCE_LENGTH_CANDIDATES
-    }
     return {
         "tokenizer": tokenizer,
         "rows": rows,
         "token_counts": counts,
         "longest": longest,
         "longest_by_split": longest_by_split,
-        "train_probe_by_limit": train_probe_by_limit,
         "resume": resume_item,
         "summary": {
             "chat_template_present": bool(getattr(tokenizer, "chat_template", None)),
             "thinking_disabled": True,
-            "prompt_suffix": "/no_think",
+            "prompt_suffix": "",
+            "thinking_control": "chat_template_enable_thinking_false",
             "document_count": len(counts),
             "minimum_tokens": min(counts),
             "maximum_tokens": max(counts),
@@ -420,7 +411,6 @@ def run_compute_acceptance_preflight(
         smoke_dir = compute_root / "fixtures"
         smoke_dir.mkdir(parents=True, exist_ok=True)
         longest_count, longest_split, longest_index = tokenizer_info["longest"]
-        resume_count, resume_split, resume_index = tokenizer_info["resume"]
         global_longest_path = smoke_dir / "global_longest.jsonl"
         resume_path = smoke_dir / "resume.jsonl"
         from .atomic import write_jsonl_atomic
@@ -428,9 +418,6 @@ def run_compute_acceptance_preflight(
         write_jsonl_atomic(
             global_longest_path,
             [tokenizer_info["rows"][longest_split][longest_index]],
-        )
-        write_jsonl_atomic(
-            resume_path, [tokenizer_info["rows"][resume_split][resume_index]]
         )
 
         selected_sequence_length = next(
@@ -442,15 +429,41 @@ def run_compute_acceptance_preflight(
         selected_training_sequence_length: int | None = None
         memory_result: dict[str, Any] | None = None
         train_probe_count: int | None = None
+        training_view: dict[str, Any] | None = None
+        training_view_path: Path | None = None
+        training_view_doc_ids_path: Path | None = None
+        training_view_manifest_path: Path | None = None
+        training_view_rows: list[dict[str, Any]] | None = None
+        training_view_dataset: NoThinkChatDataset | None = None
         for candidate in TRAINING_SEQUENCE_LENGTH_CANDIDATES:
-            probe_count, probe_split, probe_index = tokenizer_info[
-                "train_probe_by_limit"
-            ][candidate]
-            probe_path = smoke_dir / f"train_probe_{candidate}.jsonl"
-            write_jsonl_atomic(
-                probe_path,
-                [tokenizer_info["rows"][probe_split][probe_index]],
+            candidate_view_path = data_dir / f"train_context_{candidate}.jsonl"
+            candidate_view_doc_ids_path = (
+                data_dir / f"train_context_{candidate}_doc_ids.json"
             )
+            candidate_view_manifest_path = (
+                data_dir / f"train_context_{candidate}_manifest.json"
+            )
+            candidate_view = build_context_window_view(
+                source_path=data_dir / "train.jsonl",
+                source_doc_ids_path=data_dir / "train_doc_ids.json",
+                output_path=candidate_view_path,
+                output_doc_ids_path=candidate_view_doc_ids_path,
+                manifest_path=candidate_view_manifest_path,
+                tokenizer=tokenizer_info["tokenizer"],
+                model_fingerprint=snapshot_manifest["fingerprint"],
+                max_sequence_length=candidate,
+            )
+            candidate_rows = _load_jsonl(candidate_view_path)
+            candidate_dataset = NoThinkChatDataset(
+                candidate_view_path, tokenizer_info["tokenizer"]
+            )
+            probe_index = max(
+                range(len(candidate_dataset.token_counts)),
+                key=candidate_dataset.token_counts.__getitem__,
+            )
+            probe_count = candidate_dataset.token_counts[probe_index]
+            probe_path = smoke_dir / f"train_probe_{candidate}.jsonl"
+            write_jsonl_atomic(probe_path, [candidate_rows[probe_index]])
             try:
                 result = _run_worker(
                     compute_root=compute_root,
@@ -484,9 +497,39 @@ def run_compute_acceptance_preflight(
             selected_training_sequence_length = candidate
             memory_result = result
             train_probe_count = probe_count
+            training_view = candidate_view
+            training_view_path = candidate_view_path
+            training_view_doc_ids_path = candidate_view_doc_ids_path
+            training_view_manifest_path = candidate_view_manifest_path
+            training_view_rows = candidate_rows
+            training_view_dataset = candidate_dataset
             break
         if selected_training_sequence_length is None or memory_result is None:
             raise GateBlocked("no training sequence length passed the real backward smoke")
+        assert training_view is not None
+        assert training_view_path is not None
+        assert training_view_doc_ids_path is not None
+        assert training_view_manifest_path is not None
+        assert training_view_rows is not None
+        assert training_view_dataset is not None
+        empty_view_indices = [
+            index
+            for index, row in enumerate(training_view_rows)
+            if row["messages"][-1]["content"].strip() == "[]"
+        ]
+        resume_index = (
+            min(
+                empty_view_indices,
+                key=training_view_dataset.token_counts.__getitem__,
+            )
+            if empty_view_indices
+            else min(
+                range(len(training_view_dataset.token_counts)),
+                key=training_view_dataset.token_counts.__getitem__,
+            )
+        )
+        resume_count = training_view_dataset.token_counts[resume_index]
+        write_jsonl_atomic(resume_path, [training_view_rows[resume_index]])
         memory_checkpoint = Path(memory_result["checkpoint"])
         longest_forward = _run_worker(
             compute_root=compute_root,
@@ -532,27 +575,6 @@ def run_compute_acceptance_preflight(
         preflight["compute_gates"]["sequence_length_memory_smoke"] = True
         write_json_atomic(preflight_path, preflight, mode=0o644)
 
-        training_view_path = (
-            data_dir / f"train_context_{selected_training_sequence_length}.jsonl"
-        )
-        training_view_doc_ids_path = (
-            data_dir
-            / f"train_context_{selected_training_sequence_length}_doc_ids.json"
-        )
-        training_view_manifest_path = (
-            data_dir
-            / f"train_context_{selected_training_sequence_length}_manifest.json"
-        )
-        training_view = build_context_window_view(
-            source_path=data_dir / "train.jsonl",
-            source_doc_ids_path=data_dir / "train_doc_ids.json",
-            output_path=training_view_path,
-            output_doc_ids_path=training_view_doc_ids_path,
-            manifest_path=training_view_manifest_path,
-            tokenizer=tokenizer_info["tokenizer"],
-            model_fingerprint=snapshot_manifest["fingerprint"],
-            max_sequence_length=selected_training_sequence_length,
-        )
         preflight["training_view"] = {
             key: training_view[key]
             for key in (
@@ -563,8 +585,12 @@ def run_compute_acceptance_preflight(
                 "original_reference_count",
                 "chunk_reference_count",
                 "empty_chunk_count",
+                "candidate_empty_chunk_count",
+                "dropped_empty_chunk_count",
+                "reference_rescue_count",
                 "maximum_tokens",
-                "text_coverage",
+                "candidate_text_coverage",
+                "training_text_policy",
                 "reference_coverage",
                 "output_jsonl_sha256",
                 "output_doc_ids_sha256",
@@ -630,9 +656,7 @@ def run_compute_acceptance_preflight(
         preflight["compute_gates"]["real_full_state_failure_resume"] = True
         write_json_atomic(preflight_path, preflight, mode=0o644)
 
-        generation_messages = tokenizer_info["rows"][resume_split][resume_index][
-            "messages"
-        ][:-1]
+        generation_messages = training_view_rows[resume_index]["messages"][:-1]
         generated = _run_worker(
             compute_root=compute_root,
             stage="adapter_generation",

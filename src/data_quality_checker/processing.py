@@ -123,7 +123,7 @@ class MlxG0Backend:
 
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": f"{document['text']}\n\n/no_think"},
+            {"role": "user", "content": document["text"]},
         ]
         prompt = self.tokenizer.apply_chat_template(
             messages,

@@ -28,7 +28,10 @@ from .constants import (
 from .contracts import validate_reference_list
 from .errors import ContractError, GateBlocked, IntegrityError
 from .fake_training import FakeStatefulTrainer
-from .fingerprints import fingerprint_json, sha256_bytes, sha256_file
+from .fingerprints import fingerprint_json, sha256_bytes, sha256_file, sha256_text
+
+PROMPT_VARIANT = "few-shot-cot-v3-en-compact-recall-v2"
+TRAINING_VIEW_POLICY = "adaptive-context-fallback128-rescue-max1empty-v2"
 
 SYSTEM_PROMPT = (
     "You extract every statutory law reference from Turkish tax rulings "
@@ -40,7 +43,23 @@ SYSTEM_PROMPT = (
     "in the same contract; never invent a law identity or evidence. Deduplicate "
     "the same legal tuple and suppress a generic law-only row when that law has "
     "a specific article row. Output only the JSON array; if no references exist, "
-    "output []."
+    "output [].\n\n"
+    "Recall rules adapted from the official few-shot-cot-v3-en prompt:\n"
+    "- Do not become overly conservative. Extract every explicit article, "
+    "paragraph, and subparagraph reference, even when secondary regulations "
+    "appear nearby.\n"
+    "- Preserve every distinct explicit legal tuple. Never replace a specific "
+    "tuple with a generic law-only row, and never return [] when an explicit "
+    "statutory reference exists.\n"
+    "- Scan the entire document once more for dropped madde, fikra, and bent "
+    "details before returning JSON.\n\n"
+    "Compact demonstration:\n"
+    "Input: 488 sayılı Damga Vergisi Kanununun 3 üncü ve 9 uncu maddeleri\n"
+    'Output: [{"kanun_no":"488","kanun_ad":"Damga Vergisi Kanunu",'
+    '"madde":"3","fikra":"","bent":"","source_text":"488 sayılı '
+    'Damga Vergisi Kanununun 3 üncü maddesi"},{"kanun_no":"488",'
+    '"kanun_ad":"Damga Vergisi Kanunu","madde":"9","fikra":"",'
+    '"bent":"","source_text":"9 uncu maddesi"}]'
 )
 
 SEQUENCE_LENGTH_CANDIDATES = (8192, 10240, 12288, 16384, 32768)
@@ -70,13 +89,23 @@ class TrainingContract:
 
     @property
     def maximum_optimizer_updates(self) -> int:
-        micro_steps = self.maximum_epochs * self.train_documents
+        return self.maximum_optimizer_updates_for_rows(self.train_documents)
+
+    def maximum_optimizer_updates_for_rows(self, training_rows: int) -> int:
+        if training_rows <= 0:
+            raise ValueError("training_rows must be positive")
+        micro_steps = self.maximum_epochs * training_rows
         # Never consume examples beyond the declared three-epoch ceiling.
         return micro_steps // self.gradient_accumulation
 
+    def warmup_updates_for(self, total_updates: int) -> int:
+        if total_updates <= 0:
+            raise ValueError("total_updates must be positive")
+        return max(1, round(total_updates * self.warmup_fraction))
+
     @property
     def warmup_updates(self) -> int:
-        return max(1, round(self.maximum_optimizer_updates * self.warmup_fraction))
+        return self.warmup_updates_for(self.maximum_optimizer_updates)
 
 
 @dataclass(frozen=True)
@@ -215,7 +244,7 @@ def _training_example(document: dict[str, Any]) -> dict[str, Any]:
     return {
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": f"{document['text']}\n\n/no_think"},
+            {"role": "user", "content": document["text"]},
             {"role": "assistant", "content": target},
         ]
     }
@@ -386,11 +415,18 @@ def train_bootstrap(
         raise ContractError("only canonical-only G0 is supported in v1")
     source = validate_canonical_sources(config)
     source_summary = source["summary"]
+    prompt = {
+        "variant": PROMPT_VARIANT,
+        "sha256": sha256_text(SYSTEM_PROMPT),
+        "example_bank_sha256": EXAMPLE_BANK_SHA256,
+    }
     source_fingerprint = fingerprint_json(
         {
             "canonical_manifest_sha256": source_summary["canonical_manifest_sha256"],
             "example_bank_sha256": source_summary["example_bank_sha256"],
             "split_manifest_sha256": source_summary["split_manifest_sha256"],
+            "prompt": prompt,
+            "training_view_policy": TRAINING_VIEW_POLICY,
         }
     )
     run_id = f"dqcheck_g0_qwen3_5_9b_{source_fingerprint[:12]}"
@@ -421,6 +457,8 @@ def train_bootstrap(
         "config_fingerprint": config.fingerprint,
         "model_fingerprint": model_fingerprint,
         "model": asdict(config.model),
+        "prompt": prompt,
+        "training_view_policy": TRAINING_VIEW_POLICY,
         "training": asdict(training_contract),
         "sequence_length_candidates": list(SEQUENCE_LENGTH_CANDIDATES),
         "source": {key: value for key, value in source_summary.items() if key != "split"},
@@ -449,6 +487,8 @@ def train_bootstrap(
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "status": "software_preflight_passed_compute_pending",
         "long_run_started": False,
+        "prompt": prompt,
+        "training_view_policy": TRAINING_VIEW_POLICY,
         "source": {key: value for key, value in source_summary.items() if key != "split"},
         "environment": environment,
         "training_contract": asdict(training_contract),

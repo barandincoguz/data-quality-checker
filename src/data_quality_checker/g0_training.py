@@ -55,8 +55,13 @@ def _read_json(path: Path) -> dict[str, Any]:
     return payload
 
 
-def validation_milestones(target_updates: int, *, every: int = 25) -> list[int]:
-    maximum = TrainingContract().maximum_optimizer_updates
+def validation_milestones(
+    target_updates: int,
+    *,
+    every: int = 25,
+    maximum_updates: int | None = None,
+) -> list[int]:
+    maximum = maximum_updates or TrainingContract().maximum_optimizer_updates
     if target_updates <= 0 or target_updates > maximum:
         raise ValueError(f"target_updates must be between 1 and {maximum}")
     milestones = list(range(every, target_updates + 1, every))
@@ -89,9 +94,13 @@ def _verified_checkpoints(
 
 
 def _candidate_training_config(
-    *, peak_learning_rate: float, sequence_length: int
+    *, peak_learning_rate: float, sequence_length: int, training_rows: int
 ) -> StatefulTrainingConfig:
     contract = TrainingContract()
+    # The first development trajectory consumes every balanced training-view
+    # row once. More epochs require a new reviewed trajectory after validation;
+    # this avoids silently repeating overlap-expanded references.
+    total_updates = math.ceil(training_rows / contract.gradient_accumulation)
     return StatefulTrainingConfig(
         seed=contract.seed,
         rank=contract.lora_rank,
@@ -106,8 +115,8 @@ def _candidate_training_config(
         adam_beta2=0.999,
         adam_eps=1e-8,
         adam_bias_correction=False,
-        warmup_updates=contract.warmup_updates,
-        total_updates=contract.maximum_optimizer_updates,
+        warmup_updates=contract.warmup_updates_for(total_updates),
+        total_updates=total_updates,
         max_sequence_length=sequence_length,
         gradient_checkpointing=contract.gradient_checkpointing,
         checkpoint_every_updates=contract.checkpoint_every_optimizer_updates,
@@ -193,13 +202,15 @@ def _candidate_contract(
             0,
         )
     snapshot = run_config.get("model_snapshot") or preflight.get("model_snapshot")
+    training_rows = run_config.get("training_view", {}).get("row_count")
     if sequence_length <= 0 or not isinstance(snapshot, dict) or not snapshot.get(
         "fingerprint"
-    ):
+    ) or not isinstance(training_rows, int) or training_rows <= 0:
         raise GateBlocked("not enough verified compute metadata to render candidate contract")
     training = _candidate_training_config(
         peak_learning_rate=PILOT_LEARNING_RATES[candidate_id],
         sequence_length=sequence_length,
+        training_rows=training_rows,
     )
     trajectory = asdict(training)
     trajectory["sequence_length_buckets"] = list(training.sequence_length_buckets)
@@ -207,6 +218,7 @@ def _candidate_contract(
         "schema_version": 1,
         "base_run_id": run_config["run_id"],
         "candidate_id": candidate_id,
+        "development_epoch_budget": 1,
         "trajectory": trajectory,
         "validation": {
             "documents": 50,
@@ -230,6 +242,10 @@ def _candidate_contract(
             "valid_jsonl_sha256": sha256_file(context["data_dir"] / "valid.jsonl"),
             "valid_doc_ids_sha256": sha256_file(
                 context["data_dir"] / "valid_doc_ids.json"
+            ),
+            "training_view_row_count": training_rows,
+            "one_training_view_epoch_updates": math.ceil(
+                training_rows / training.gradient_accumulation
             ),
         },
         "model": {
@@ -445,6 +461,10 @@ def _validation_summary(
         "coverage_count": int(validation["coverage_count"]),
         "parse_count": int(validation["parse_count"]),
         "empty_output_count": int(validation["empty_output_count"]),
+        "zero_reference_output_count": int(
+            validation["zero_reference_output_count"]
+        ),
+        "predicted_reference_count": int(validation["predicted_reference_count"]),
         "runaway_output_count": int(validation["runaway_output_count"]),
         "validation_loss": validation_loss,
         "core_law_article_strict": core,
@@ -462,6 +482,7 @@ def _validation_summary(
         summary["coverage_count"] == 50
         and summary["parse_count"] >= 49
         and summary["empty_output_count"] == 0
+        and summary["predicted_reference_count"] > 0
         and summary["runaway_output_count"] == 0
     )
     return summary
@@ -481,6 +502,7 @@ def _best_summary(summaries: list[dict[str, Any]]) -> dict[str, Any] | None:
             validation_loss=float(summary["validation_loss"]),
         )
         for summary in summaries
+        if summary.get("eligible") is True
     ]
     try:
         selected = select_checkpoint(candidates)
@@ -541,6 +563,8 @@ def _public_summary(
                     "coverage_count",
                     "parse_count",
                     "empty_output_count",
+                    "zero_reference_output_count",
+                    "predicted_reference_count",
                     "runaway_output_count",
                     "validation_loss",
                     "core_law_article_strict",
@@ -574,7 +598,6 @@ def run_development(
 ) -> dict[str, Any]:
     """Plan or execute one deterministic LR candidate through validation milestones."""
 
-    milestones = validation_milestones(target_updates)
     if candidate_id not in PILOT_LEARNING_RATES:
         raise ValueError(f"unsupported candidate: {candidate_id}")
     context = _base_run_context(config, run_id)
@@ -589,6 +612,10 @@ def run_development(
         contract = None
         training = None
         blockers.append(str(exc))
+    milestones = validation_milestones(
+        target_updates,
+        maximum_updates=training.total_updates if training is not None else None,
+    )
     plan = {
         "schema_version": 1,
         "status": "blocked" if blockers else "ready",
@@ -700,7 +727,12 @@ def run_development(
         )
         for unit_number, update in enumerate(milestones, 1):
             if update in summary_by_update:
-                summary_checkpoint = Path(summary_by_update[update]["checkpoint"])
+                existing_summary = summary_by_update[update]
+                if int(existing_summary.get("predicted_reference_count", 0)) <= 0:
+                    raise GateBlocked(
+                        f"validation at update={update} collapsed to zero references"
+                    )
+                summary_checkpoint = Path(existing_summary["checkpoint"])
                 verify_checkpoint(summary_checkpoint)
                 verified_checkpoints[update] = summary_checkpoint
                 continue
@@ -786,6 +818,10 @@ def run_development(
                 evaluation_sha256=sha256_file(evaluation_path),
             )
             write_json_atomic(validation_dir / "summary.json", summary)
+            if summary["predicted_reference_count"] <= 0:
+                raise GateBlocked(
+                    f"validation at update={update} collapsed to zero references"
+                )
             summary_by_update[update] = summary
             summaries = [summary_by_update[key] for key in sorted(summary_by_update)]
             best = _best_summary(summaries)
@@ -827,7 +863,7 @@ def run_development(
                     "pilot_completed"
                     if target_updates == PILOT_TARGET_UPDATES
                     else "development_completed"
-                    if target_updates == TrainingContract().maximum_optimizer_updates
+                    if target_updates == training.total_updates
                     else "segment_completed"
                 ),
                 "best_update": best["update"] if best else None,

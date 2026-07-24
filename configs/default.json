@@ -11,7 +11,7 @@
     "revision": "938d8919941c6e7efd3c7150eff7fe9d12afa631",
     "minimum_mlx_lm": "0.31.0",
     "enable_thinking": false,
-    "prompt_suffix": "/no_think"
+    "prompt_suffix": ""
   },
   "security": {
     "max_zip_entries": 10000,

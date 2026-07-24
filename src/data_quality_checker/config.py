@@ -100,8 +100,10 @@ def load_config(path: Path | str | None = None) -> AppConfig:
         )
     if model.get("minimum_mlx_lm") != MINIMUM_MLX_LM:
         raise ConfigurationError("minimum_mlx_lm does not match the v1 contract")
-    if model.get("enable_thinking") is not False or model.get("prompt_suffix") != "/no_think":
-        raise ConfigurationError("Qwen thinking must remain disabled with /no_think")
+    if model.get("enable_thinking") is not False or model.get("prompt_suffix") != "":
+        raise ConfigurationError(
+            "Qwen3.5 thinking must be disabled by the chat template without a literal suffix"
+        )
 
     base = source.parent
     security_config = SecurityConfig(
@@ -135,7 +137,7 @@ def load_config(path: Path | str | None = None) -> AppConfig:
             revision=str(model["revision"]),
             minimum_mlx_lm=str(model["minimum_mlx_lm"]),
             enable_thinking=False,
-            prompt_suffix="/no_think",
+            prompt_suffix="",
         ),
         security=security_config,
         runtime=runtime_config,

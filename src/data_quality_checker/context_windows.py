@@ -11,11 +11,21 @@ from .errors import ContractError, FingerprintMismatch, IntegrityError
 from .fingerprints import fingerprint_json, sha256_file
 
 
-PROMPT_SUFFIX = "/no_think"
-PRIMARY_WINDOW_TOKENS = 512
-PRIMARY_OVERLAP_TOKENS = 128
-FALLBACK_WINDOW_TOKENS = 256
-FALLBACK_OVERLAP_TOKENS = 96
+PRIMARY_RESERVED_TOKENS = 512
+MAX_PRIMARY_OVERLAP_TOKENS = 256
+FALLBACK_WINDOW_TOKENS = 128
+FALLBACK_OVERLAP_TOKENS = 48
+
+
+def _primary_window_geometry(max_sequence_length: int) -> tuple[int, int]:
+    """Use as much real document context as the accepted sequence permits."""
+
+    window_tokens = max(
+        FALLBACK_WINDOW_TOKENS,
+        max_sequence_length - PRIMARY_RESERVED_TOKENS,
+    )
+    overlap_tokens = min(MAX_PRIMARY_OVERLAP_TOKENS, window_tokens // 4)
+    return window_tokens, overlap_tokens
 
 
 def _read_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -98,7 +108,7 @@ def _window_row(
     visible = [references[index] for index in sorted(visible_indices)]
     messages = [
         system_message,
-        {"role": "user", "content": text.rstrip() + f"\n{PROMPT_SUFFIX}"},
+        {"role": "user", "content": text.rstrip()},
         {
             "role": "assistant",
             "content": json.dumps(
@@ -155,17 +165,22 @@ def build_context_window_view(
 
     source_path = source_path.resolve()
     source_doc_ids_path = source_doc_ids_path.resolve()
+    primary_window_tokens, primary_overlap_tokens = _primary_window_geometry(
+        max_sequence_length
+    )
     request = {
         "schema_version": 1,
         "source_jsonl_sha256": sha256_file(source_path),
         "source_doc_ids_sha256": sha256_file(source_doc_ids_path),
         "model_fingerprint": model_fingerprint,
         "max_sequence_length": max_sequence_length,
-        "primary_window_tokens": PRIMARY_WINDOW_TOKENS,
-        "primary_overlap_tokens": PRIMARY_OVERLAP_TOKENS,
+        "primary_window_tokens": primary_window_tokens,
+        "primary_overlap_tokens": primary_overlap_tokens,
         "fallback_window_tokens": FALLBACK_WINDOW_TOKENS,
         "fallback_overlap_tokens": FALLBACK_OVERLAP_TOKENS,
-        "prompt_suffix": PROMPT_SUFFIX,
+        "reference_rescue": "source_text_v1",
+        "empty_chunk_sampling": "max_one_per_source_document_v1",
+        "thinking_control": "chat_template_enable_thinking_false",
     }
     request["fingerprint"] = fingerprint_json(request)
     if cached := _validate_cached_view(
@@ -195,6 +210,9 @@ def build_context_window_view(
     original_reference_count = 0
     chunk_reference_count = 0
     empty_chunk_count = 0
+    candidate_empty_chunk_count = 0
+    dropped_empty_chunk_count = 0
+    reference_rescue_count = 0
     maximum_tokens = 0
 
     for row_index, (row, raw_doc_id) in enumerate(zip(rows, doc_ids, strict=True)):
@@ -230,9 +248,13 @@ def build_context_window_view(
 
         windowed_documents += 1
         user_content = messages[1].get("content")
-        if not isinstance(user_content, str) or not user_content.endswith(PROMPT_SUFFIX):
-            raise ContractError(f"prompt suffix missing at source row {row_index}")
-        body = user_content[: -len(PROMPT_SUFFIX)].rstrip()
+        if not isinstance(user_content, str) or not user_content.strip():
+            raise ContractError(f"user text missing at source row {row_index}")
+        if user_content.rstrip().endswith("/no_think"):
+            raise ContractError(
+                f"unsupported literal /no_think suffix at source row {row_index}"
+            )
+        body = user_content.rstrip()
         encoded = offset_tokenizer(
             body, add_special_tokens=False, return_offsets_mapping=True
         )
@@ -243,8 +265,8 @@ def build_context_window_view(
         for interval in _token_intervals(
             start=0,
             end=len(offsets),
-            window_tokens=PRIMARY_WINDOW_TOKENS,
-            overlap_tokens=PRIMARY_OVERLAP_TOKENS,
+            window_tokens=primary_window_tokens,
+            overlap_tokens=primary_overlap_tokens,
         ):
             chunk_row, metadata, visible = _window_row(
                 tokenizer=tokenizer,
@@ -282,10 +304,30 @@ def build_context_window_view(
 
         covered_tokens = [False] * len(offsets)
         visible_union: set[int] = set()
-        for chunk_row, metadata, visible, mode in accepted:
+        for _, metadata, visible, _ in accepted:
             for token_index in range(metadata["token_start"], metadata["token_end"]):
                 covered_tokens[token_index] = True
             visible_union.update(visible)
+        empty_indices = [
+            index
+            for index, (_, metadata, _, _) in enumerate(accepted)
+            if metadata["reference_count"] == 0
+        ]
+        candidate_empty_chunk_count += len(empty_indices)
+        kept_empty_index = (
+            max(empty_indices, key=lambda index: accepted[index][1]["tokens"])
+            if empty_indices
+            else None
+        )
+        kept_indices = {
+            index
+            for index, (_, metadata, _, _) in enumerate(accepted)
+            if metadata["reference_count"] > 0 or index == kept_empty_index
+        }
+        dropped_empty_chunk_count += len(empty_indices) - int(kept_empty_index is not None)
+        for accepted_index, (chunk_row, metadata, _, mode) in enumerate(accepted):
+            if accepted_index not in kept_indices:
+                continue
             output_rows.append(chunk_row)
             output_doc_ids.append(doc_id)
             chunk_reference_count += metadata["reference_count"]
@@ -302,6 +344,53 @@ def build_context_window_view(
             )
         if not all(covered_tokens):
             raise IntegrityError(f"text coverage gap at source row {row_index}")
+        missing_references = sorted(set(range(len(references))) - visible_union)
+        for reference_index in missing_references:
+            reference = references[reference_index]
+            source_text = reference.get("source_text")
+            if not isinstance(source_text, str) or not source_text:
+                raise IntegrityError(
+                    f"reference rescue has no source_text at source row {row_index}"
+                )
+            char_start = body.find(source_text)
+            if char_start < 0:
+                raise IntegrityError(
+                    f"reference rescue span is absent at source row {row_index}"
+                )
+            rescue_messages = [
+                messages[0],
+                {"role": "user", "content": source_text},
+                {
+                    "role": "assistant",
+                    "content": json.dumps(
+                        [reference], ensure_ascii=False, separators=(",", ":")
+                    ),
+                },
+            ]
+            rescue_tokens = _rendered_token_count(tokenizer, rescue_messages)
+            if rescue_tokens > max_sequence_length:
+                raise ContractError(
+                    f"reference rescue tokens={rescue_tokens} exceed "
+                    f"max_sequence_length={max_sequence_length} at row {row_index}"
+                )
+            output_rows.append({"messages": rescue_messages})
+            output_doc_ids.append(doc_id)
+            chunk_reference_count += 1
+            reference_rescue_count += 1
+            maximum_tokens = max(maximum_tokens, rescue_tokens)
+            chunks.append(
+                {
+                    "output_row_index": len(output_rows) - 1,
+                    "source_row_index": row_index,
+                    "doc_id": doc_id,
+                    "mode": "reference_rescue",
+                    "char_start": char_start,
+                    "char_end": char_start + len(source_text),
+                    "reference_count": 1,
+                    "tokens": rescue_tokens,
+                }
+            )
+            visible_union.add(reference_index)
         if visible_union != set(range(len(references))):
             missing = sorted(set(range(len(references))) - visible_union)
             raise IntegrityError(
@@ -322,8 +411,12 @@ def build_context_window_view(
         "original_reference_count": original_reference_count,
         "chunk_reference_count": chunk_reference_count,
         "empty_chunk_count": empty_chunk_count,
+        "candidate_empty_chunk_count": candidate_empty_chunk_count,
+        "dropped_empty_chunk_count": dropped_empty_chunk_count,
+        "reference_rescue_count": reference_rescue_count,
         "maximum_tokens": maximum_tokens,
-        "text_coverage": "complete",
+        "candidate_text_coverage": "complete_before_negative_sampling",
+        "training_text_policy": "all_positive_plus_max_one_empty_per_source_document",
         "reference_coverage": "complete",
         "output_jsonl_path": str(output_path.resolve()),
         "output_jsonl_sha256": sha256_file(output_path),

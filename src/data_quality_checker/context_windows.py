@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -16,6 +17,17 @@ MAX_PRIMARY_OVERLAP_TOKENS = 256
 FALLBACK_WINDOW_TOKENS = 128
 FALLBACK_OVERLAP_TOKENS = 48
 DENSE_REPLAY_MAX_REFERENCES = 10
+DENSE_REPLAY_SAMPLE_NAMESPACE = "dense-replay-half-v1"
+DENSE_REPLAY_SAMPLE_THRESHOLD = 128
+
+
+def _include_dense_replay(doc_id: int) -> bool:
+    """Select a stable, order-independent half of windowed documents."""
+
+    digest = hashlib.sha256(
+        f"{DENSE_REPLAY_SAMPLE_NAMESPACE}:{doc_id}".encode("utf-8")
+    ).digest()
+    return digest[0] < DENSE_REPLAY_SAMPLE_THRESHOLD
 
 
 def _primary_window_geometry(max_sequence_length: int) -> tuple[int, int]:
@@ -256,7 +268,13 @@ def build_context_window_view(
         "fallback_overlap_tokens": FALLBACK_OVERLAP_TOKENS,
         "reference_rescue": "source_text_v1",
         "empty_chunk_sampling": "max_one_per_source_document_v1",
-        "dense_replay": "windowed_documents_source_text_pack_max10_v2",
+        "dense_replay": "windowed_documents_source_text_pack_max10_half_v3",
+        "dense_replay_sampling": {
+            "policy": "sha256_doc_id_first_byte_threshold_v1",
+            "namespace": DENSE_REPLAY_SAMPLE_NAMESPACE,
+            "threshold": DENSE_REPLAY_SAMPLE_THRESHOLD,
+            "possible_values": 256,
+        },
         "thinking_control": "chat_template_enable_thinking_false",
     }
     request["fingerprint"] = fingerprint_json(request)
@@ -290,6 +308,9 @@ def build_context_window_view(
     candidate_empty_chunk_count = 0
     dropped_empty_chunk_count = 0
     reference_rescue_count = 0
+    dense_replay_eligible_document_count = 0
+    dense_replay_document_count = 0
+    dense_replay_skipped_document_count = 0
     dense_replay_row_count = 0
     dense_replay_reference_count = 0
     dense_replay_max_reference_count = 0
@@ -476,6 +497,11 @@ def build_context_window_view(
             raise IntegrityError(
                 f"reference coverage gap at source row {row_index}: {missing}"
             )
+        dense_replay_eligible_document_count += 1
+        if not _include_dense_replay(doc_id):
+            dense_replay_skipped_document_count += 1
+            continue
+        dense_replay_document_count += 1
         replay_rows = _dense_replay_rows(
             tokenizer=tokenizer,
             system_message=messages[0],
@@ -520,6 +546,13 @@ def build_context_window_view(
         "candidate_empty_chunk_count": candidate_empty_chunk_count,
         "dropped_empty_chunk_count": dropped_empty_chunk_count,
         "reference_rescue_count": reference_rescue_count,
+        "dense_replay_eligible_document_count": (
+            dense_replay_eligible_document_count
+        ),
+        "dense_replay_document_count": dense_replay_document_count,
+        "dense_replay_skipped_document_count": (
+            dense_replay_skipped_document_count
+        ),
         "dense_replay_row_count": dense_replay_row_count,
         "dense_replay_reference_count": dense_replay_reference_count,
         "dense_replay_max_reference_count": dense_replay_max_reference_count,
@@ -529,7 +562,7 @@ def build_context_window_view(
         "maximum_tokens": maximum_tokens,
         "candidate_text_coverage": "complete_before_negative_sampling",
         "training_text_policy": (
-            "all_positive_plus_max_one_empty_plus_windowed_document_dense_replay"
+            "all_positive_plus_max_one_empty_plus_half_windowed_document_dense_replay"
         ),
         "reference_coverage": "complete",
         "output_jsonl_path": str(output_path.resolve()),

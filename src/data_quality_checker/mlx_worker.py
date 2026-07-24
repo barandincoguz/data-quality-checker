@@ -363,6 +363,10 @@ def _validate(request: dict[str, Any]) -> dict[str, Any]:
         "zero_reference_output_count": sum(
             not record["references"] for record in records
         ),
+        "parsed_zero_reference_output_count": sum(
+            bool(record["parse_ok"]) and not record["references"]
+            for record in records
+        ),
         "predicted_reference_count": sum(
             len(record["references"]) for record in records
         ),

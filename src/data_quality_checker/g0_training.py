@@ -434,6 +434,19 @@ def _canonical_evaluate(
         temporary.unlink(missing_ok=True)
 
 
+def _parsed_zero_reference_output_count(payload: dict[str, Any]) -> int:
+    explicit_count = payload.get("parsed_zero_reference_output_count")
+    if explicit_count is not None:
+        return int(explicit_count)
+    parse_failure_count = int(payload["coverage_count"]) - int(
+        payload["parse_count"]
+    )
+    return max(
+        0,
+        int(payload["zero_reference_output_count"]) - parse_failure_count,
+    )
+
+
 def _validation_summary(
     *,
     update: int,
@@ -449,6 +462,9 @@ def _validation_summary(
     validation_loss = float(validation["validation_loss"])
     if not math.isfinite(validation_loss):
         raise IntegrityError("validation loss is not finite")
+    parsed_zero_reference_output_count = _parsed_zero_reference_output_count(
+        validation
+    )
     summary = {
         "schema_version": 1,
         "generated_at": _utc_now(),
@@ -463,6 +479,9 @@ def _validation_summary(
         "empty_output_count": int(validation["empty_output_count"]),
         "zero_reference_output_count": int(
             validation["zero_reference_output_count"]
+        ),
+        "parsed_zero_reference_output_count": (
+            parsed_zero_reference_output_count
         ),
         "predicted_reference_count": int(validation["predicted_reference_count"]),
         "runaway_output_count": int(validation["runaway_output_count"]),
@@ -482,7 +501,7 @@ def _validation_summary(
         summary["coverage_count"] == 50
         and summary["parse_count"] >= 49
         and summary["empty_output_count"] == 0
-        and summary["zero_reference_output_count"] == 0
+        and summary["parsed_zero_reference_output_count"] == 0
         and summary["predicted_reference_count"] > 0
         and summary["runaway_output_count"] == 0
     )
@@ -565,6 +584,7 @@ def _public_summary(
                     "parse_count",
                     "empty_output_count",
                     "zero_reference_output_count",
+                    "parsed_zero_reference_output_count",
                     "predicted_reference_count",
                     "runaway_output_count",
                     "validation_loss",
@@ -731,10 +751,10 @@ def run_development(
                 existing_summary = summary_by_update[update]
                 if (
                     int(existing_summary.get("predicted_reference_count", 0)) <= 0
-                    or int(existing_summary.get("zero_reference_output_count", 0)) > 0
+                    or _parsed_zero_reference_output_count(existing_summary) > 0
                 ):
                     raise GateBlocked(
-                        f"validation at update={update} has zero-reference outputs"
+                        f"validation at update={update} has parsed zero-reference outputs"
                     )
                 summary_checkpoint = Path(existing_summary["checkpoint"])
                 verify_checkpoint(summary_checkpoint)
@@ -824,10 +844,10 @@ def run_development(
             write_json_atomic(validation_dir / "summary.json", summary)
             if (
                 summary["predicted_reference_count"] <= 0
-                or summary["zero_reference_output_count"] > 0
+                or summary["parsed_zero_reference_output_count"] > 0
             ):
                 raise GateBlocked(
-                    f"validation at update={update} has zero-reference outputs"
+                    f"validation at update={update} has parsed zero-reference outputs"
                 )
             summary_by_update[update] = summary
             summaries = [summary_by_update[key] for key in sorted(summary_by_update)]

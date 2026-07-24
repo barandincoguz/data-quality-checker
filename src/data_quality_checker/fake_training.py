@@ -6,7 +6,6 @@ import json
 import random
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 from .atomic import write_json_atomic
 from .checkpoints import (

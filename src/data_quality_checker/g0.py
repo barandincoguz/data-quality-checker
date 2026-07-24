@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import importlib.metadata
 import json
-import math
 import os
 import platform
 import random

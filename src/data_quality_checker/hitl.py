@@ -6,12 +6,10 @@ import hmac
 import json
 import os
 import secrets
-from pathlib import Path
 from typing import Any
 
 from flask import (
     Flask,
-    abort,
     jsonify,
     redirect,
     render_template_string,
@@ -29,6 +27,7 @@ from .judges import blind_candidates, ensure_green_audit_plan
 from .normalization import (
     compact_references,
     conflicting_law_identity,
+    core_identity,
     full_identity,
 )
 from .storage import Store
@@ -49,27 +48,199 @@ LOGIN_TEMPLATE = """
 
 REVIEW_TEMPLATE = """
 <!doctype html><meta charset="utf-8"><title>DQCheck Review</title>
+{% macro refcell(refs) %}
+{%- for r in refs -%}
+<div class="ref">m.{{ r.madde or "—" }}{% if r.fikra %}/f.{{ r.fikra }}{% endif %}{% if r.bent %}/b.{{ r.bent }}{% endif %}
+<div class="src">{{ r.source_text }}</div></div>
+{%- else -%}<span class="muted">—</span>{%- endfor -%}
+{% endmacro %}
 <style>
-body{font-family:system-ui;max-width:1200px;margin:auto;padding:1rem}.grid{display:grid;grid-template-columns:1fr 1fr;gap:1rem}
-pre{white-space:pre-wrap;border:1px solid #bbb;padding:1rem}mark{background:#ffe58f}.warn{color:#8a3b00}
+body{font-family:system-ui;max-width:1200px;margin:auto;padding:1rem}
+pre{white-space:pre-wrap;border:1px solid #bbb;padding:1rem}
+.warn{color:#8a3b00}.muted{color:#999}
+table{border-collapse:collapse;width:100%;margin:1rem 0}
+th,td{border:1px solid #ccc;padding:.4rem;vertical-align:top;text-align:left;font-size:.9rem}
+th{background:#f3f3f3}
+tr.same td{background:#f4fbf4}tr.only_a td{background:#e8f2ff}tr.only_b td{background:#fff1e6}tr.differs td{background:#fff3cd}
+.badge{font-size:.72rem;padding:.05rem .4rem;border-radius:.6rem;border:1px solid #999}
+.diffmark{font-weight:700;color:#8a3b00}
+.ref{margin-bottom:.3rem}.src{color:#555;font-size:.8rem}
+.editor input{margin:0}.hint{color:#666;font-size:.8rem}
+.actions button{margin-right:.4rem;padding:.4rem .7rem}
 </style>
-<h1>{{ doc.internal_doc_id }} — {{ doc.router_bucket }}</h1>
-<p class="warn">{{ doc.warnings|tojson }}</p>
+<h1>{{ doc.internal_doc_id }} — {{ doc.router_bucket }}
+{% if position %}<small class="muted">({{ position.index }}/{{ position.total }})</small>{% endif %}</h1>
+{% if doc.warnings %}<p class="warn">⚠ {{ doc.warnings|tojson }}</p>{% endif %}
 <pre>{{ doc.text }}</pre>
-<div class="grid"><section><h2>A</h2><pre>{{ doc.candidate_a|tojson(indent=2) }}</pre></section>
-<section><h2>B</h2><pre>{{ doc.candidate_b|tojson(indent=2) }}</pre></section></div>
-{% if doc.judge_suggestion %}<h2>Judge önerisi</h2><pre>{{ doc.judge_suggestion|tojson(indent=2) }}</pre>{% endif %}
+
+<h2>A / B karşılaştırması</h2>
+<table>
+<thead><tr><th>Kanun / Madde</th><th>A</th><th>B</th><th>Durum</th></tr></thead>
+<tbody>
+{% for row in diff %}
+<tr class="{{ row.status }}">
+  <td>{{ row.core.kanun_no }} · {{ row.core.kanun_ad }}<br><small>madde {{ row.core.madde or "—" }}</small></td>
+  <td>{{ refcell(row.a) }}</td>
+  <td>{{ refcell(row.b) }}</td>
+  <td><span class="badge">{{ row.status }}</span>
+  {% if row.field_diffs %}<div class="diffmark">≠ {{ row.field_diffs|join(", ") }}</div>{% endif %}</td>
+</tr>
+{% else %}
+<tr><td colspan="4" class="muted">Aday referans yok</td></tr>
+{% endfor %}
+</tbody>
+</table>
+<details><summary>Ham A/B JSON</summary>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem">
+<pre>{{ doc.candidate_a|tojson(indent=2) }}</pre><pre>{{ doc.candidate_b|tojson(indent=2) }}</pre></div></details>
+{% if doc.judge_suggestion %}<details><summary>Judge önerisi</summary><pre>{{ doc.judge_suggestion|tojson(indent=2) }}</pre></details>{% endif %}
+
 <form method="post" action="{{ url_for('submit_review', internal_doc_id=doc.internal_doc_id) }}">
   <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
   <input type="hidden" name="row_version" value="{{ doc.row_version }}">
-  <button name="action" value="accept_candidate_a">A'yı kabul et</button>
-  <button name="action" value="accept_candidate_b">B'yi kabul et</button>
-  <button name="action" value="defer">Ertele</button>
-  <label>Gerekçe <input name="reason"></label>
-  <label>Revize JSON<textarea name="references_json" rows="8" cols="80"></textarea></label>
-  <button name="action" value="revise">Revizyonu kaydet</button>
+  <div class="actions">
+    <button name="action" value="accept_candidate_a" accesskey="a">A'yı kabul et <span class="hint">(A)</span></button>
+    <button name="action" value="accept_candidate_b" accesskey="b">B'yi kabul et <span class="hint">(B)</span></button>
+    <button name="action" value="defer">Ertele</button>
+    <label>Gerekçe <input name="reason"></label>
+  </div>
+
+  <h2>Revize editörü</h2>
+  <p class="hint">Aşağıdaki tablodan referansları düzenleyin; kaydederken JSON'a çevrilir.
+  Doldur: <button type="button" id="fill-a">A'dan</button>
+  <button type="button" id="fill-b">B'den</button>
+  {% if doc.judge_suggestion %}<button type="button" id="fill-judge">Judge'dan</button>{% endif %}
+  <button type="button" id="add-row">+ satır</button></p>
+  <table class="editor"><thead><tr>
+    <th>kanun_no</th><th>kanun_ad</th><th>madde</th><th>fikra</th><th>bent</th><th>source_text</th><th></th>
+  </tr></thead><tbody id="ref-rows"></tbody></table>
+  <details><summary>Ham JSON (gelişmiş / JS kapalı)</summary>
+  <textarea name="references_json" rows="8" cols="80"></textarea></details>
+  <p><button name="action" value="revise">Revizyonu kaydet</button></p>
 </form>
+
+<script id="cand" type="application/json">{{ {"a": doc.candidate_a, "b": doc.candidate_b, "judge": doc.judge_suggestion}|tojson }}</script>
+<script>
+(function(){
+  var DATA = JSON.parse(document.getElementById('cand').textContent);
+  var FIELDS = ['kanun_no','kanun_ad','madde','fikra','bent','source_text'];
+  var rows = document.getElementById('ref-rows');
+  var textarea = document.querySelector('textarea[name=references_json]');
+  function collect(){
+    var out=[]; rows.querySelectorAll('tr').forEach(function(tr){
+      var o={}, any=false;
+      tr.querySelectorAll('input').forEach(function(i){o[i.dataset.field]=i.value; if(i.value.trim())any=true;});
+      if(any) out.push(o);
+    }); return out;
+  }
+  function sync(){ textarea.value = JSON.stringify(collect()); }
+  function addRow(ref){
+    ref = ref||{}; var tr=document.createElement('tr');
+    FIELDS.forEach(function(f){
+      var td=document.createElement('td'), inp=document.createElement('input');
+      inp.dataset.field=f; inp.value=ref[f]||''; inp.size=(f==='source_text')?40:8;
+      inp.addEventListener('input', sync); td.appendChild(inp); tr.appendChild(td);
+    });
+    var td=document.createElement('td'), del=document.createElement('button');
+    del.type='button'; del.textContent='sil';
+    del.addEventListener('click', function(){ tr.remove(); sync(); });
+    td.appendChild(del); tr.appendChild(td); rows.appendChild(tr);
+  }
+  function fill(list){ rows.innerHTML=''; (list||[]).forEach(addRow); if(!rows.children.length) addRow(); sync(); }
+  document.getElementById('fill-a').addEventListener('click', function(){ fill(DATA.a); });
+  document.getElementById('fill-b').addEventListener('click', function(){ fill(DATA.b); });
+  var jb=document.getElementById('fill-judge');
+  if(jb && DATA.judge){ jb.addEventListener('click', function(){ fill(DATA.judge.final_references||[]); }); }
+  document.getElementById('add-row').addEventListener('click', function(){ addRow(); });
+  document.querySelector('button[value=revise]').addEventListener('click', sync);
+  fill(DATA.a);
+  document.addEventListener('keydown', function(e){
+    var t=(e.target.tagName||''); if(t==='INPUT'||t==='TEXTAREA'||t==='SELECT') return;
+    var k=e.key.toLowerCase();
+    if(k==='a'||k==='b'){
+      var val = k==='a' ? 'accept_candidate_a' : 'accept_candidate_b';
+      var btn=document.querySelector('button[value='+val+']');
+      if(btn){ e.preventDefault(); btn.click(); }
+    } else if(k==='d'){
+      var reason=document.querySelector('input[name=reason]'); if(reason){ e.preventDefault(); reason.focus(); }
+    }
+  });
+})();
+</script>
 """
+
+
+_DIFF_FIELDS = ("fikra", "bent", "source_text")
+
+
+def ab_diff(
+    candidate_a: list[dict[str, Any]], candidate_b: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Align two blind candidate reference sets by core law-article identity.
+
+    Pure and blind: the result never records which side is human vs model.
+    References are grouped by ``core_identity`` in first-appearance order across
+    A then B. Each group reports a ``status`` and, when a matched core differs
+    one-to-one, the subset of ``fikra``/``bent``/``source_text`` that disagree.
+    """
+
+    order: list[tuple[str, str, str, str]] = []
+    groups: dict[tuple[str, str, str, str], dict[str, list[dict[str, Any]]]] = {}
+    for label, references in (("a", candidate_a), ("b", candidate_b)):
+        for reference in references:
+            key = core_identity(reference)
+            if key not in groups:
+                groups[key] = {"a": [], "b": []}
+                order.append(key)
+            groups[key][label].append(reference)
+
+    rows: list[dict[str, Any]] = []
+    for key in order:
+        a_refs = groups[key]["a"]
+        b_refs = groups[key]["b"]
+        if a_refs and not b_refs:
+            status = "only_a"
+        elif b_refs and not a_refs:
+            status = "only_b"
+        elif sorted(full_identity(r) for r in a_refs) == sorted(
+            full_identity(r) for r in b_refs
+        ):
+            status = "same"
+        else:
+            status = "differs"
+        field_diffs: list[str] = []
+        if status == "differs" and len(a_refs) == 1 and len(b_refs) == 1:
+            field_diffs = [
+                field
+                for field in _DIFF_FIELDS
+                if a_refs[0].get(field, "") != b_refs[0].get(field, "")
+            ]
+        sample = (a_refs or b_refs)[0]
+        rows.append(
+            {
+                "core": {
+                    "kanun_no": sample["kanun_no"],
+                    "kanun_ad": sample["kanun_ad"],
+                    "madde": sample["madde"],
+                },
+                "status": status,
+                "a": a_refs,
+                "b": b_refs,
+                "field_diffs": field_diffs,
+            }
+        )
+    return rows
+
+
+def review_position(
+    queue: list[dict[str, Any]], internal_doc_id: str
+) -> dict[str, int] | None:
+    """1-based position of a document within the ordered review queue."""
+
+    for index, row in enumerate(queue, start=1):
+        if row["internal_doc_id"] == internal_doc_id:
+            return {"index": index, "total": len(queue)}
+    return None
 
 
 def _secure_equal(left: str, right: str) -> bool:
@@ -369,8 +540,13 @@ def create_hitl_app(
                 batch_id=batch_id,
                 internal_doc_id=internal_doc_id,
             )
+            queue = review_queue(config=config, store=store, batch_id=batch_id)
         return render_template_string(
-            REVIEW_TEMPLATE, doc=document, csrf_token=session["csrf_token"]
+            REVIEW_TEMPLATE,
+            doc=document,
+            diff=ab_diff(document["candidate_a"], document["candidate_b"]),
+            position=review_position(queue, internal_doc_id),
+            csrf_token=session["csrf_token"],
         )
 
     @app.post("/api/reviews/<internal_doc_id>")

@@ -182,6 +182,43 @@ def test_evidence_only_green_edit_does_not_escalate(tmp_path) -> None:
     ).exists()
 
 
+def test_review_page_renders_diff_table_progress_and_editor(tmp_path) -> None:
+    _, app = fixture(tmp_path)
+    client = app.test_client()
+    authenticated(client)
+    doc_id = client.get("/api/queue").get_json()["queue"][0]["internal_doc_id"]
+    page = client.get(f"/review/{doc_id}")
+    assert page.status_code == 200
+    html = page.get_data(as_text=True)
+    assert "A / B karşılaştırması" in html
+    assert "Revize editörü" in html
+    assert 'id="ref-rows"' in html
+    assert 'id="fill-a"' in html
+    assert 'id="cand"' in html
+    assert "(1/1)" in html
+
+
+def test_form_revise_via_references_json_finalizes(tmp_path) -> None:
+    _, app = fixture(tmp_path)
+    client = app.test_client()
+    csrf = authenticated(client)
+    doc_id = client.get("/api/queue").get_json()["queue"][0]["internal_doc_id"]
+    document = client.get(f"/api/documents/{doc_id}").get_json()
+    reference = document["candidate_a"][0]
+    response = client.post(
+        f"/review/{doc_id}",
+        data={
+            "csrf_token": csrf,
+            "row_version": "0",
+            "action": "revise",
+            "references_json": json.dumps([reference]),
+        },
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert response.status_code == 302  # form submit redirects to next review
+    assert client.get("/api/queue").get_json()["queue"] == []
+
+
 def test_green_membership_change_escalates_all_remaining_green(tmp_path) -> None:
     config, app = fixture(tmp_path, count=35)
     client = app.test_client()

@@ -25,6 +25,32 @@ from .errors import ContractError, GateBlocked, IntegrityError
 from .fingerprints import fingerprint_json, sha256_file
 
 
+LOSS_REDUCTION = "target_token_mean_v1"
+
+
+def _completion_target_span(
+    *, completion_offset: int, total_tokens: int
+) -> tuple[int, int]:
+    """Return the real completion's half-open token span."""
+
+    if not 0 <= completion_offset < total_tokens:
+        raise ContractError("completion target span is empty or out of bounds")
+    return completion_offset, total_tokens
+
+
+def _normalise_accumulated_gradient(
+    tree_map: Callable[..., Any],
+    gradient: Any,
+    *,
+    target_tokens: int,
+) -> Any:
+    """Convert summed target-token gradients to one token-level mean."""
+
+    if target_tokens <= 0:
+        raise IntegrityError("gradient accumulation has no target tokens")
+    return tree_map(lambda value: value / target_tokens, gradient)
+
+
 @dataclass(frozen=True)
 class StatefulTrainingConfig:
     seed: int = 42
@@ -40,6 +66,7 @@ class StatefulTrainingConfig:
     adam_beta2: float = 0.999
     adam_eps: float = 1e-8
     adam_bias_correction: bool = False
+    loss_reduction: str = LOSS_REDUCTION
     warmup_updates: int = 15
     total_updates: int = 295
     max_sequence_length: int = 8192
@@ -165,6 +192,8 @@ class StatefulMlxTrainer:
     ) -> None:
         if config.batch_size != 1:
             raise ContractError("v1 stateful trainer supports only batch_size=1")
+        if config.loss_reduction != LOSS_REDUCTION:
+            raise ContractError(f"unsupported loss reduction: {config.loss_reduction!r}")
         self.model_path = model_path.resolve()
         self.train_path = train_path.resolve()
         self.config = config
@@ -242,10 +271,10 @@ class StatefulMlxTrainer:
             targets = batch[:, 1:]
             logits = model(inputs)
             steps = mx.arange(1, targets.shape[1] + 1)
-            mask = mx.logical_and(steps >= lengths[:, 0:1], steps <= lengths[:, 1:])
+            mask = mx.logical_and(steps >= lengths[:, 0:1], steps < lengths[:, 1:])
             ce = nn.losses.cross_entropy(logits, targets) * mask
             ntoks = mask.sum()
-            return ce.astype(mx.float32).sum() / ntoks, ntoks
+            return ce.astype(mx.float32).sum(), ntoks
 
         value_and_grad = nn.value_and_grad(self.model, completion_loss)
         # Keep the large model backward graph independent from gradient
@@ -271,6 +300,10 @@ class StatefulMlxTrainer:
         import numpy as np
 
         tokens, offset = self.dataset[dataset_index]
+        completion_start, completion_end = _completion_target_span(
+            completion_offset=offset,
+            total_tokens=len(tokens),
+        )
         # A small fixed set of shapes bounds MLX graph compilation while
         # preserving every source and completion token. Padding is strictly
         # after the masked target, so it cannot influence causal target logits.
@@ -284,7 +317,9 @@ class StatefulMlxTrainer:
         padded_length = min(candidates) if candidates else maximum_length
         array = np.zeros((1, padded_length), dtype=np.int32)
         array[0, : len(tokens)] = tokens
-        return self._mx.array(array), self._mx.array([[offset, len(tokens)]])
+        return self._mx.array(array), self._mx.array(
+            [[completion_start, completion_end]]
+        )
 
     def _save_checkpoint(self) -> Path:
         mx = self._mx
@@ -382,7 +417,8 @@ class StatefulMlxTrainer:
             raise ValueError("target_updates must exceed the restored global update")
         gradient_accumulator = None
         accumulated = 0
-        losses: list[float] = []
+        accumulated_tokens = 0
+        total_loss = 0.0
         trained_tokens = 0
         latest_checkpoint: Path | None = None
         while self.global_update < target_updates:
@@ -390,13 +426,16 @@ class StatefulMlxTrainer:
             batch, lengths = self._batch(index)
             accumulated += 1
             do_update = accumulated == self.config.gradient_accumulation
-            loss, token_count, gradient = self._gradient_step(batch, lengths)
+            loss_sum, token_count, gradient = self._gradient_step(batch, lengths)
             self._mx.eval(
                 self._compiled_state,
-                loss,
+                loss_sum,
                 token_count,
                 gradient,
             )
+            current_tokens = int(token_count.item())
+            if current_tokens <= 0:
+                raise IntegrityError("completion loss produced no target tokens")
             if gradient_accumulator is None:
                 gradient_accumulator = gradient
             else:
@@ -406,13 +445,15 @@ class StatefulMlxTrainer:
                     gradient,
                 )
                 self._mx.eval(gradient_accumulator)
-            losses.append(float(loss.item()))
-            trained_tokens += int(token_count.item())
+            accumulated_tokens += current_tokens
+            total_loss += float(loss_sum.item())
+            trained_tokens += current_tokens
             if not do_update:
                 continue
-            averaged_gradient = self._tree_map(
-                lambda value: value / self.config.gradient_accumulation,
+            averaged_gradient = _normalise_accumulated_gradient(
+                self._tree_map,
                 gradient_accumulator,
+                target_tokens=accumulated_tokens,
             )
             self.optimizer.update(self.model, averaged_gradient)
             self._mx.eval(self.model.state, self.optimizer.state)
@@ -421,6 +462,7 @@ class StatefulMlxTrainer:
             self._compiled_state[0] = self.model.state
             gradient_accumulator = None
             accumulated = 0
+            accumulated_tokens = 0
             self.global_update += 1
             due_count = (
                 self.global_update % self.config.checkpoint_every_updates == 0
@@ -435,11 +477,13 @@ class StatefulMlxTrainer:
                     on_checkpoint(latest_checkpoint, self.global_update)
         if gradient_accumulator is not None:
             raise IntegrityError("training stopped with a non-empty gradient accumulator")
+        if accumulated_tokens:
+            raise IntegrityError("training stopped with unnormalised target tokens")
         assert latest_checkpoint is not None
         return {
             "global_update": self.global_update,
             "micro_steps": self.cursor.micro_steps,
-            "mean_loss": sum(losses) / len(losses),
+            "mean_loss": total_loss / trained_tokens,
             "trained_tokens": trained_tokens,
             "checkpoint": str(latest_checkpoint),
             "checkpoint_manifest_sha256": sha256_file(

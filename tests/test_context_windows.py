@@ -30,7 +30,7 @@ def _row(user: str, references: list[dict[str, str]]) -> dict[str, object]:
     return {
         "messages": [
             {"role": "system", "content": "extract"},
-            {"role": "user", "content": user + "\n/no_think"},
+            {"role": "user", "content": user},
             {
                 "role": "assistant",
                 "content": json.dumps(
@@ -44,8 +44,7 @@ def _row(user: str, references: list[dict[str, str]]) -> dict[str, object]:
 def test_context_window_view_is_lossless_bounded_and_idempotent(
     tmp_path: Path, monkeypatch
 ) -> None:
-    monkeypatch.setattr(context_windows, "PRIMARY_WINDOW_TOKENS", 4)
-    monkeypatch.setattr(context_windows, "PRIMARY_OVERLAP_TOKENS", 2)
+    monkeypatch.setattr(context_windows, "_primary_window_geometry", lambda _: (4, 2))
     monkeypatch.setattr(context_windows, "FALLBACK_WINDOW_TOKENS", 2)
     monkeypatch.setattr(context_windows, "FALLBACK_OVERLAP_TOKENS", 1)
     source = tmp_path / "train.jsonl"
@@ -81,9 +80,16 @@ def test_context_window_view_is_lossless_bounded_and_idempotent(
     assert manifest["native_document_count"] == 1
     assert manifest["windowed_document_count"] == 1
     assert manifest["maximum_tokens"] <= 8
-    assert manifest["text_coverage"] == "complete"
+    assert manifest["candidate_text_coverage"] == "complete_before_negative_sampling"
     assert manifest["reference_coverage"] == "complete"
-    assert json.loads(output_ids.read_text(encoding="utf-8"))[0] == 10
+    rendered_rows = [json.loads(line) for line in output.read_text().splitlines()]
+    rendered_doc_ids = json.loads(output_ids.read_text(encoding="utf-8"))
+    assert rendered_doc_ids[0] == 10
+    assert all(
+        json.loads(row["messages"][-1]["content"])
+        for row, doc_id in zip(rendered_rows, rendered_doc_ids, strict=True)
+        if doc_id == 20
+    )
     assert build_context_window_view(
         source_path=source,
         source_doc_ids_path=doc_ids,

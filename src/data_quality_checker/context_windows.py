@@ -269,7 +269,7 @@ def build_context_window_view(
         "fallback_window_tokens": FALLBACK_WINDOW_TOKENS,
         "fallback_overlap_tokens": FALLBACK_OVERLAP_TOKENS,
         "reference_rescue": "source_text_v1",
-        "empty_chunk_sampling": "max_one_per_source_document_v1",
+        "empty_chunk_sampling": "true_negative_documents_only_v2",
         "dense_replay": "windowed_documents_source_text_pack_max10_full_v5",
         "dense_replay_sampling": {
             "policy": "sha256_doc_id_first_byte_threshold_v1",
@@ -417,9 +417,15 @@ def build_context_window_view(
             if metadata["reference_count"] == 0
         ]
         candidate_empty_chunk_count += len(empty_indices)
+        # Canonical rows are document-level reference sets, not exhaustive
+        # mention annotations.  A window from a positive document can contain
+        # an explicit repeated citation whose chosen canonical source_text is
+        # elsewhere; labelling that window [] is therefore a false negative.
+        # Preserve a negative window only when the whole source document is a
+        # genuine negative.
         kept_empty_index = (
             max(empty_indices, key=lambda index: accepted[index][1]["tokens"])
-            if empty_indices
+            if empty_indices and not references
             else None
         )
         kept_indices = {
@@ -564,7 +570,7 @@ def build_context_window_view(
         "maximum_tokens": maximum_tokens,
         "candidate_text_coverage": "complete_before_negative_sampling",
         "training_text_policy": (
-            "all_positive_plus_max_one_empty_plus_full_dense_replay"
+            "all_positive_plus_true_negative_only_plus_full_dense_replay"
         ),
         "reference_coverage": "complete",
         "output_jsonl_path": str(output_path.resolve()),

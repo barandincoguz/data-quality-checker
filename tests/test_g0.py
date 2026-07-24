@@ -71,7 +71,7 @@ def test_bootstrap_writes_canonical_only_data_and_fake_resume_gate(tmp_path) -> 
         .read_text(encoding="utf-8")
         .splitlines()[0]
     )
-    assert first_line["messages"][1]["content"].endswith("/no_think")
+    assert not first_line["messages"][1]["content"].endswith("/no_think")
     assert first_line["messages"][2]["role"] == "assistant"
 
 

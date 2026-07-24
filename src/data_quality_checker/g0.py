@@ -440,7 +440,10 @@ def train_bootstrap(
     )
     training_contract = TrainingContract()
     environment = environment_preflight(config)
-    if not environment["mlx_lm_version_ok"]:
+    # The default software-preflight path (execute=False) must pass without MLX
+    # installed (see plan Global Constraints: local default tests import no MLX).
+    # The mlx-lm version gate only applies to the real compute run.
+    if execute and not environment["mlx_lm_version_ok"]:
         raise GateBlocked(
             f"mlx-lm>={MINIMUM_MLX_LM} is required; observed "
             f"{environment['packages']['mlx-lm']}"

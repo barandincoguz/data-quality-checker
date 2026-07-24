@@ -40,7 +40,7 @@ def _fixture_context(tmp_path: Path, *, preflight_passed: bool = True):
     row = {
         "messages": [
             {"role": "system", "content": "fixture"},
-            {"role": "user", "content": "fixture /no_think"},
+            {"role": "user", "content": "fixture"},
             {"role": "assistant", "content": "[]"},
         ]
     }
@@ -78,6 +78,7 @@ def _fixture_context(tmp_path: Path, *, preflight_passed: bool = True):
         "training_view": {
             "jsonl_path": str(training_view_path),
             "jsonl_sha256": sha256_file(training_view_path),
+            "row_count": 394,
         },
         "data_manifest": {"path": str(data_dir)},
         "recovery": {"long_run_allowed": preflight_passed},
@@ -160,8 +161,8 @@ def test_dry_run_exposes_every_hidden_training_default(tmp_path: Path) -> None:
     assert trajectory["adam_bias_correction"] is False
     assert trajectory["compile_gradient_step"] is True
     assert trajectory["sequence_length_buckets"] == [1024, 2048, 4096, 8192, 10241]
-    assert trajectory["warmup_updates"] == 15
-    assert trajectory["total_updates"] == 295
+    assert trajectory["warmup_updates"] == 5
+    assert trajectory["total_updates"] == 99
     assert plan["long_run_started"] is False
 
 
@@ -273,6 +274,8 @@ def test_pilot_segments_train_validate_and_resume_idempotently(tmp_path: Path) -
             "coverage_count": 50,
             "parse_count": 50,
             "empty_output_count": 0,
+            "zero_reference_output_count": 0,
+            "predicted_reference_count": 1,
             "runaway_output_count": 0,
             "validation_loss": 1 / update,
             "predictions_path": str(predictions),
@@ -401,6 +404,8 @@ def test_resume_discovers_latest_verified_time_checkpoint(tmp_path: Path) -> Non
             "coverage_count": 50,
             "parse_count": 50,
             "empty_output_count": 0,
+            "zero_reference_output_count": 0,
+            "predicted_reference_count": 1,
             "runaway_output_count": 0,
             "validation_loss": 1.0,
             "predictions_path": str(predictions),

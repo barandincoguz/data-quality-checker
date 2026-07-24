@@ -17,7 +17,7 @@ def test_default_config_resolves_repo_paths_and_pins_model() -> None:
     assert config.model.model_id == MODEL_ID
     assert config.model.revision == MODEL_REVISION
     assert config.model.enable_thinking is False
-    assert config.model.prompt_suffix == "/no_think"
+    assert config.model.prompt_suffix == ""
     assert len(config.fingerprint) == 64
 
 

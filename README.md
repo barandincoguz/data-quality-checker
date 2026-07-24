@@ -79,10 +79,12 @@ değerlendirmesini tamamlar. `--execute` yalnız yeşil compute preflight ve `tm
 içinde çalışır; `--resume` tamamlanmış segment/validation kayıtlarını atlar.
 İki başlangıç adayı yalnız peak LR bakımından farklıdır: `5e-5` ve `1e-4`.
 
-Mac Studio compute kabulünde tam belge inference/validation bağlamı `10240`,
-backward eğitim bağlamı `1024` token olarak doğrulandı. Uzun train belgeleri
-sessizce kırpılmaz: örtüşmeli ve fingerprint'li pencerelerle `394` belge `2090`
-eğitim satırına dönüşür; kaynak metin ve gold referans coverage'ı eksiksiz
+Mac Studio compute kabulünde tam belge inference/validation bağlamı `12288`,
+backward eğitim bağlamı `1536` token olarak doğrulandı. Uzun train belgeleri
+sessizce kırpılmaz: örtüşmeli ve fingerprint'li doğal pencereler, belge başına
+en fazla bir boş pencere ve çok-referanslı dense-replay satırlarıyla `394`
+belge `3680` eğitim satırına dönüşür. Candidate metin coverage'ı negative
+sampling öncesi, gold referans coverage'ı ise eğitim görünümünde eksiksiz
 olmadan koşu açılmaz.
 
 Hiperparametre seçimi validation-50 üzerinde yapılır. Ayrı test-50 seçim

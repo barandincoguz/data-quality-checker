@@ -482,6 +482,7 @@ def _validation_summary(
         summary["coverage_count"] == 50
         and summary["parse_count"] >= 49
         and summary["empty_output_count"] == 0
+        and summary["zero_reference_output_count"] == 0
         and summary["predicted_reference_count"] > 0
         and summary["runaway_output_count"] == 0
     )
@@ -728,9 +729,12 @@ def run_development(
         for unit_number, update in enumerate(milestones, 1):
             if update in summary_by_update:
                 existing_summary = summary_by_update[update]
-                if int(existing_summary.get("predicted_reference_count", 0)) <= 0:
+                if (
+                    int(existing_summary.get("predicted_reference_count", 0)) <= 0
+                    or int(existing_summary.get("zero_reference_output_count", 0)) > 0
+                ):
                     raise GateBlocked(
-                        f"validation at update={update} collapsed to zero references"
+                        f"validation at update={update} has zero-reference outputs"
                     )
                 summary_checkpoint = Path(existing_summary["checkpoint"])
                 verify_checkpoint(summary_checkpoint)
@@ -818,9 +822,12 @@ def run_development(
                 evaluation_sha256=sha256_file(evaluation_path),
             )
             write_json_atomic(validation_dir / "summary.json", summary)
-            if summary["predicted_reference_count"] <= 0:
+            if (
+                summary["predicted_reference_count"] <= 0
+                or summary["zero_reference_output_count"] > 0
+            ):
                 raise GateBlocked(
-                    f"validation at update={update} collapsed to zero references"
+                    f"validation at update={update} has zero-reference outputs"
                 )
             summary_by_update[update] = summary
             summaries = [summary_by_update[key] for key in sorted(summary_by_update)]

@@ -29,9 +29,9 @@ from .locking import process_exists
 from .mlx_stateful import NoThinkChatDataset, StatefulTrainingConfig
 
 
-# Earlier probes established a Metal resource boundary above 1024. Re-probe
-# only the useful neighborhood after prompt/window changes, largest first.
-TRAINING_SEQUENCE_LENGTH_CANDIDATES = (4096, 3072, 2048, 1792, 1536, 1280, 1024)
+# Exact-model probes on this 96 GiB host rejected 1792 and above while 1536
+# passed with headroom. Re-smoke the new training view at that established cap.
+TRAINING_SEQUENCE_LENGTH_CANDIDATES = (1536,)
 
 
 def _utc_now() -> str:
@@ -588,6 +588,10 @@ def run_compute_acceptance_preflight(
                 "candidate_empty_chunk_count",
                 "dropped_empty_chunk_count",
                 "reference_rescue_count",
+                "dense_replay_row_count",
+                "dense_replay_reference_count",
+                "dense_replay_max_reference_count",
+                "training_reference_count",
                 "maximum_tokens",
                 "candidate_text_coverage",
                 "training_text_policy",

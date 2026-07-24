@@ -128,6 +128,76 @@ def _window_row(
     return row, metadata, visible_indices
 
 
+def _dense_replay_rows(
+    *,
+    tokenizer: Any,
+    system_message: dict[str, str],
+    body: str,
+    references: list[dict[str, Any]],
+    max_sequence_length: int,
+) -> list[tuple[dict[str, Any], int, int]]:
+    """Pack a document's real evidence into long-target replay rows."""
+
+    packed: list[tuple[dict[str, Any], int, int]] = []
+    current_references: list[dict[str, Any]] = []
+    current_evidence: list[str] = []
+
+    def render(
+        replay_references: list[dict[str, Any]], evidence: list[str]
+    ) -> tuple[dict[str, Any], int]:
+        messages = [
+            system_message,
+            {"role": "user", "content": "\n".join(evidence)},
+            {
+                "role": "assistant",
+                "content": json.dumps(
+                    replay_references,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                ),
+            },
+        ]
+        return {"messages": messages}, _rendered_token_count(tokenizer, messages)
+
+    for reference_index, reference in enumerate(references):
+        source_text = reference.get("source_text")
+        if not isinstance(source_text, str) or not source_text.strip():
+            raise IntegrityError(
+                f"dense replay reference {reference_index} has no source_text"
+            )
+        source_text = source_text.strip()
+        if source_text not in body:
+            raise IntegrityError(
+                f"dense replay reference {reference_index} is absent from source text"
+            )
+        candidate_references = [*current_references, reference]
+        candidate_evidence = list(current_evidence)
+        if source_text not in candidate_evidence:
+            candidate_evidence.append(source_text)
+        candidate_row, candidate_tokens = render(
+            candidate_references, candidate_evidence
+        )
+        if candidate_tokens <= max_sequence_length:
+            current_references = candidate_references
+            current_evidence = candidate_evidence
+            continue
+        if not current_references:
+            raise ContractError(
+                "single-reference dense replay exceeds the accepted sequence length"
+            )
+        row, tokens = render(current_references, current_evidence)
+        packed.append((row, tokens, len(current_references)))
+        current_references = [reference]
+        current_evidence = [source_text]
+
+    if current_references:
+        row, tokens = render(current_references, current_evidence)
+        if tokens > max_sequence_length:
+            raise ContractError("dense replay exceeds the accepted sequence length")
+        packed.append((row, tokens, len(current_references)))
+    return packed
+
+
 def _validate_cached_view(
     *, manifest_path: Path, output_path: Path, output_doc_ids_path: Path, request: dict[str, Any]
 ) -> dict[str, Any] | None:
@@ -180,6 +250,7 @@ def build_context_window_view(
         "fallback_overlap_tokens": FALLBACK_OVERLAP_TOKENS,
         "reference_rescue": "source_text_v1",
         "empty_chunk_sampling": "max_one_per_source_document_v1",
+        "dense_replay": "windowed_documents_source_text_pack_v1",
         "thinking_control": "chat_template_enable_thinking_false",
     }
     request["fingerprint"] = fingerprint_json(request)
@@ -213,6 +284,9 @@ def build_context_window_view(
     candidate_empty_chunk_count = 0
     dropped_empty_chunk_count = 0
     reference_rescue_count = 0
+    dense_replay_row_count = 0
+    dense_replay_reference_count = 0
+    dense_replay_max_reference_count = 0
     maximum_tokens = 0
 
     for row_index, (row, raw_doc_id) in enumerate(zip(rows, doc_ids, strict=True)):
@@ -396,6 +470,32 @@ def build_context_window_view(
             raise IntegrityError(
                 f"reference coverage gap at source row {row_index}: {missing}"
             )
+        replay_rows = _dense_replay_rows(
+            tokenizer=tokenizer,
+            system_message=messages[0],
+            body=body,
+            references=references,
+            max_sequence_length=max_sequence_length,
+        )
+        for replay_row, replay_tokens, replay_reference_count in replay_rows:
+            output_rows.append(replay_row)
+            output_doc_ids.append(doc_id)
+            dense_replay_row_count += 1
+            dense_replay_reference_count += replay_reference_count
+            dense_replay_max_reference_count = max(
+                dense_replay_max_reference_count, replay_reference_count
+            )
+            maximum_tokens = max(maximum_tokens, replay_tokens)
+            chunks.append(
+                {
+                    "output_row_index": len(output_rows) - 1,
+                    "source_row_index": row_index,
+                    "doc_id": doc_id,
+                    "mode": "reference_dense_replay",
+                    "tokens": replay_tokens,
+                    "reference_count": replay_reference_count,
+                }
+            )
 
     if len(output_rows) != len(output_doc_ids) or maximum_tokens > max_sequence_length:
         raise IntegrityError("context-window output failed final coverage bounds")
@@ -414,9 +514,17 @@ def build_context_window_view(
         "candidate_empty_chunk_count": candidate_empty_chunk_count,
         "dropped_empty_chunk_count": dropped_empty_chunk_count,
         "reference_rescue_count": reference_rescue_count,
+        "dense_replay_row_count": dense_replay_row_count,
+        "dense_replay_reference_count": dense_replay_reference_count,
+        "dense_replay_max_reference_count": dense_replay_max_reference_count,
+        "training_reference_count": (
+            chunk_reference_count + dense_replay_reference_count
+        ),
         "maximum_tokens": maximum_tokens,
         "candidate_text_coverage": "complete_before_negative_sampling",
-        "training_text_policy": "all_positive_plus_max_one_empty_per_source_document",
+        "training_text_policy": (
+            "all_positive_plus_max_one_empty_plus_windowed_document_dense_replay"
+        ),
         "reference_coverage": "complete",
         "output_jsonl_path": str(output_path.resolve()),
         "output_jsonl_sha256": sha256_file(output_path),

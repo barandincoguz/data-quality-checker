@@ -33,6 +33,7 @@ PILOT_LEARNING_RATES = {
     "lr1e-5": 1e-5,
     "lr2.5e-5": 2.5e-5,
     "lr2.5e-5-cos200": 2.5e-5,
+    "lr2.5e-5-warm42-cos150": 2.5e-5,
     "lr5e-5": 5e-5,
     "lr1e-4": 1e-4,
 }
@@ -44,6 +45,15 @@ PILOT_LEARNING_RATES = {
 # whether that locks the recall peak in place.
 PILOT_SCHEDULE_OVERRIDES = {
     "lr2.5e-5-cos200": 200,
+    "lr2.5e-5-warm42-cos150": 150,
+}
+# Warmup is otherwise round(total_updates * warmup_fraction), so a short cosine
+# horizon also shortens warmup and front-loads LR (cos200 warmup was 8-10, which
+# over-fit precision before update 25). These overrides decouple warmup from the
+# horizon so a decayed run still ramps like the peak-reaching 850-step schedule
+# (warmup 42) before annealing.
+PILOT_WARMUP_OVERRIDES = {
+    "lr2.5e-5-warm42-cos150": 42,
 }
 PILOT_TARGET_UPDATES = 50
 MAX_GENERATION_TOKENS = 2048
@@ -117,6 +127,7 @@ def _candidate_training_config(
     sequence_length: int,
     training_rows: int,
     schedule_total_updates: int | None = None,
+    warmup_updates_override: int | None = None,
 ) -> StatefulTrainingConfig:
     contract = TrainingContract()
     # The first development trajectory consumes every balanced training-view
@@ -142,7 +153,11 @@ def _candidate_training_config(
         adam_beta2=0.999,
         adam_eps=1e-8,
         adam_bias_correction=False,
-        warmup_updates=contract.warmup_updates_for(total_updates),
+        warmup_updates=(
+            warmup_updates_override
+            if warmup_updates_override is not None
+            else contract.warmup_updates_for(total_updates)
+        ),
         total_updates=total_updates,
         max_sequence_length=sequence_length,
         gradient_checkpointing=contract.gradient_checkpointing,
@@ -239,6 +254,7 @@ def _candidate_contract(
         sequence_length=sequence_length,
         training_rows=training_rows,
         schedule_total_updates=PILOT_SCHEDULE_OVERRIDES.get(candidate_id),
+        warmup_updates_override=PILOT_WARMUP_OVERRIDES.get(candidate_id),
     )
     trajectory = asdict(training)
     trajectory["sequence_length_buckets"] = list(training.sequence_length_buckets)

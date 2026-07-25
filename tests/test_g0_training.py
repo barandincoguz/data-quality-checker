@@ -197,6 +197,26 @@ def test_scheduled_decay_candidate_overrides_cosine_horizon(tmp_path: Path) -> N
     assert trajectory["warmup_updates"] < 200
 
 
+def test_decoupled_warmup_candidate_keeps_full_warmup_on_short_horizon(
+    tmp_path: Path,
+) -> None:
+    config = _fixture_context(tmp_path)
+    plan = run_development(
+        config=config,
+        run_id=RUN_ID,
+        candidate_id="lr2.5e-5-warm42-cos150",
+        target_updates=50,
+    )
+
+    trajectory = plan["contract"]["trajectory"]
+    assert plan["status"] == "ready"
+    assert trajectory["peak_learning_rate"] == 2.5e-5
+    assert trajectory["total_updates"] == 150
+    # Warmup is pinned at 42 despite the short 150-step horizon (which would
+    # otherwise round to 8), so the LR still ramps like the peak-reaching run.
+    assert trajectory["warmup_updates"] == 42
+
+
 def test_failed_compute_preflight_blocks_execute_without_writing_candidate(
     tmp_path: Path,
 ) -> None:

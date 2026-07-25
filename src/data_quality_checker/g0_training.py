@@ -32,8 +32,18 @@ from .mlx_stateful import StatefulTrainingConfig
 PILOT_LEARNING_RATES = {
     "lr1e-5": 1e-5,
     "lr2.5e-5": 2.5e-5,
+    "lr2.5e-5-cos200": 2.5e-5,
     "lr5e-5": 5e-5,
     "lr1e-4": 1e-4,
+}
+# Candidates whose cosine LR schedule anneals over an explicit horizon instead
+# of the full training-view epoch (ceil(rows / grad_accum) = 850). Flat-LR
+# development runs peak on recall near update 75 then drift into a high-precision
+# basin because the 850-step schedule keeps LR near peak. These variants keep LR
+# high through the peak and then anneal it toward end_learning_rate to test
+# whether that locks the recall peak in place.
+PILOT_SCHEDULE_OVERRIDES = {
+    "lr2.5e-5-cos200": 200,
 }
 PILOT_TARGET_UPDATES = 50
 MAX_GENERATION_TOKENS = 2048
@@ -102,13 +112,22 @@ def _verified_checkpoints(
 
 
 def _candidate_training_config(
-    *, peak_learning_rate: float, sequence_length: int, training_rows: int
+    *,
+    peak_learning_rate: float,
+    sequence_length: int,
+    training_rows: int,
+    schedule_total_updates: int | None = None,
 ) -> StatefulTrainingConfig:
     contract = TrainingContract()
     # The first development trajectory consumes every balanced training-view
     # row once. More epochs require a new reviewed trajectory after validation;
     # this avoids silently repeating overlap-expanded references.
-    total_updates = math.ceil(training_rows / contract.gradient_accumulation)
+    # ``schedule_total_updates`` overrides the cosine horizon so the LR can be
+    # annealed over an explicit window (see PILOT_SCHEDULE_OVERRIDES) instead of
+    # the full training-view epoch.
+    total_updates = schedule_total_updates or math.ceil(
+        training_rows / contract.gradient_accumulation
+    )
     return StatefulTrainingConfig(
         seed=contract.seed,
         rank=contract.lora_rank,
@@ -219,6 +238,7 @@ def _candidate_contract(
         peak_learning_rate=PILOT_LEARNING_RATES[candidate_id],
         sequence_length=sequence_length,
         training_rows=training_rows,
+        schedule_total_updates=PILOT_SCHEDULE_OVERRIDES.get(candidate_id),
     )
     trajectory = asdict(training)
     trajectory["sequence_length_buckets"] = list(training.sequence_length_buckets)

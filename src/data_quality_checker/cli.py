@@ -47,7 +47,7 @@ def build_parser() -> argparse.ArgumentParser:
     develop.add_argument("--run-id", required=True)
     develop.add_argument(
         "--candidate",
-        choices=["lr1e-5", "lr2.5e-5", "lr5e-5", "lr1e-4"],
+        choices=["lr1e-5", "lr2.5e-5", "lr2.5e-5-cos200", "lr5e-5", "lr1e-4"],
         required=True,
         help="locked learning-rate candidate",
     )

@@ -179,6 +179,24 @@ def test_lower_lr_candidate_renders_peak_learning_rate(tmp_path: Path) -> None:
     assert plan["contract"]["trajectory"]["peak_learning_rate"] == 1e-5
 
 
+def test_scheduled_decay_candidate_overrides_cosine_horizon(tmp_path: Path) -> None:
+    config = _fixture_context(tmp_path)
+    plan = run_development(
+        config=config,
+        run_id=RUN_ID,
+        candidate_id="lr2.5e-5-cos200",
+        target_updates=50,
+    )
+
+    trajectory = plan["contract"]["trajectory"]
+    assert plan["status"] == "ready"
+    assert trajectory["peak_learning_rate"] == 2.5e-5
+    # The cosine horizon is the explicit override (200), not the full
+    # training-view epoch (fixture has 394 rows -> ceil(394/4)=99 updates).
+    assert trajectory["total_updates"] == 200
+    assert trajectory["warmup_updates"] < 200
+
+
 def test_failed_compute_preflight_blocks_execute_without_writing_candidate(
     tmp_path: Path,
 ) -> None:

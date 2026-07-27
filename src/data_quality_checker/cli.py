@@ -52,6 +52,7 @@ def build_parser() -> argparse.ArgumentParser:
             "lr2.5e-5",
             "lr2.5e-5-cos200",
             "lr2.5e-5-warm42-cos150",
+            "lr2.5e-5-warm42-cos850",
             "lr5e-5",
             "lr1e-4",
         ],

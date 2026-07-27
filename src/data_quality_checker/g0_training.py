@@ -34,6 +34,7 @@ PILOT_LEARNING_RATES = {
     "lr2.5e-5": 2.5e-5,
     "lr2.5e-5-cos200": 2.5e-5,
     "lr2.5e-5-warm42-cos150": 2.5e-5,
+    "lr2.5e-5-warm42-cos850": 2.5e-5,
     "lr5e-5": 5e-5,
     "lr1e-4": 1e-4,
 }
@@ -46,6 +47,10 @@ PILOT_LEARNING_RATES = {
 PILOT_SCHEDULE_OVERRIDES = {
     "lr2.5e-5-cos200": 200,
     "lr2.5e-5-warm42-cos150": 150,
+    # Full training-view epoch: ceil(3399 rows / grad_accum 4) = 850 updates,
+    # cosine annealing peak->end across the whole epoch. Answers "what does
+    # feeding all the data (one full pass, properly annealed) give?".
+    "lr2.5e-5-warm42-cos850": 850,
 }
 # Warmup is otherwise round(total_updates * warmup_fraction), so a short cosine
 # horizon also shortens warmup and front-loads LR (cos200 warmup was 8-10, which
@@ -54,6 +59,7 @@ PILOT_SCHEDULE_OVERRIDES = {
 # (warmup 42) before annealing.
 PILOT_WARMUP_OVERRIDES = {
     "lr2.5e-5-warm42-cos150": 42,
+    "lr2.5e-5-warm42-cos850": 42,
 }
 PILOT_TARGET_UPDATES = 50
 MAX_GENERATION_TOKENS = 2048

@@ -28,7 +28,12 @@ def prepare(args: Namespace, config: AppConfig) -> int:
 def train_bootstrap(args: Namespace, config: AppConfig) -> int:
     from .g0 import train_bootstrap
 
-    result = train_bootstrap(config=config, generation=args.generation, execute=args.execute)
+    result = train_bootstrap(
+        config=config,
+        generation=args.generation,
+        execute=args.execute,
+        refit=bool(getattr(args, "refit", False)),
+    )
     print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
     return 0
 

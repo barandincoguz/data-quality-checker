@@ -106,3 +106,31 @@ def test_refit_scaling_and_base_improvement_gate() -> None:
     assert_test_improves_base(base_core_f1=0.5, tuned_core_f1=0.6)
     with pytest.raises(GateBlocked):
         assert_test_improves_base(base_core_f1=0.5, tuned_core_f1=0.5)
+
+
+def test_bootstrap_run_id_is_unchanged_for_development(tmp_path: Path) -> None:
+    # Regression lock: the winning recall-v2 development run must keep its id.
+    result = train_bootstrap(config=isolated_config(tmp_path), generation="G0")
+    assert result["run_id"] == "dqcheck_g0_qwen3_5_9b_955f5a14e275"
+
+
+def test_refit_bootstrap_trains_on_all_494_with_its_own_run_id(tmp_path: Path) -> None:
+    dev_root, refit_root = tmp_path / "dev", tmp_path / "refit"
+    dev_root.mkdir()
+    refit_root.mkdir()
+    dev = train_bootstrap(config=isolated_config(dev_root), generation="G0")
+    refit = train_bootstrap(
+        config=isolated_config(refit_root), generation="G0", refit=True
+    )
+    assert refit["run_id"] != dev["run_id"]
+    counts = {k: v["count"] for k, v in refit["data_manifest"]["files"].items()}
+    assert counts == {"train": 494, "valid": 50, "test": 0}
+    assert refit["split_policy"] == "refit-all-494-nominal-valid"
+    assert dev["split_policy"] == "development-394-50-50"
+
+
+def test_refit_split_keeps_every_document_in_train() -> None:
+    from data_quality_checker.g0 import refit_split
+
+    split = {"train": [1, 2], "valid": [3], "test": [4]}
+    assert refit_split(split) == {"train": [1, 2, 3, 4], "valid": [3], "test": []}

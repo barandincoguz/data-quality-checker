@@ -30,6 +30,7 @@ from .mlx_compute import _run_worker
 from .mlx_stateful import StatefulTrainingConfig
 
 PILOT_LEARNING_RATES = {
+    "refit-cos1003": 2.5e-5,
     "lr1e-5": 1e-5,
     "lr2.5e-5": 2.5e-5,
     "lr2.5e-5-cos200": 2.5e-5,
@@ -45,6 +46,7 @@ PILOT_LEARNING_RATES = {
 # high through the peak and then anneal it toward end_learning_rate to test
 # whether that locks the recall peak in place.
 PILOT_SCHEDULE_OVERRIDES = {
+    "refit-cos1003": 1003,
     "lr2.5e-5-cos200": 200,
     "lr2.5e-5-warm42-cos150": 150,
     # Full training-view epoch: ceil(3399 rows / grad_accum 4) = 850 updates,
@@ -58,6 +60,7 @@ PILOT_SCHEDULE_OVERRIDES = {
 # horizon so a decayed run still ramps like the peak-reaching 850-step schedule
 # (warmup 42) before annealing.
 PILOT_WARMUP_OVERRIDES = {
+    "refit-cos1003": 42,
     "lr2.5e-5-warm42-cos150": 42,
     "lr2.5e-5-warm42-cos850": 42,
 }

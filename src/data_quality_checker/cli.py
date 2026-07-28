@@ -39,6 +39,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="execute compute after every preflight gate; otherwise emit the locked plan",
     )
+    train.add_argument(
+        "--refit",
+        action="store_true",
+        help="final refit run: train on all 494 canonical documents (nominal validation "
+        "only, no held-out test); derives its own run id",
+    )
     train.set_defaults(handler=commands.train_bootstrap)
 
     develop = subparsers.add_parser(
@@ -53,6 +59,7 @@ def build_parser() -> argparse.ArgumentParser:
             "lr2.5e-5-cos200",
             "lr2.5e-5-warm42-cos150",
             "lr2.5e-5-warm42-cos850",
+            "refit-cos1003",
             "lr5e-5",
             "lr1e-4",
         ],

@@ -31,6 +31,7 @@ from .fingerprints import fingerprint_json, sha256_bytes, sha256_file, sha256_te
 
 PROMPT_VARIANT = "few-shot-cot-v3-en-compact-recall-v2"
 TRAINING_VIEW_POLICY = "adaptive-context-fallback128-positive-only-dense-max10-tokenmean-looprepair-v10"
+REFIT_SPLIT_POLICY = "refit-all-494-nominal-valid"
 
 SYSTEM_PROMPT = (
     "You extract every statutory law reference from Turkish tax rulings "
@@ -407,8 +408,22 @@ def _fake_resume_regression(root: Path) -> dict[str, Any]:
     return result
 
 
+def refit_split(split: dict[str, list[int]]) -> dict[str, list[int]]:
+    """Derive the final-refit split: train on every canonical document.
+
+    Development selection is already finished when a refit runs, so the refit
+    trains on all 494 documents (train+valid+test) and keeps the canonical
+    validation ids only as a *nominal* validation view that drives checkpoint
+    cadence — never selection. ``test`` is empty by construction: a refit has
+    no held-out split, which is why its checkpoint is chosen by update count
+    (``final_refit_updates``) rather than by a validation metric.
+    """
+    all_ids = sorted(set(split["train"]) | set(split["valid"]) | set(split["test"]))
+    return {"train": all_ids, "valid": list(split["valid"]), "test": []}
+
+
 def train_bootstrap(
-    *, config: AppConfig, generation: str, execute: bool = False
+    *, config: AppConfig, generation: str, execute: bool = False, refit: bool = False
 ) -> dict[str, Any]:
     if generation != "G0":
         raise ContractError("only canonical-only G0 is supported in v1")
@@ -419,23 +434,29 @@ def train_bootstrap(
         "sha256": sha256_text(SYSTEM_PROMPT),
         "example_bank_sha256": EXAMPLE_BANK_SHA256,
     }
-    source_fingerprint = fingerprint_json(
-        {
-            "canonical_manifest_sha256": source_summary["canonical_manifest_sha256"],
-            "example_bank_sha256": source_summary["example_bank_sha256"],
-            "split_manifest_sha256": source_summary["split_manifest_sha256"],
-            "prompt": prompt,
-            "training_view_policy": TRAINING_VIEW_POLICY,
-        }
-    )
+    fingerprint_payload: dict[str, Any] = {
+        "canonical_manifest_sha256": source_summary["canonical_manifest_sha256"],
+        "example_bank_sha256": source_summary["example_bank_sha256"],
+        "split_manifest_sha256": source_summary["split_manifest_sha256"],
+        "prompt": prompt,
+        "training_view_policy": TRAINING_VIEW_POLICY,
+    }
+    if refit:
+        # Only a refit adds this key, so existing development run ids stay byte
+        # identical while the refit necessarily gets its own run directory.
+        fingerprint_payload["split_policy"] = REFIT_SPLIT_POLICY
+    source_fingerprint = fingerprint_json(fingerprint_payload)
     run_id = f"dqcheck_g0_qwen3_5_9b_{source_fingerprint[:12]}"
     run_dir = config.training_runs_root / run_id
     data_dir = config.sensitive_root / "g0" / run_id / "data"
     public_dir = config.public_root / "g0" / run_id
+    effective_split = (
+        refit_split(source_summary["split"]) if refit else source_summary["split"]
+    )
     data_manifest = write_training_data(
         output_dir=data_dir,
         documents=source["documents"],
-        split=source_summary["split"],
+        split=effective_split,
     )
     training_contract = TrainingContract()
     environment = environment_preflight(config)
@@ -461,6 +482,7 @@ def train_bootstrap(
         "model": asdict(config.model),
         "prompt": prompt,
         "training_view_policy": TRAINING_VIEW_POLICY,
+        "split_policy": REFIT_SPLIT_POLICY if refit else "development-394-50-50",
         "training": asdict(training_contract),
         "sequence_length_candidates": list(SEQUENCE_LENGTH_CANDIDATES),
         "source": {key: value for key, value in source_summary.items() if key != "split"},
@@ -491,6 +513,7 @@ def train_bootstrap(
         "long_run_started": False,
         "prompt": prompt,
         "training_view_policy": TRAINING_VIEW_POLICY,
+        "split_policy": REFIT_SPLIT_POLICY if refit else "development-394-50-50",
         "source": {key: value for key, value in source_summary.items() if key != "split"},
         "environment": environment,
         "training_contract": asdict(training_contract),

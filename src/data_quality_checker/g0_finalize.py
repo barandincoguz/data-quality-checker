@@ -8,6 +8,7 @@ canonical path so real G0 inference/routing can run.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +16,48 @@ from .atomic import write_json_atomic
 from .constants import MODEL_ID, MODEL_REVISION
 from .errors import GateBlocked
 from .fingerprints import sha256_file
+from .g0 import CheckpointCandidate, final_refit_updates, select_checkpoint
+
+
+def finalize_selection(candidate_root: Path) -> dict[str, Any]:
+    """Pick the dev-best checkpoint of a candidate and size its final refit.
+
+    Reads every ``validation/update_*/summary.json`` under ``candidate_root``,
+    selects the best eligible checkpoint with the same rule the pipeline uses
+    (``select_checkpoint``: core-F1 -> docwise -> recall -> -val_loss), and
+    returns the selected update, its adapter path, and the number of optimizer
+    updates the final all-494 refit should run (``final_refit_updates``).
+    """
+    summaries: list[dict[str, Any]] = []
+    for path in sorted(candidate_root.glob("validation/update_*/summary.json")):
+        summaries.append(json.loads(path.read_text(encoding="utf-8")))
+    if not summaries:
+        raise GateBlocked(f"no validation summaries under {candidate_root}")
+    candidates = [
+        CheckpointCandidate(
+            update=int(s["update"]),
+            coverage_count=int(s["coverage_count"]),
+            parse_count=int(s["parse_count"]),
+            empty_output_count=int(s["empty_output_count"]),
+            runaway_output_count=int(s["runaway_output_count"]),
+            core_f1=float(s["core_law_article_strict"]["f1"]),
+            docwise_accuracy=float(s["docwise_core_accuracy"]["accuracy"]),
+            recall=float(s["core_law_article_strict"]["recall"]),
+            validation_loss=float(s["validation_loss"]),
+        )
+        for s in summaries
+        if s.get("eligible") is True
+    ]
+    selected = select_checkpoint(candidates)
+    return {
+        "selected_update": selected.update,
+        "core_f1": selected.core_f1,
+        "recall": selected.recall,
+        "refit_updates": final_refit_updates(selected.update),
+        "adapter_path": str(
+            candidate_root / "checkpoints" / f"update_{selected.update:07d}"
+        ),
+    }
 
 
 def _adapter_weight_file(adapter_path: Path) -> Path:

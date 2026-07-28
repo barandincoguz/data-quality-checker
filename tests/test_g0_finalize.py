@@ -7,7 +7,33 @@ import pytest
 
 from data_quality_checker.constants import MODEL_ID, MODEL_REVISION
 from data_quality_checker.fingerprints import sha256_file
-from data_quality_checker.g0_finalize import build_g0_registry, seal_g0
+from data_quality_checker.g0 import final_refit_updates
+from data_quality_checker.g0_finalize import (
+    build_g0_registry,
+    finalize_selection,
+    seal_g0,
+)
+
+
+def _write_summary(candidate_root: Path, update: int, f1: float, *, eligible: bool = True) -> None:
+    d = candidate_root / "validation" / f"update_{update:07d}"
+    d.mkdir(parents=True)
+    (d / "summary.json").write_text(
+        json.dumps(
+            {
+                "update": update,
+                "coverage_count": 50,
+                "parse_count": 50,
+                "empty_output_count": 0,
+                "runaway_output_count": 0,
+                "eligible": eligible,
+                "validation_loss": 0.1,
+                "core_law_article_strict": {"f1": f1, "recall": f1 - 0.05, "precision": 0.9},
+                "docwise_core_accuracy": {"accuracy": 0.3},
+            }
+        ),
+        encoding="utf-8",
+    )
 
 
 def _snapshot(tmp_path: Path) -> Path:
@@ -62,6 +88,31 @@ def test_build_g0_registry_rejects_non_directory_snapshot(tmp_path: Path) -> Non
             adapter_path=adapter,
             max_sequence_length=8192,
         )
+
+
+def test_finalize_selection_picks_best_eligible_and_sizes_refit(tmp_path: Path) -> None:
+    root = tmp_path / "development" / "lr2.5e-5-warm42-cos850"
+    _write_summary(root, 75, 0.807)
+    _write_summary(root, 800, 0.842)  # global best
+    _write_summary(root, 850, 0.809)
+    result = finalize_selection(root)
+    assert result["selected_update"] == 800
+    assert result["core_f1"] == 0.842
+    assert result["refit_updates"] == final_refit_updates(800)
+    assert result["adapter_path"].endswith("checkpoints/update_0000800")
+
+
+def test_finalize_selection_ignores_ineligible_checkpoints(tmp_path: Path) -> None:
+    root = tmp_path / "development" / "cand"
+    _write_summary(root, 100, 0.90, eligible=False)  # higher F1 but ineligible
+    _write_summary(root, 200, 0.80, eligible=True)
+    result = finalize_selection(root)
+    assert result["selected_update"] == 200
+
+
+def test_finalize_selection_raises_without_summaries(tmp_path: Path) -> None:
+    with pytest.raises(Exception):
+        finalize_selection(tmp_path / "empty")
 
 
 def test_seal_g0_writes_registry_at_public_g0_path(tmp_path: Path) -> None:

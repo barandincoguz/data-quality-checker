@@ -196,6 +196,10 @@ def test_review_page_renders_diff_table_progress_and_editor(tmp_path) -> None:
     assert 'id="fill-a"' in html
     assert 'id="cand"' in html
     assert "(1/1)" in html
+    # No-JS fallback: the raw references_json textarea stays available so
+    # revision still works with JavaScript disabled (spec invariant).
+    assert 'name="references_json"' in html
+    assert 'value="revise"' in html
 
 
 def test_form_revise_via_references_json_finalizes(tmp_path) -> None:

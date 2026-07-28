@@ -48,6 +48,23 @@ def test_ab_diff_reports_field_level_difference_for_matched_core() -> None:
     assert "bent" not in row["field_diffs"]
 
 
+def test_ab_diff_differs_without_field_diffs_when_group_is_not_one_to_one() -> None:
+    # Same core identity on both sides, but two refs on A vs one on B whose
+    # full identities do not match as a multiset -> "differs" with no
+    # per-field diffs (field_diffs is only defined for 1-to-1 groups).
+    a1 = _ref(fikra="1", src="A birinci fıkra")
+    a2 = _ref(fikra="2", src="A ikinci fıkra")
+    b1 = _ref(fikra="1", src="B birinci fıkra")
+    rows = ab_diff([a1, a2], [b1])
+
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["status"] == "differs"
+    assert row["field_diffs"] == []
+    assert len(row["a"]) == 2
+    assert len(row["b"]) == 1
+
+
 def test_ab_diff_preserves_first_appearance_order_across_a_then_b() -> None:
     first = _ref(madde="413")
     second = _ref(no="193", ad="Gelir Vergisi Kanunu", madde="94")

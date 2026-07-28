@@ -1,7 +1,8 @@
 # HITL Review UX — A/B Diff, Queue Navigation, Structured Editor
 
 Date: 2026-07-24
-Status: approved (user delegated autonomous execution)
+Status: implemented (2026-07-28) — all three goals plus evidence highlighting
+  (originally deferred) are done and covered by tests; full dqcheck suite green.
 Scope: `data_quality_checker.hitl` review UI only. No change to the review
 server contract, blind A/B protocol, auth/CSRF, or storage.
 
@@ -20,8 +21,10 @@ slow and error-prone. There is no progress indicator and no keyboard flow.
    auto-advance (auto-advance already exists via `next_review` redirect).
 3. **Structured revision editor** — per-field reference rows instead of raw JSON.
 
-Out of scope (deliberately deferred): evidence highlighting in the document
-text (the `evidence_spans` helper stays computed-but-unused for now).
+Evidence highlighting in the document text was originally deferred but is now
+implemented (2026-07-28): `evidence_segments(text, spans)` slices the text into
+candidate-annotated runs and the template renders them as `<mark>` spans with
+an A/B/A+B legend. The `evidence_spans` helper is now consumed, not unused.
 
 ## Approach: server-render + progressive-enhancement JS
 

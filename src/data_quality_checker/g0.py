@@ -31,7 +31,7 @@ from .fingerprints import fingerprint_json, sha256_bytes, sha256_file, sha256_te
 
 PROMPT_VARIANT = "few-shot-cot-v3-en-compact-recall-v2"
 TRAINING_VIEW_POLICY = "adaptive-context-fallback128-positive-only-dense-max10-tokenmean-looprepair-v10"
-REFIT_SPLIT_POLICY = "refit-all-494-nominal-valid"
+REFIT_SPLIT_POLICY = "refit-all-494-nominal-valid-and-test"
 
 SYSTEM_PROMPT = (
     "You extract every statutory law reference from Turkish tax rulings "
@@ -417,9 +417,14 @@ def refit_split(split: dict[str, list[int]]) -> dict[str, list[int]]:
     cadence — never selection. ``test`` is empty by construction: a refit has
     no held-out split, which is why its checkpoint is chosen by update count
     (``final_refit_updates``) rather than by a validation metric.
+
+    ``valid`` and ``test`` keep the canonical ids so the pipeline's non-empty
+    split gates still hold, but both are NOMINAL: every one of their documents
+    is also in ``train``, so neither may ever be reported as a holdout score.
+    ``split_policy`` records this explicitly in run_config and preflight.
     """
     all_ids = sorted(set(split["train"]) | set(split["valid"]) | set(split["test"]))
-    return {"train": all_ids, "valid": list(split["valid"]), "test": []}
+    return {"train": all_ids, "valid": list(split["valid"]), "test": list(split["test"])}
 
 
 def train_bootstrap(

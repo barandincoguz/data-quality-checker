@@ -124,8 +124,8 @@ def test_refit_bootstrap_trains_on_all_494_with_its_own_run_id(tmp_path: Path) -
     )
     assert refit["run_id"] != dev["run_id"]
     counts = {k: v["count"] for k, v in refit["data_manifest"]["files"].items()}
-    assert counts == {"train": 494, "valid": 50, "test": 0}
-    assert refit["split_policy"] == "refit-all-494-nominal-valid"
+    assert counts == {"train": 494, "valid": 50, "test": 50}
+    assert refit["split_policy"] == "refit-all-494-nominal-valid-and-test"
     assert dev["split_policy"] == "development-394-50-50"
 
 
@@ -133,4 +133,4 @@ def test_refit_split_keeps_every_document_in_train() -> None:
     from data_quality_checker.g0 import refit_split
 
     split = {"train": [1, 2], "valid": [3], "test": [4]}
-    assert refit_split(split) == {"train": [1, 2, 3, 4], "valid": [3], "test": []}
+    assert refit_split(split) == {"train": [1, 2, 3, 4], "valid": [3], "test": [4]}

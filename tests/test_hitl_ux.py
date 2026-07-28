@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from data_quality_checker.hitl import ab_diff, review_position
+from data_quality_checker.hitl import ab_diff, evidence_segments, review_position
 
 
 def _ref(no="213", ad="Vergi Usul Kanunu", madde="413", fikra="", bent="", src="k"):
@@ -75,6 +75,50 @@ def test_ab_diff_preserves_first_appearance_order_across_a_then_b() -> None:
 
 def test_ab_diff_handles_empty_candidates() -> None:
     assert ab_diff([], []) == []
+
+
+def test_evidence_segments_returns_single_plain_run_without_spans() -> None:
+    assert evidence_segments("abc", []) == [{"text": "abc", "candidates": []}]
+
+
+def test_evidence_segments_empty_text_returns_empty() -> None:
+    assert evidence_segments("", []) == []
+
+
+def test_evidence_segments_marks_a_single_span_and_leaves_context_plain() -> None:
+    # text indices: 0123456789
+    spans = [{"start": 2, "end": 5, "candidate": "A"}]
+    segs = evidence_segments("0123456789", spans)
+
+    assert segs == [
+        {"text": "01", "candidates": []},
+        {"text": "234", "candidates": ["A"]},
+        {"text": "56789", "candidates": []},
+    ]
+
+
+def test_evidence_segments_splits_overlapping_a_and_b() -> None:
+    spans = [
+        {"start": 2, "end": 6, "candidate": "A"},
+        {"start": 4, "end": 8, "candidate": "B"},
+    ]
+    segs = evidence_segments("0123456789", spans)
+
+    assert segs == [
+        {"text": "01", "candidates": []},
+        {"text": "23", "candidates": ["A"]},
+        {"text": "45", "candidates": ["A", "B"]},
+        {"text": "67", "candidates": ["B"]},
+        {"text": "89", "candidates": []},
+    ]
+
+
+def test_evidence_segments_covers_full_text_and_preserves_it() -> None:
+    text = "213 sayılı Vergi Usul Kanununun 413. maddesi uyarınca"
+    spans = [{"start": 0, "end": 10, "candidate": "A"}]
+    segs = evidence_segments(text, spans)
+
+    assert "".join(s["text"] for s in segs) == text
 
 
 def test_review_position_is_one_based_with_total() -> None:

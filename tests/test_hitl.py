@@ -200,6 +200,11 @@ def test_review_page_renders_diff_table_progress_and_editor(tmp_path) -> None:
     # revision still works with JavaScript disabled (spec invariant).
     assert 'name="references_json"' in html
     assert 'value="revise"' in html
+    # Evidence highlighting: the document text renders with <mark> spans and a
+    # legend; the candidate source_text is highlighted within the doc text.
+    assert "Kanıt vurgusu" in html
+    assert '<mark class="ev' in html
+    assert 'class="doctext"' in html
 
 
 def test_form_revise_via_references_json_finalizes(tmp_path) -> None:

@@ -67,11 +67,20 @@ tr.same td{background:#f4fbf4}tr.only_a td{background:#e8f2ff}tr.only_b td{backg
 .ref{margin-bottom:.3rem}.src{color:#555;font-size:.8rem}
 .editor input{margin:0}.hint{color:#666;font-size:.8rem}
 .actions button{margin-right:.4rem;padding:.4rem .7rem}
+mark.ev{padding:0 .05rem;border-radius:.15rem;color:inherit}
+mark.ev-A{background:#cfe4ff}mark.ev-B{background:#ffe0c2}
+mark.ev-A.ev-B{background:#e2d6f5}
+.legend{font-size:.8rem;color:#555;margin:.2rem 0}
+.legend .sw{display:inline-block;padding:0 .4rem;border-radius:.2rem;margin-right:.5rem}
 </style>
 <h1>{{ doc.internal_doc_id }} — {{ doc.router_bucket }}
 {% if position %}<small class="muted">({{ position.index }}/{{ position.total }})</small>{% endif %}</h1>
 {% if doc.warnings %}<p class="warn">⚠ {{ doc.warnings|tojson }}</p>{% endif %}
-<pre>{{ doc.text }}</pre>
+<p class="legend">Kanıt vurgusu:
+  <span class="sw" style="background:#cfe4ff">A</span>
+  <span class="sw" style="background:#ffe0c2">B</span>
+  <span class="sw" style="background:#e2d6f5">A+B</span></p>
+<pre class="doctext">{% for seg in segments %}{% if seg.candidates %}<mark class="ev{% for c in seg.candidates %} ev-{{ c }}{% endfor %}" title="{{ seg.candidates|join('+') }}">{{ seg.text }}</mark>{% else %}{{ seg.text }}{% endif %}{% endfor %}</pre>
 
 <h2>A / B karşılaştırması</h2>
 <table>
@@ -372,6 +381,46 @@ def _evidence_spans(
     return sorted(spans, key=lambda item: (item["start"], item["end"], item["candidate"]))
 
 
+def evidence_segments(
+    text: str, spans: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Slice ``text`` into contiguous runs annotated with covering candidates.
+
+    Pure and blind. Given evidence spans (``_evidence_spans`` output), return
+    ordered segments ``{"text", "candidates"}`` whose concatenated text equals
+    the input, where ``candidates`` is the sorted set of candidate labels whose
+    span covers that run (``[]`` for plain text). Overlapping A/B spans split
+    into their own run carrying both labels; adjacent runs with the same label
+    set are merged. Never records which side is human vs model.
+    """
+
+    if not text:
+        return []
+    length = len(text)
+    bounds = {0, length}
+    for span in spans:
+        start = max(0, min(length, span["start"]))
+        end = max(0, min(length, span["end"]))
+        if end > start:
+            bounds.add(start)
+            bounds.add(end)
+    points = sorted(bounds)
+    segments: list[dict[str, Any]] = []
+    for lo, hi in zip(points, points[1:]):
+        candidates = sorted(
+            {
+                span["candidate"]
+                for span in spans
+                if span["start"] <= lo and span["end"] >= hi
+            }
+        )
+        if segments and segments[-1]["candidates"] == candidates:
+            segments[-1]["text"] += text[lo:hi]
+        else:
+            segments.append({"text": text[lo:hi], "candidates": candidates})
+    return segments
+
+
 def validate_final_references(
     references: Any, *, document_text: str
 ) -> list[dict[str, str]]:
@@ -546,6 +595,7 @@ def create_hitl_app(
             doc=document,
             diff=ab_diff(document["candidate_a"], document["candidate_b"]),
             position=review_position(queue, internal_doc_id),
+            segments=evidence_segments(document["text"], document["evidence_spans"]),
             csrf_token=session["csrf_token"],
         )
 

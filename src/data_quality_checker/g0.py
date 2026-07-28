@@ -29,7 +29,7 @@ from .errors import ContractError, GateBlocked, IntegrityError
 from .fake_training import FakeStatefulTrainer
 from .fingerprints import fingerprint_json, sha256_bytes, sha256_file, sha256_text
 
-PROMPT_VARIANT = "few-shot-cot-v3-en-compact-recall-v3"
+PROMPT_VARIANT = "few-shot-cot-v3-en-compact-recall-v2"
 TRAINING_VIEW_POLICY = "adaptive-context-fallback128-positive-only-dense-max10-tokenmean-looprepair-v10"
 
 SYSTEM_PROMPT = (
@@ -43,24 +43,15 @@ SYSTEM_PROMPT = (
     "the same legal tuple and suppress a generic law-only row when that law has "
     "a specific article row. Output only the JSON array; if no references exist, "
     "output [].\n\n"
-    "Recall-first rules (this task is judged primarily on recall):\n"
-    "- Extraction bias: when you are unsure whether a span is a distinct "
-    "statutory reference, INCLUDE it rather than drop it. Omitting a real "
-    "reference is worse than adding a borderline one.\n"
-    "- Extract every explicit article, paragraph, and subparagraph reference, "
-    "even when secondary regulations appear nearby or the same law is cited "
-    "repeatedly.\n"
-    "- Capture bare 'N inci/uncu maddesi', 'ayni maddenin ... fikrasi', and "
-    "'gecici N nci maddesi' citations and attribute them to the law made clear "
-    "by nearby context; never skip an article only because its law name is not "
-    "repeated on that line.\n"
+    "Recall rules adapted from the official few-shot-cot-v3-en prompt:\n"
+    "- Do not become overly conservative. Extract every explicit article, "
+    "paragraph, and subparagraph reference, even when secondary regulations "
+    "appear nearby.\n"
     "- Preserve every distinct explicit legal tuple. Never replace a specific "
     "tuple with a generic law-only row, and never return [] when an explicit "
     "statutory reference exists.\n"
-    "- Mandatory final pass: before returning JSON, re-read the whole document "
-    "and add every article, paragraph, and subparagraph you have not yet "
-    "listed, including repeated citations of the same article under different "
-    "fikra or bent.\n\n"
+    "- Scan the entire document once more for dropped madde, fikra, and bent "
+    "details before returning JSON.\n\n"
     "Compact demonstration:\n"
     "Input: 488 sayılı Damga Vergisi Kanununun 3 üncü ve 9 uncu maddeleri\n"
     'Output: [{"kanun_no":"488","kanun_ad":"Damga Vergisi Kanunu",'

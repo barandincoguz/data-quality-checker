@@ -11,6 +11,10 @@ from .normalization import (
     core_identity,
     full_identity,
 )
+from .reference_policy import (
+    DEFAULT_REFERENCE_POLICY_ID,
+    apply_reference_policy,
+)
 from .text import folded_text, loose_text
 
 
@@ -60,9 +64,16 @@ def route_document(
     model_status: str = "success",
     model_truncated: bool = False,
     has_safe_text: bool = True,
+    reference_policy_id: str = DEFAULT_REFERENCE_POLICY_ID,
 ) -> RouteDecision:
-    human = compact_references(human_references)
-    model = compact_references(model_references)
+    policy_human, _ = apply_reference_policy(
+        human_references, policy_id=reference_policy_id
+    )
+    policy_model, _ = apply_reference_policy(
+        model_references, policy_id=reference_policy_id
+    )
+    human = compact_references(policy_human)
+    model = compact_references(policy_model)
     full_human = {full_identity(reference) for reference in human}
     full_model = {full_identity(reference) for reference in model}
     similarity = _similarity(full_human, full_model)

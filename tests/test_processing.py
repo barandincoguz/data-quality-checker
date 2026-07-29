@@ -9,7 +9,11 @@ import pytest
 from data_quality_checker.config import default_config_path, load_config
 from data_quality_checker.fingerprints import fingerprint_json
 from data_quality_checker.preparation import prepare_batch
-from data_quality_checker.processing import PredictionResult, process_batch
+from data_quality_checker.processing import (
+    MlxG0Backend,
+    PredictionResult,
+    process_batch,
+)
 from data_quality_checker.storage import Store
 
 
@@ -160,3 +164,47 @@ def test_resume_recovers_atomically_written_orphan_without_regeneration(
     )
     assert summary["prediction_count"] == 1
     assert backend.calls == 1
+
+
+def test_mlx_backend_accepts_an_explicit_isolated_registry_path(
+    monkeypatch, tmp_path
+) -> None:
+    config = config_for(tmp_path)
+    snapshot = tmp_path / "snapshot"
+    adapter = tmp_path / "adapter"
+    snapshot.mkdir()
+    adapter.mkdir()
+    (adapter / "adapters.safetensors").write_bytes(b"adapter")
+    registry = tmp_path / "isolated" / "G0.json"
+    registry.parent.mkdir()
+
+    from data_quality_checker.constants import MODEL_ID, MODEL_REVISION
+    from data_quality_checker.fingerprints import sha256_file
+
+    registry.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "model_id": MODEL_ID,
+                "model_revision": MODEL_REVISION,
+                "model_snapshot_path": str(snapshot),
+                "adapter_path": str(adapter),
+                "adapter_sha256": sha256_file(adapter / "adapters.safetensors"),
+                "max_sequence_length": 12288,
+                "max_generation_tokens": 4096,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    class FakeMlxLm:
+        @staticmethod
+        def load(model_path, adapter_path):
+            assert model_path == str(snapshot)
+            assert adapter_path == str(adapter)
+            return object(), object()
+
+    monkeypatch.setitem(__import__("sys").modules, "mlx_lm", FakeMlxLm)
+    backend = MlxG0Backend(config, registry_path=registry)
+    assert backend.max_input_tokens == 12288
+    assert backend.max_generation_tokens == 4096

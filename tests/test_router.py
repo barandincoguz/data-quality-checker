@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from data_quality_checker.normalization import compact_references, normalize_reference
+from data_quality_checker.reference_policy import NO_REFERENCE_FILTER_POLICY_ID
 from data_quality_checker.router import route_document
 
 
@@ -98,3 +99,38 @@ def test_quarantine_precedes_similarity() -> None:
     )
     assert decision.similarity == 1.0
     assert decision.bucket == "QUARANTINE"
+
+
+def test_vuk_213_article_413_is_ignored_symmetrically_by_default() -> None:
+    boilerplate = ref(madde="413", fikra="", bent="")
+    human_only = route_document(
+        human_references=[boilerplate],
+        model_references=[],
+    )
+    model_only = route_document(
+        human_references=[],
+        model_references=[boilerplate],
+    )
+    assert human_only.bucket == "GREEN"
+    assert model_only.bucket == "GREEN"
+
+
+def test_vuk_213_article_413_filter_can_be_disabled_for_impact_audit() -> None:
+    decision = route_document(
+        human_references=[],
+        model_references=[ref(madde="413", fikra="", bent="")],
+        reference_policy_id=NO_REFERENCE_FILTER_POLICY_ID,
+    )
+    assert decision.bucket == "RED"
+    assert decision.reasons == ("extra_or_different_core_reference",)
+
+
+def test_vuk_filter_is_exact_and_keeps_other_articles_and_laws() -> None:
+    decision = route_document(
+        human_references=[],
+        model_references=[
+            ref(madde="413/A", fikra="", bent=""),
+            ref(kanun_no="3065", kanun_ad="KDV Kanunu", madde="413", fikra="", bent=""),
+        ],
+    )
+    assert decision.bucket == "RED"

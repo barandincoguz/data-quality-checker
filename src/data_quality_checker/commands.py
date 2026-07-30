@@ -25,6 +25,19 @@ def prepare(args: Namespace, config: AppConfig) -> int:
     return 0
 
 
+def import_attribution(args: Namespace, config: AppConfig) -> int:
+    from .preparation import import_annotation_attribution
+
+    result = import_annotation_attribution(
+        config=config,
+        batch_id=args.batch_id,
+        annotation_zip=args.annotation_zip,
+    )
+    summary = {key: value for key, value in result.items() if key != "attributions"}
+    print(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0
+
+
 def train_bootstrap(args: Namespace, config: AppConfig) -> int:
     from .g0 import train_bootstrap
 
@@ -67,6 +80,20 @@ def process(args: Namespace, config: AppConfig) -> int:
     return 0
 
 
+def reroute(args: Namespace, config: AppConfig) -> int:
+    from .rerouting import reroute_batch
+
+    result = reroute_batch(
+        config=config,
+        batch_id=args.batch_id,
+        generation=args.generation,
+        policy_id=args.reference_policy,
+        apply=args.apply,
+    )
+    print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0
+
+
 def pilot_judges(args: Namespace, config: AppConfig) -> int:
     from .judges import run_judge_pilot
 
@@ -101,6 +128,33 @@ def serve(args: Namespace, config: AppConfig) -> int:
     return 0
 
 
+def review_backup(args: Namespace, config: AppConfig) -> int:
+    from .review_backup import (
+        create_review_backup,
+        restore_review_backup_smoke,
+        review_backup_lock,
+        review_backup_status,
+    )
+
+    with review_backup_lock(config=config, batch_id=args.batch_id), Store(
+        config.database_path, busy_timeout_ms=config.runtime.busy_timeout_ms
+    ) as store:
+        if args.review_backup_action == "create":
+            result = create_review_backup(
+                config=config, store=store, batch_id=args.batch_id
+            )
+        elif args.review_backup_action == "restore-smoke":
+            result = restore_review_backup_smoke(
+                config=config, store=store, batch_id=args.batch_id
+            )
+        else:
+            result = review_backup_status(
+                config=config, store=store, batch_id=args.batch_id
+            )
+    print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0
+
+
 def release(args: Namespace, config: AppConfig) -> int:
     from .release import release_batch
 
@@ -112,7 +166,9 @@ def release(args: Namespace, config: AppConfig) -> int:
 def status(args: Namespace, config: AppConfig) -> int:
     if not config.database_path.exists():
         raise GateBlocked(f"database does not exist: {config.database_path}")
-    with Store(config.database_path, busy_timeout_ms=config.runtime.busy_timeout_ms) as store:
+    with Store(
+        config.database_path, busy_timeout_ms=config.runtime.busy_timeout_ms
+    ) as store:
         result: dict[str, Any] = store.status_summary(args.batch_id)
     print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
     return 0

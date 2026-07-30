@@ -156,12 +156,39 @@ dqcheck prepare \
 `READY.json` oluşmadan process veya HITL açılmaz. Quarantine sayısını ve public
 manifest checksum'larını kontrol edin.
 
+Eski bir batch prepare sırasında anotatör kimliğini taşımadıysa HITL'den önce
+özel attribution sidecar'ını üretin:
+
+```bash
+dqcheck import-attribution \
+  --batch-id <batch-id> \
+  --annotation-zip /izinli/yol/annotations.zip
+```
+
+Komut tüm batch belgelerini kaynak ZIP ile bire bir eşleştirmeden çıktı yazmaz.
+Kullanıcı adları public artefaktlara değil yalnız
+`data/sensitive/data_quality_checker/batches/<batch-id>/annotation_attribution.json`
+dosyasına `0600` izinle ve atomik olarak yazılır.
+
 ## 6. Process, judge ve HITL
 
 ```bash
 dqcheck process --prepared-batch <batch-id> --generation G0 --resume
+
+# Ham predictionları değiştirmeden policy reroute preflight
+dqcheck reroute --batch-id <batch-id>
+
+# Preflight doğrulandıktan sonra backup + atomik apply
+dqcheck reroute --batch-id <batch-id> --apply
+
 dqcheck pilot-judges --batch-id <batch-id> --allow-external-judge
 ```
+
+Varsayılan policy `ignore_vuk_213_article_413_v1`dir. Metin modele eksiksiz
+verilmeye devam eder; yalnız normalize `(kanun_no=213, madde=413)` referans
+görünümü router, judge, HITL ve release sınırında iki taraftan simetrik olarak
+çıkarılır. Reroute bütün prediction dosyalarının checksum'unu doğrular, eski ve
+yeni bucket sayılarını ayrı kaydeder ve review başlamışsa apply'ı reddeder.
 
 Pilot uzman incelemesi tamamlandıktan sonra judge açıkça kilitlenir:
 
@@ -183,6 +210,41 @@ dqcheck serve --batch-id <batch-id> --port 5055
 ```
 
 Sunucu yalnız `127.0.0.1:5055` üzerinde dinler.
+HITL ekranında insan anotasyonu ve G0 model çıktısı sabit, açık sütunlarda
+gösterilir; körleme yoktur. İnsan sütununda export içindeki `completed_by`
+(yoksa `last_editor`) kullanıcı adı gösterilir.
+
+### 6.1 HITL karar yedekleri
+
+Her review mutasyonu, ilgili `expert_review_updated` olayıyla aynı SQLite
+transaction'ında yazılır. Ardından, aynı batch için process/thread lock altında
+tam SQLite online backup alınır; integrity, foreign key, review-state
+fingerprint'i, checksum ve son review event id doğrulanmadan istek başarılı
+sayılmaz. En yeni beş doğrulanmış snapshot korunur.
+
+Servis başlangıcında eksik veya geride kalmış snapshot canlı SQLite durumuna
+otomatik yetiştirilir. `LATEST.json` ya da işaret ettiği snapshot bozuksa servis
+fail-closed açılmaz. Ana review commit'i tamamlanmış fakat snapshot yazımı
+başarısız olmuşsa API `503 durability_pending` ve `review_saved=true` döndürür;
+form ekranı kararın kaydedildiğini ve tekrar gönderilmemesi gerektiğini açıkça
+gösterir.
+
+Canlı kontrol ve kurtarma provası:
+
+```bash
+dqcheck review-backup create --batch-id <batch-id>
+dqcheck review-backup verify --batch-id <batch-id>
+dqcheck review-backup status --batch-id <batch-id>
+dqcheck review-backup restore-smoke --batch-id <batch-id>
+```
+
+`restore-smoke`, `LATEST` snapshot'ını hassas yedek kökü altında geçici ve
+izole bir veritabanına geri yükler; canlı veritabanını değiştirmez. Başarılı
+çıktıda `status=passed`, `integrity_check=ok`, foreign-key ihlali `0`, aynı
+review fingerprint'i ve aynı son event id görülmelidir. Snapshot yolu
+`data/sensitive/data_quality_checker/review_backups/<batch-id>/` altındadır ve
+Git'e girmez. Aynı-disk snapshot'ı süreç/uygulama hatalarına karşı korur; disk
+veya makine kaybı için ayrıca şifreli off-host yedek politikası gerekir.
 
 ## 7. Release
 
@@ -203,3 +265,6 @@ yazılmaz.
 - Checksum veya fingerprint uyuşmazlığında dosyayı elle düzeltmeyin; yeni run
   kimliği oluşturun ve olayı ROADMAP/status kaydına yazın.
 - Tek doğrulanmış checkpoint'i silmeyin veya üzerine yazmayın.
+- HITL kararları için önce `review-backup verify`, ardından
+  `review-backup restore-smoke` çalıştırın; doğrulama başarısızsa canlı SQLite
+  veya snapshot üzerinde elle değişiklik yapmayın.

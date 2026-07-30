@@ -10,6 +10,7 @@ from typing import Sequence
 from . import commands
 from .config import default_config_path, load_config
 from .errors import DQCheckError
+from .reference_policy import DEFAULT_REFERENCE_POLICY_ID
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -25,14 +26,26 @@ def build_parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    prepare = subparsers.add_parser("prepare", help="securely prepare an annotation batch")
+    prepare = subparsers.add_parser(
+        "prepare", help="securely prepare an annotation batch"
+    )
     prepare.add_argument("--annotation-zip", type=Path, required=True)
     prepare.add_argument("--document-pool-zip", type=Path, required=True)
     prepare.add_argument("--batch-id")
     prepare.add_argument("--hmac-key-file", type=Path)
     prepare.set_defaults(handler=commands.prepare)
 
-    train = subparsers.add_parser("train-bootstrap", help="build or run canonical-only G0")
+    attribution = subparsers.add_parser(
+        "import-attribution",
+        help="privately import human annotator identities for an existing batch",
+    )
+    attribution.add_argument("--annotation-zip", type=Path, required=True)
+    attribution.add_argument("--batch-id", required=True)
+    attribution.set_defaults(handler=commands.import_attribution)
+
+    train = subparsers.add_parser(
+        "train-bootstrap", help="build or run canonical-only G0"
+    )
     train.add_argument("--generation", choices=["G0"], default="G0")
     train.add_argument(
         "--execute",
@@ -75,20 +88,43 @@ def build_parser() -> argparse.ArgumentParser:
     develop.add_argument("--resume", action="store_true")
     develop.set_defaults(handler=commands.train_g0)
 
-    process = subparsers.add_parser("process", help="run resumable G0 inference and routing")
+    process = subparsers.add_parser(
+        "process", help="run resumable G0 inference and routing"
+    )
     process.add_argument("--prepared-batch", required=True)
     process.add_argument("--generation", choices=["G0"], default="G0")
     process.add_argument("--resume", action="store_true")
     process.add_argument("--fake-backend", action="store_true", help=argparse.SUPPRESS)
     process.set_defaults(handler=commands.process)
 
-    pilot = subparsers.add_parser("pilot-judges", help="run the bounded blind judge pilot")
+    reroute = subparsers.add_parser(
+        "reroute", help="preflight or atomically apply a reference-policy reroute"
+    )
+    reroute.add_argument("--batch-id", required=True)
+    reroute.add_argument("--generation", choices=["G0"], default="G0")
+    reroute.add_argument(
+        "--reference-policy",
+        default=DEFAULT_REFERENCE_POLICY_ID,
+        choices=[DEFAULT_REFERENCE_POLICY_ID],
+    )
+    reroute.add_argument(
+        "--apply",
+        action="store_true",
+        help="apply verified bucket changes after backup; default is preflight only",
+    )
+    reroute.set_defaults(handler=commands.reroute)
+
+    pilot = subparsers.add_parser(
+        "pilot-judges", help="run the bounded blind judge pilot"
+    )
     pilot.add_argument("--batch-id", required=True)
     pilot.add_argument("--allow-external-judge", action="store_true")
     pilot.add_argument("--fake-backend", action="store_true", help=argparse.SUPPRESS)
     pilot.set_defaults(handler=commands.pilot_judges)
 
-    lock = subparsers.add_parser("judge-lock", help="explicitly select a production judge")
+    lock = subparsers.add_parser(
+        "judge-lock", help="explicitly select a production judge"
+    )
     lock.add_argument("--batch-id", required=True)
     lock.add_argument("--model", required=True)
     lock.add_argument("--reason", required=True)
@@ -99,11 +135,43 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--port", type=int, default=5055)
     serve.set_defaults(handler=commands.serve)
 
-    release = subparsers.add_parser("release", help="create an immutable atomic release")
+    review_backup = subparsers.add_parser(
+        "review-backup", help="inspect or operate verified HITL review backups"
+    )
+    review_backup_actions = review_backup.add_subparsers(
+        dest="review_backup_action", required=True
+    )
+    review_backup_status = review_backup_actions.add_parser(
+        "status", help="verify the latest review backup against live SQLite state"
+    )
+    review_backup_status.add_argument("--batch-id", required=True)
+    review_backup_status.set_defaults(handler=commands.review_backup)
+    review_backup_create = review_backup_actions.add_parser(
+        "create", help="create and verify a snapshot of the live review state"
+    )
+    review_backup_create.add_argument("--batch-id", required=True)
+    review_backup_create.set_defaults(handler=commands.review_backup)
+    review_backup_verify = review_backup_actions.add_parser(
+        "verify", help="verify the latest snapshot against the live review state"
+    )
+    review_backup_verify.add_argument("--batch-id", required=True)
+    review_backup_verify.set_defaults(handler=commands.review_backup)
+    review_backup_restore_smoke = review_backup_actions.add_parser(
+        "restore-smoke",
+        help="restore the latest snapshot into a temporary database and verify it",
+    )
+    review_backup_restore_smoke.add_argument("--batch-id", required=True)
+    review_backup_restore_smoke.set_defaults(handler=commands.review_backup)
+
+    release = subparsers.add_parser(
+        "release", help="create an immutable atomic release"
+    )
     release.add_argument("--batch-id", required=True)
     release.set_defaults(handler=commands.release)
 
-    status = subparsers.add_parser("status", help="show batch coverage and lifecycle state")
+    status = subparsers.add_parser(
+        "status", help="show batch coverage and lifecycle state"
+    )
     status.add_argument("--batch-id", required=True)
     status.set_defaults(handler=commands.status)
     return parser

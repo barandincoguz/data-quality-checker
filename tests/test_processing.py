@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from data_quality_checker.config import default_config_path, load_config
+from data_quality_checker.errors import GateBlocked
 from data_quality_checker.fingerprints import fingerprint_json
 from data_quality_checker.preparation import prepare_batch
 from data_quality_checker.processing import (
@@ -14,6 +15,7 @@ from data_quality_checker.processing import (
     PredictionResult,
     process_batch,
 )
+from data_quality_checker.rerouting import reroute_batch
 from data_quality_checker.storage import Store
 
 
@@ -164,6 +166,114 @@ def test_resume_recovers_atomically_written_orphan_without_regeneration(
     )
     assert summary["prediction_count"] == 1
     assert backend.calls == 1
+
+
+class BoilerplateOnlyBackend:
+    model_fingerprint = fingerprint_json({"backend": "boilerplate-only"})
+
+    def predict(self, document):
+        references = [
+            {
+                "kanun_no": "213",
+                "kanun_ad": "Vergi Usul Kanunu",
+                "madde": "413",
+                "fikra": "",
+                "bent": "",
+                "source_text": "213 sayılı Vergi Usul Kanununun 413. maddesi",
+            }
+        ]
+        return PredictionResult(
+            status="success",
+            references=references,
+            raw_output=json.dumps(references, ensure_ascii=False),
+            operational={"truncated": False, "latency_seconds": 0.0},
+        )
+
+
+def legacy_unfiltered_fixture(tmp_path: Path):
+    config = config_for(tmp_path)
+    annotations = [{"document_id": "one", "current_references": []}]
+    pool = [
+        {
+            "evrakOid": "one",
+            "pdfText": "213 sayılı Vergi Usul Kanununun 413. maddesi.",
+        }
+    ]
+    annotation_zip, pool_zip = tmp_path / "legacy-a.zip", tmp_path / "legacy-p.zip"
+    zip_payload(annotation_zip, {"annotations": annotations})
+    zip_payload(pool_zip, pool)
+    key = tmp_path / "legacy-key"
+    key.write_bytes(b"z" * 32)
+    prepare_batch(
+        config=config,
+        annotation_zip=annotation_zip,
+        document_pool_zip=pool_zip,
+        batch_id="legacy",
+        hmac_key_file=key,
+    )
+    process_batch(
+        config=config,
+        batch_id="legacy",
+        generation="G0",
+        resume=False,
+        backend=BoilerplateOnlyBackend(),
+    )
+    with Store(config.database_path) as store:
+        document = store.list_documents("legacy")[0]
+        store.set_router_bucket("legacy", document["internal_doc_id"], "RED")
+    return config
+
+
+def test_reroute_preflights_then_atomically_applies_without_touching_prediction(
+    tmp_path,
+) -> None:
+    config = legacy_unfiltered_fixture(tmp_path)
+    with Store(config.database_path) as store:
+        prediction = store.list_predictions("legacy", "G0")[0]
+        prediction_sha = prediction["response_sha256"]
+
+    preflight = reroute_batch(config=config, batch_id="legacy", apply=False)
+    assert preflight["status"] == "preflight_passed"
+    assert preflight["unfiltered_router_counts"]["RED"] == 1
+    assert preflight["filtered_router_counts"]["GREEN"] == 1
+    with Store(config.database_path) as store:
+        assert store.status_summary("legacy")["documents"] == {"RED": 1}
+
+    result = reroute_batch(config=config, batch_id="legacy", apply=True)
+    assert result["status"] == "applied_and_verified"
+    assert result["raw_prediction_files_modified"] is False
+    assert result["database_router_counts_after_apply"] == {
+        "GREEN": 1,
+        "YELLOW": 0,
+        "RED": 0,
+        "QUARANTINE": 0,
+    }
+    with Store(config.database_path) as store:
+        assert store.status_summary("legacy")["documents"] == {"GREEN": 1}
+        assert (
+            store.list_predictions("legacy", "G0")[0]["response_sha256"]
+            == prediction_sha
+        )
+
+    assert reroute_batch(config=config, batch_id="legacy", apply=True) == result
+
+
+def test_reroute_refuses_to_change_queue_after_review_started(tmp_path) -> None:
+    config = legacy_unfiltered_fixture(tmp_path)
+    with Store(config.database_path) as store:
+        review = store.list_reviews("legacy")[0]
+        store.update_review(
+            batch_id="legacy",
+            internal_doc_id=review["internal_doc_id"],
+            expected_version=review["row_version"],
+            status="finalized",
+            action="accept_human",
+            final_references=[],
+            reason=None,
+            reviewer="test",
+        )
+    with pytest.raises(GateBlocked, match="all reviews to remain pending"):
+        reroute_batch(config=config, batch_id="legacy", apply=True)
 
 
 def test_mlx_backend_accepts_an_explicit_isolated_registry_path(

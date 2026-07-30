@@ -5,7 +5,12 @@ import zipfile
 from pathlib import Path
 
 from data_quality_checker.config import default_config_path, load_config
-from data_quality_checker.preparation import prepare_batch, validate_ready
+from data_quality_checker.preparation import (
+    annotation_attribution_path,
+    import_annotation_attribution,
+    prepare_batch,
+    validate_ready,
+)
 from data_quality_checker.storage import Store
 
 
@@ -47,14 +52,22 @@ def key_file(tmp_path: Path) -> Path:
     return path
 
 
-def test_prepare_selects_highest_evidence_channel_and_never_uses_annotation_text(tmp_path) -> None:
+def test_prepare_selects_highest_evidence_channel_and_never_uses_annotation_text(
+    tmp_path,
+) -> None:
     config = make_config(tmp_path)
     annotations = {
         "annotations": [
             {
                 "document_id": "secret-oid-html",
                 "text": "ANNOTATION ZIP TEXT MUST NEVER BECOME MODEL INPUT",
-                "annotation": {"is_completed": True},
+                "annotation": {
+                    "is_completed": True,
+                    "completed_by": {"id": 12, "username": "Irmak Tanrıverdi"},
+                    "last_editor": {"id": 12, "username": "Irmak Tanrıverdi"},
+                    "edit_count": 1,
+                    "unique_users_count": 1,
+                },
                 "current_references": [
                     {**FIELDS, "source_text": "HTML evidence phrase"}
                 ],
@@ -115,9 +128,15 @@ def test_prepare_selects_highest_evidence_channel_and_never_uses_annotation_text
     assert by_raw_id["secret-oid-tie"]["selected_channel"] == "pdfText"
     assert by_raw_id["secret-oid-zero"]["selected_channel"] == "pdfText"
     assert by_raw_id["secret-oid-zero"]["human_references"] == []
-    assert {warning["code"] for warning in by_raw_id["secret-oid-zero"]["warnings"]} == {
-        "current_references_missing_or_null"
+    assert by_raw_id["secret-oid-html"]["metadata"]["annotation_attribution"] == {
+        "completed_by": {"id": 12, "username": "Irmak Tanrıverdi"},
+        "last_editor": {"id": 12, "username": "Irmak Tanrıverdi"},
+        "edit_count": 1,
+        "unique_users_count": 1,
     }
+    assert {
+        warning["code"] for warning in by_raw_id["secret-oid-zero"]["warnings"]
+    } == {"current_references_missing_or_null"}
 
     public_text = (
         config.public_root / "batches" / "fixture" / "manifest.json"
@@ -126,7 +145,63 @@ def test_prepare_selects_highest_evidence_channel_and_never_uses_annotation_text
     assert "ANNOTATION ZIP TEXT" not in public_text
 
 
-def test_missing_reference_fields_warn_while_invalid_types_and_duplicates_quarantine(tmp_path) -> None:
+def test_import_annotation_attribution_writes_private_idempotent_sidecar(
+    tmp_path,
+) -> None:
+    config = make_config(tmp_path)
+    annotations = {
+        "annotations": [
+            {
+                "document_id": "annotated-doc",
+                "annotation": {
+                    "is_completed": True,
+                    "completed_by": {"id": 8, "username": "Uzman Kişi"},
+                    "last_editor": {"id": 9, "username": "Son Editör"},
+                    "edit_count": 3,
+                    "unique_users_count": 2,
+                },
+                "current_references": [],
+            }
+        ]
+    }
+    annotation_zip = tmp_path / "annotations.zip"
+    pool_zip = tmp_path / "pool.zip"
+    write_payload_zip(annotation_zip, "annotations.json", annotations)
+    write_payload_zip(
+        pool_zip,
+        "pool.json",
+        [{"evrakOid": "annotated-doc", "pdfText": "document text"}],
+    )
+    prepare_batch(
+        config=config,
+        annotation_zip=annotation_zip,
+        document_pool_zip=pool_zip,
+        batch_id="attribution-fixture",
+        hmac_key_file=key_file(tmp_path),
+    )
+
+    first = import_annotation_attribution(
+        config=config,
+        batch_id="attribution-fixture",
+        annotation_zip=annotation_zip,
+    )
+    second = import_annotation_attribution(
+        config=config,
+        batch_id="attribution-fixture",
+        annotation_zip=annotation_zip,
+    )
+
+    assert second == first
+    assert first["attributed_document_count"] == 1
+    attribution = next(iter(first["attributions"].values()))
+    assert attribution["completed_by"]["username"] == "Uzman Kişi"
+    assert attribution["last_editor"]["username"] == "Son Editör"
+    assert annotation_attribution_path(config, "attribution-fixture").exists()
+
+
+def test_missing_reference_fields_warn_while_invalid_types_and_duplicates_quarantine(
+    tmp_path,
+) -> None:
     config = make_config(tmp_path)
     annotations = [
         {

@@ -10,7 +10,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .atomic import fsync_directory, write_json_atomic, write_jsonl_atomic, write_text_atomic
+from .atomic import (
+    fsync_directory,
+    write_json_atomic,
+    write_jsonl_atomic,
+    write_text_atomic,
+)
 from .config import AppConfig
 from .errors import GateBlocked, IntegrityError
 from .fingerprints import fingerprint_json, sha256_file
@@ -18,6 +23,11 @@ from .heartbeat import RunLease
 from .hitl import _review_requirements, validate_final_references
 from .judges import ensure_green_audit_plan
 from .preparation import validate_ready
+from .reference_policy import (
+    DEFAULT_REFERENCE_POLICY_ID,
+    apply_reference_policy,
+    reference_policy_fingerprint,
+)
 from .storage import Store
 
 LAYER_FILES = (
@@ -41,9 +51,13 @@ def _read_jsonl(path: Path) -> list[dict[str, Any]]:
             try:
                 payload = json.loads(line)
             except json.JSONDecodeError as exc:
-                raise IntegrityError(f"invalid release JSONL {path}:{line_number}: {exc}") from exc
+                raise IntegrityError(
+                    f"invalid release JSONL {path}:{line_number}: {exc}"
+                ) from exc
             if not isinstance(payload, dict):
-                raise IntegrityError(f"release JSONL row must be an object: {path}:{line_number}")
+                raise IntegrityError(
+                    f"release JSONL row must be an object: {path}:{line_number}"
+                )
             rows.append(payload)
     return rows
 
@@ -99,7 +113,9 @@ def _verify_release(path: Path, *, expected_document_count: int) -> dict[str, An
         for row in layers["expert_adjudicated.jsonl"] + layers["consensus_clean.jsonl"]
     }
     if training_ids != eligible_ids:
-        raise IntegrityError("training export does not exactly equal eligible trust layers")
+        raise IntegrityError(
+            "training export does not exactly equal eligible trust layers"
+        )
     return manifest
 
 
@@ -134,7 +150,9 @@ def release_batch(*, config: AppConfig, batch_id: str) -> dict[str, Any]:
     ).start(stage="release-gates")
     temporary: Path | None = None
     try:
-        with Store(config.database_path, busy_timeout_ms=config.runtime.busy_timeout_ms) as store:
+        with Store(
+            config.database_path, busy_timeout_ms=config.runtime.busy_timeout_ms
+        ) as store:
             batch = store.get_batch(batch_id)
             if batch is None or batch["status"] not in {"processed", "released"}:
                 raise GateBlocked("release requires a processed batch")
@@ -149,14 +167,21 @@ def release_batch(*, config: AppConfig, batch_id: str) -> dict[str, Any]:
             prediction_by_id = {row["internal_doc_id"]: row for row in predictions}
             for prediction in predictions:
                 path = Path(prediction["response_path"])
-                if not path.is_file() or sha256_file(path) != prediction["response_sha256"]:
+                if (
+                    not path.is_file()
+                    or sha256_file(path) != prediction["response_sha256"]
+                ):
                     raise IntegrityError(f"prediction seal failure: {path}")
 
-            audit = ensure_green_audit_plan(config=config, store=store, batch_id=batch_id)
+            audit = ensure_green_audit_plan(
+                config=config, store=store, batch_id=batch_id
+            )
             required_review_ids, _ = _review_requirements(
                 config=config, store=store, batch_id=batch_id
             )
-            review_by_id = {row["internal_doc_id"]: row for row in store.list_reviews(batch_id)}
+            review_by_id = {
+                row["internal_doc_id"]: row for row in store.list_reviews(batch_id)
+            }
             incomplete = [
                 doc_id
                 for doc_id in sorted(required_review_ids)
@@ -173,19 +198,28 @@ def release_batch(*, config: AppConfig, batch_id: str) -> dict[str, Any]:
                 raise GateBlocked(f"required reviews are incomplete: {incomplete[:10]}")
 
             escalation = (public_batch / "green_escalation.json").exists()
-            judge_required = _judge_required_ids(documents=documents, escalation=escalation)
+            judge_required = _judge_required_ids(
+                documents=documents, escalation=escalation
+            )
             locked_model: str | None = None
             if judge_required:
                 lock_path = public_batch / "judge_lock.json"
                 if not lock_path.is_file():
-                    raise GateBlocked("RED/YELLOW or escalated GREEN records require judge-lock")
+                    raise GateBlocked(
+                        "RED/YELLOW or escalated GREEN records require judge-lock"
+                    )
                 lock_payload = json.loads(lock_path.read_text(encoding="utf-8"))
                 locked_model = str(lock_payload["model"])
                 missing_judges = [
                     doc_id
                     for doc_id in sorted(judge_required)
                     if (
-                        (result := store.get_judge_result(batch_id, doc_id, locked_model)) is None
+                        (
+                            result := store.get_judge_result(
+                                batch_id, doc_id, locked_model
+                            )
+                        )
+                        is None
                         or result["status"] != "valid"
                     )
                 ]
@@ -210,7 +244,9 @@ def release_batch(*, config: AppConfig, batch_id: str) -> dict[str, Any]:
             decision_fingerprints: list[dict[str, Any]] = []
             for document in documents:
                 doc_id = document["internal_doc_id"]
-                human = json.loads(document["human_references_json"])
+                human, _ = apply_reference_policy(
+                    json.loads(document["human_references_json"])
+                )
                 review = review_by_id[doc_id]
                 prediction = prediction_by_id[doc_id]
                 common = {
@@ -224,6 +260,7 @@ def release_batch(*, config: AppConfig, batch_id: str) -> dict[str, Any]:
                     "router_bucket": document["router_bucket"],
                     "warnings": json.loads(document["warnings_json"]),
                     "prediction_sha256": prediction["response_sha256"],
+                    "reference_policy_id": DEFAULT_REFERENCE_POLICY_ID,
                 }
                 if document["router_bucket"] == "QUARANTINE":
                     row = {
@@ -275,11 +312,17 @@ def release_batch(*, config: AppConfig, batch_id: str) -> dict[str, Any]:
                             "prediction_sha256": prediction["response_sha256"],
                             "config_fingerprint": config.fingerprint,
                             "input_fingerprint": ready["input_fingerprint"],
+                            "reference_policy_id": DEFAULT_REFERENCE_POLICY_ID,
+                            "reference_policy_fingerprint": reference_policy_fingerprint(),
                         },
                     }
                 )
                 decision_fingerprints.append(
-                    {"id": doc_id, "trust": row["release_trust"], "references": references}
+                    {
+                        "id": doc_id,
+                        "trust": row["release_trust"],
+                        "references": references,
+                    }
                 )
 
             release_fingerprint = fingerprint_json(
@@ -300,7 +343,9 @@ def release_batch(*, config: AppConfig, batch_id: str) -> dict[str, Any]:
             target = release_parent / release_id
             release_parent.mkdir(parents=True, exist_ok=True)
             if target.exists():
-                manifest = _verify_release(target, expected_document_count=len(documents))
+                manifest = _verify_release(
+                    target, expected_document_count=len(documents)
+                )
                 manifest_sha256 = sha256_file(target / "manifest.json")
                 existing_release = store.get_release_for_batch(batch_id)
                 if existing_release is None:
@@ -314,7 +359,9 @@ def release_batch(*, config: AppConfig, batch_id: str) -> dict[str, Any]:
                     existing_release["release_id"] != release_id
                     or existing_release["manifest_sha256"] != manifest_sha256
                 ):
-                    raise IntegrityError("SQLite release registry differs from immutable release")
+                    raise IntegrityError(
+                        "SQLite release registry differs from immutable release"
+                    )
                 current = store.get_batch(batch_id)
                 assert current is not None
                 if current["status"] != "released":
@@ -383,14 +430,17 @@ def release_batch(*, config: AppConfig, batch_id: str) -> dict[str, Any]:
             write_text_atomic(
                 temporary / "SHA256SUMS.txt",
                 "".join(
-                    f"{sha256_file(temporary / name)}  {name}\n" for name in checksum_paths
+                    f"{sha256_file(temporary / name)}  {name}\n"
+                    for name in checksum_paths
                 ),
             )
             _verify_release(temporary, expected_document_count=len(documents))
             os.rename(temporary, target)
             temporary = None
             fsync_directory(release_parent)
-            sealed_manifest = _verify_release(target, expected_document_count=len(documents))
+            sealed_manifest = _verify_release(
+                target, expected_document_count=len(documents)
+            )
             manifest_sha256 = sha256_file(target / "manifest.json")
             store.record_release(
                 release_id=release_id,

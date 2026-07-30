@@ -12,11 +12,13 @@ def test_help_lists_every_public_command() -> None:
     help_text = build_parser().format_help()
     for command in (
         "prepare",
+        "import-attribution",
         "train-bootstrap",
         "train-g0",
         "process",
         "pilot-judges",
         "judge-lock",
+        "review-backup",
         "serve",
         "release",
         "status",

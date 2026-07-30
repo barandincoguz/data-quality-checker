@@ -48,7 +48,13 @@ dqcheck prepare \
   --document-pool-zip /izinli/yol/documents.zip \
   --hmac-key-file /izinli/yol/dqcheck-hmac.key
 
+dqcheck import-attribution \
+  --batch-id <batch-id> \
+  --annotation-zip /izinli/yol/annotations.zip
+
 dqcheck process --prepared-batch <batch-id> --generation G0 --resume
+dqcheck reroute --batch-id <batch-id>
+dqcheck reroute --batch-id <batch-id> --apply
 dqcheck pilot-judges --batch-id <batch-id> --allow-external-judge
 dqcheck serve --batch-id <batch-id>
 dqcheck release --batch-id <batch-id>
@@ -57,6 +63,35 @@ dqcheck release --batch-id <batch-id>
 `serve` yalnız `127.0.0.1` üzerinde açılır. Session secret ve erişim token'ı
 ortam değişkenlerinden verilmelidir; ayrıntılar [runbook](docs/RUNBOOK.md)
 içindedir.
+
+HITL ekranı insan anotasyonu ile G0 model çıktısını açık etiketlerle gösterir;
+körleme uygulanmaz. `import-attribution`, eski hazırlanmış batch'lerde eksik
+olan `completed_by`/`last_editor` bilgisini kaynak ZIP'ten belge kimliğiyle
+eşleyip yalnız hassas veri kökündeki `0600` izinli sidecar'a yazar.
+
+Her HITL kararı, review satırı ve `expert_review_updated` audit event'i aynı
+SQLite transaction'ında commit edildikten sonra tam veritabanının doğrulanmış
+online snapshot'ı alınır. Snapshot doğrulanmadan başarılı API cevabı veya form
+redirect'i verilmez. En son beş doğrulanmış durum korunur; UI güncel korunan
+karar sayısını gösterir. Operasyon komutları:
+
+```bash
+dqcheck review-backup create --batch-id <batch-id>
+dqcheck review-backup verify --batch-id <batch-id>
+dqcheck review-backup status --batch-id <batch-id>
+dqcheck review-backup restore-smoke --batch-id <batch-id>
+```
+
+Bu snapshot'lar `data/sensitive/data_quality_checker/review_backups/` altında
+ve ana veritabanıyla aynı makinededir. Yanlışlıkla silme/bozulma ve süreç
+çökmesine karşı kurtarma noktası sağlar; makine veya disk kaybına karşı
+off-host yedek yerine geçmez.
+
+`reroute` varsayılan olarak salt preflight'tır. Sealed ham predictionları veya
+belge metnini değiştirmeden sürümlü reference-policy görünümünü hesaplar.
+`--apply`, prediction checksum/coverage ve pending-review kapıları geçtikten
+sonra doğrulanmış SQLite backup alır ve yeni router bucket'larını tek
+transaction'da uygular.
 
 ## G0 compute sınırı
 

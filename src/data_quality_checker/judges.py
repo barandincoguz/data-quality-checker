@@ -23,6 +23,7 @@ from .fingerprints import fingerprint_json, sha256_file
 from .heartbeat import RunLease
 from .normalization import compact_references, core_identity, full_identity
 from .preparation import validate_ready
+from .reference_policy import apply_reference_policy
 from .storage import Store
 from .text import evidence_match_mode
 
@@ -36,7 +37,9 @@ class JudgeProviderUnavailable(RuntimeError):
 
 
 class JudgeProvider(Protocol):
-    def judge(self, *, model: str, payload: dict[str, Any]) -> tuple[Any, dict[str, Any]]: ...
+    def judge(
+        self, *, model: str, payload: dict[str, Any]
+    ) -> tuple[Any, dict[str, Any]]: ...
 
 
 @dataclass(frozen=True)
@@ -52,20 +55,22 @@ def _hash_order(batch_id: str, internal_doc_id: str, *, salt: str) -> str:
 def select_pilot_documents(
     documents: list[dict[str, Any]], *, batch_id: str
 ) -> PilotSelection:
-    by_bucket: dict[str, list[dict[str, Any]]] = {key: [] for key in ("GREEN", "YELLOW", "RED")}
+    by_bucket: dict[str, list[dict[str, Any]]] = {
+        key: [] for key in ("GREEN", "YELLOW", "RED")
+    }
     for document in documents:
         bucket = document.get("router_bucket")
         if bucket in by_bucket:
             by_bucket[bucket].append(document)
     for bucket, rows in by_bucket.items():
-        rows.sort(key=lambda row: _hash_order(batch_id, row["internal_doc_id"], salt=bucket))
+        rows.sort(
+            key=lambda row: _hash_order(batch_id, row["internal_doc_id"], salt=bucket)
+        )
 
     selected: dict[str, list[dict[str, Any]]] = {
         bucket: rows[:PILOT_TARGET_PER_BUCKET] for bucket, rows in by_bucket.items()
     }
-    target_total = min(
-        PILOT_MAX_DOCS, sum(len(rows) for rows in by_bucket.values())
-    )
+    target_total = min(PILOT_MAX_DOCS, sum(len(rows) for rows in by_bucket.values()))
     shortage = target_total - sum(len(rows) for rows in selected.values())
     while shortage > 0:
         progressed = False
@@ -95,8 +100,12 @@ def _stratified_round_robin(
     strata: defaultdict[tuple[Any, ...], list[dict[str, Any]]] = defaultdict(list)
     for document in documents:
         metadata = json.loads(document["metadata_json"])
-        references = json.loads(document["human_references_json"])
-        coverage = max(float(document["pdf_coverage"]), float(document["html_coverage"]))
+        references, _ = apply_reference_policy(
+            json.loads(document["human_references_json"])
+        )
+        coverage = max(
+            float(document["pdf_coverage"]), float(document["html_coverage"])
+        )
         key = (
             metadata.get("annotation_completed"),
             min(len(references), 4),
@@ -182,7 +191,9 @@ class FakeJudgeProvider:
     def __init__(self) -> None:
         self.payloads: list[dict[str, Any]] = []
 
-    def judge(self, *, model: str, payload: dict[str, Any]) -> tuple[Any, dict[str, Any]]:
+    def judge(
+        self, *, model: str, payload: dict[str, Any]
+    ) -> tuple[Any, dict[str, Any]]:
         self.payloads.append(payload)
         references = payload["candidate_a"]
         return (
@@ -190,7 +201,9 @@ class FakeJudgeProvider:
                 "verdict": "A",
                 "candidate_errors": {"A": [], "B": ["not_selected"]},
                 "final_references": references,
-                "evidence": [ref["source_text"] for ref in references if ref["source_text"]],
+                "evidence": [
+                    ref["source_text"] for ref in references if ref["source_text"]
+                ],
                 "reason_codes": ["fixture_prefers_a"],
             },
             {"latency_seconds": 0.0, "cost": 0.0, "provider": "fake"},
@@ -199,18 +212,25 @@ class FakeJudgeProvider:
 
 class OllamaJudgeProvider:
     def __init__(self) -> None:
-        self.base_url = os.environ.get("OLLAMA_BASE_URL", "https://ollama.com").rstrip("/")
+        self.base_url = os.environ.get("OLLAMA_BASE_URL", "https://ollama.com").rstrip(
+            "/"
+        )
         self.timeout = float(os.environ.get("OLLAMA_TIMEOUT", "500"))
         self.keys = [
             value
-            for name in ("OLLAMA_API_KEY", *[f"OLLAMA_API_KEY_V{i}" for i in range(2, 8)])
+            for name in (
+                "OLLAMA_API_KEY",
+                *[f"OLLAMA_API_KEY_V{i}" for i in range(2, 8)],
+            )
             if (value := os.environ.get(name))
         ]
         if not self.keys:
             raise JudgeProviderUnavailable("OLLAMA_API_KEY is unavailable")
         self._key_index = 0
 
-    def judge(self, *, model: str, payload: dict[str, Any]) -> tuple[Any, dict[str, Any]]:
+    def judge(
+        self, *, model: str, payload: dict[str, Any]
+    ) -> tuple[Any, dict[str, Any]]:
         prompt = (
             "Act as a blind legal-reference adjudicator. Compare candidate A and B "
             "only against the Turkish document. Return JSON with verdict (A, B, TIE, "
@@ -243,7 +263,7 @@ class OllamaJudgeProvider:
         except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
             self._key_index += 1
             raise JudgeProviderUnavailable(str(exc)) from exc
-        content = ((body.get("message") or {}).get("content") or body.get("response"))
+        content = (body.get("message") or {}).get("content") or body.get("response")
         return content, {
             "latency_seconds": time.perf_counter() - started,
             "cost": body.get("cost"),
@@ -268,6 +288,7 @@ def _validate_judge_result(payload: Any, document_text: str) -> dict[str, Any]:
     ):
         raise ContractError("candidate_errors must contain A and B lists")
     references = validate_reference_list(payload.get("final_references"))
+    references, _ = apply_reference_policy(references)
     fabricated = [
         index
         for index, reference in enumerate(references)
@@ -275,16 +296,23 @@ def _validate_judge_result(payload: Any, document_text: str) -> dict[str, Any]:
         or evidence_match_mode(reference["source_text"], document_text) is None
     ]
     if fabricated:
-        raise ContractError(f"fabricated_or_missing_evidence at references {fabricated}")
+        raise ContractError(
+            f"fabricated_or_missing_evidence at references {fabricated}"
+        )
     evidence = payload.get("evidence")
     reason_codes = payload.get("reason_codes")
     if not isinstance(evidence, list) or not isinstance(reason_codes, list):
         raise ContractError("evidence and reason_codes must be lists")
-    if any(evidence_match_mode(item, document_text) is None for item in evidence if item):
+    if any(
+        evidence_match_mode(item, document_text) is None for item in evidence if item
+    ):
         raise ContractError("judge evidence contains a span absent from the document")
     return {
         "verdict": verdict,
-        "candidate_errors": {"A": list(candidate_errors["A"]), "B": list(candidate_errors["B"])},
+        "candidate_errors": {
+            "A": list(candidate_errors["A"]),
+            "B": list(candidate_errors["B"]),
+        },
         "final_references": references,
         "evidence": [str(item) for item in evidence],
         "reason_codes": [str(item) for item in reason_codes],
@@ -309,7 +337,9 @@ def _run_pilot_impl(
     selected_provider: JudgeProvider = provider or (
         FakeJudgeProvider() if fake_backend else OllamaJudgeProvider()
     )
-    with Store(config.database_path, busy_timeout_ms=config.runtime.busy_timeout_ms) as store:
+    with Store(
+        config.database_path, busy_timeout_ms=config.runtime.busy_timeout_ms
+    ) as store:
         batch = store.get_batch(batch_id)
         if batch is None or batch["status"] != "processed":
             raise GateBlocked("judge pilot requires a fully processed batch")
@@ -324,7 +354,11 @@ def _run_pilot_impl(
             "counts": selection.counts,
             "internal_doc_ids": list(selection.internal_doc_ids),
             "public_doc_ids": [
-                next(row["public_doc_id"] for row in documents if row["internal_doc_id"] == doc_id)
+                next(
+                    row["public_doc_id"]
+                    for row in documents
+                    if row["internal_doc_id"] == doc_id
+                )
                 for doc_id in selection.internal_doc_ids
             ],
             "models": list(JUDGE_MODELS),
@@ -334,7 +368,9 @@ def _run_pilot_impl(
             },
         }
         public_dir = config.public_root / "batches" / batch_id
-        write_json_atomic(public_dir / "judge_pilot_selection.json", selection_manifest, mode=0o644)
+        write_json_atomic(
+            public_dir / "judge_pilot_selection.json", selection_manifest, mode=0o644
+        )
         counts_by_model: dict[str, dict[str, int]] = {
             model: {"valid": 0, "unavailable": 0, "error": 0} for model in JUDGE_MODELS
         }
@@ -342,19 +378,32 @@ def _run_pilot_impl(
         total_cost: dict[str, float] = {model: 0.0 for model in JUDGE_MODELS}
         document_by_id = {row["internal_doc_id"]: row for row in documents}
 
-        for selection_index, internal_doc_id in enumerate(selection.internal_doc_ids, 1):
+        for selection_index, internal_doc_id in enumerate(
+            selection.internal_doc_ids, 1
+        ):
             document = document_by_id[internal_doc_id]
-            human = json.loads(document["human_references_json"])
+            human, _ = apply_reference_policy(
+                json.loads(document["human_references_json"])
+            )
             prediction = store.get_prediction(batch_id, internal_doc_id, "G0")
             if prediction is None:
-                raise IntegrityError(f"missing G0 prediction for pilot doc {internal_doc_id}")
-            model_references = json.loads(prediction["references_json"])
+                raise IntegrityError(
+                    f"missing G0 prediction for pilot doc {internal_doc_id}"
+                )
+            model_references, _ = apply_reference_policy(
+                json.loads(prediction["references_json"])
+            )
             for model in JUDGE_MODELS:
                 existing = store.get_judge_result(batch_id, internal_doc_id, model)
                 if existing is not None and existing["status"] == "valid":
                     response_path = Path(existing["response_path"])
-                    if not response_path.is_file() or sha256_file(response_path) != existing["response_sha256"]:
-                        raise IntegrityError(f"judge result file is missing or corrupt: {response_path}")
+                    if (
+                        not response_path.is_file()
+                        or sha256_file(response_path) != existing["response_sha256"]
+                    ):
+                        raise IntegrityError(
+                            f"judge result file is missing or corrupt: {response_path}"
+                        )
                     counts_by_model[model]["valid"] += 1
                     continue
                 mapping, candidate_a, candidate_b = blind_candidates(
@@ -387,14 +436,26 @@ def _run_pilot_impl(
                         last_error = str(exc)
                         unavailable = True
                         attempts.append(
-                            {"attempt": attempt, "status": "unavailable", "error": last_error}
+                            {
+                                "attempt": attempt,
+                                "status": "unavailable",
+                                "error": last_error,
+                            }
                         )
                     except (ContractError, ValueError, TypeError) as exc:
                         last_error = str(exc)
                         attempts.append(
-                            {"attempt": attempt, "status": "invalid", "error": last_error}
+                            {
+                                "attempt": attempt,
+                                "status": "invalid",
+                                "error": last_error,
+                            }
                         )
-                status = "valid" if validated is not None else ("unavailable" if unavailable else "error")
+                status = (
+                    "valid"
+                    if validated is not None
+                    else ("unavailable" if unavailable else "error")
+                )
                 result_payload = {
                     "schema_version": 1,
                     "batch_id": batch_id,
@@ -454,7 +515,8 @@ def _run_pilot_impl(
                 model: {
                     **counts_by_model[model],
                     "valid_output_rate": (
-                        counts_by_model[model]["valid"] / len(selection.internal_doc_ids)
+                        counts_by_model[model]["valid"]
+                        / len(selection.internal_doc_ids)
                         if selection.internal_doc_ids
                         else None
                     ),
@@ -484,7 +546,9 @@ def _run_locked_judge_coverage(
     allow_external_judge: bool,
     lease: RunLease,
 ) -> dict[str, Any]:
-    with Store(config.database_path, busy_timeout_ms=config.runtime.busy_timeout_ms) as store:
+    with Store(
+        config.database_path, busy_timeout_ms=config.runtime.busy_timeout_ms
+    ) as store:
         documents = store.list_documents(batch_id)
         escalation = (
             config.public_root / "batches" / batch_id / "green_escalation.json"
@@ -497,22 +561,33 @@ def _run_locked_judge_coverage(
         ]
         targets.sort(key=lambda row: row["internal_doc_id"])
         counts = {"valid": 0, "unavailable": 0, "error": 0}
-        lease.beat(stage="judge-production", expected_units=len(targets), completed_units=0)
+        lease.beat(
+            stage="judge-production", expected_units=len(targets), completed_units=0
+        )
         for index, document in enumerate(targets, 1):
             internal_doc_id = document["internal_doc_id"]
             existing = store.get_judge_result(batch_id, internal_doc_id, model)
             if existing is not None and existing["status"] == "valid":
                 result_path = Path(existing["response_path"])
-                if not result_path.is_file() or sha256_file(result_path) != existing["response_sha256"]:
-                    raise IntegrityError(f"judge result file is missing or corrupt: {result_path}")
+                if (
+                    not result_path.is_file()
+                    or sha256_file(result_path) != existing["response_sha256"]
+                ):
+                    raise IntegrityError(
+                        f"judge result file is missing or corrupt: {result_path}"
+                    )
                 counts["valid"] += 1
                 lease.beat(completed_units=index, last_successful_unit=internal_doc_id)
                 continue
             prediction = store.get_prediction(batch_id, internal_doc_id, "G0")
             if prediction is None:
                 raise IntegrityError(f"missing G0 prediction for {internal_doc_id}")
-            human = json.loads(document["human_references_json"])
-            model_references = json.loads(prediction["references_json"])
+            human, _ = apply_reference_policy(
+                json.loads(document["human_references_json"])
+            )
+            model_references, _ = apply_reference_policy(
+                json.loads(prediction["references_json"])
+            )
             mapping, candidate_a, candidate_b = blind_candidates(
                 batch_id=batch_id,
                 internal_doc_id=internal_doc_id,
@@ -533,7 +608,9 @@ def _run_locked_judge_coverage(
             unavailable = False
             for attempt in range(1, 4):
                 try:
-                    raw, operational = provider.judge(model=model, payload=external_payload)
+                    raw, operational = provider.judge(
+                        model=model, payload=external_payload
+                    )
                     validated = _validate_judge_result(raw, document["text"])
                     attempts.append({"attempt": attempt, "status": "valid"})
                     break
@@ -541,14 +618,22 @@ def _run_locked_judge_coverage(
                     unavailable = True
                     last_error = str(exc)
                     attempts.append(
-                        {"attempt": attempt, "status": "unavailable", "error": last_error}
+                        {
+                            "attempt": attempt,
+                            "status": "unavailable",
+                            "error": last_error,
+                        }
                     )
                 except (ContractError, ValueError, TypeError) as exc:
                     last_error = str(exc)
                     attempts.append(
                         {"attempt": attempt, "status": "invalid", "error": last_error}
                     )
-            status = "valid" if validated is not None else ("unavailable" if unavailable else "error")
+            status = (
+                "valid"
+                if validated is not None
+                else ("unavailable" if unavailable else "error")
+            )
             result_payload = {
                 "schema_version": 1,
                 "batch_id": batch_id,
@@ -624,7 +709,10 @@ def run_judge_pilot(
     )
     lease = RunLease(
         lock_path=config.sensitive_root / "locks" / f"judge_{batch_id}.lock",
-        heartbeat_path=config.sensitive_root / "batches" / batch_id / "judge_heartbeat.json",
+        heartbeat_path=config.sensitive_root
+        / "batches"
+        / batch_id
+        / "judge_heartbeat.json",
         purpose="judge",
         run_id=f"judge:{batch_id}",
         input_fingerprint=str(ready["input_fingerprint"]),
@@ -667,7 +755,9 @@ def _set_metric(references: list[dict[str, Any]], *, core: bool) -> set[Any]:
     }
 
 
-def judge_expert_metrics(store: Store, *, batch_id: str, model: str, ids: list[str]) -> dict[str, Any]:
+def judge_expert_metrics(
+    store: Store, *, batch_id: str, model: str, ids: list[str]
+) -> dict[str, Any]:
     if not ids:
         return {"status": "complete", "document_count": 0}
     exact = 0
@@ -683,14 +773,22 @@ def judge_expert_metrics(store: Store, *, batch_id: str, model: str, ids: list[s
             return {"status": result["status"], "document_count": len(ids)}
         expert = json.loads(review["final_references_json"] or "[]")
         judge = json.loads(result["result_json"]).get("final_references", [])
-        expert_full, judge_full = _set_metric(expert, core=False), _set_metric(judge, core=False)
+        expert_full, judge_full = (
+            _set_metric(expert, core=False),
+            _set_metric(judge, core=False),
+        )
         exact += expert_full == judge_full
-        expert_core, judge_core = _set_metric(expert, core=True), _set_metric(judge, core=True)
+        expert_core, judge_core = (
+            _set_metric(expert, core=True),
+            _set_metric(judge, core=True),
+        )
         tp += len(expert_core & judge_core)
         fp += len(judge_core - expert_core)
         fn += len(expert_core - judge_core)
         if result["response_path"]:
-            payload = json.loads(Path(result["response_path"]).read_text(encoding="utf-8"))
+            payload = json.loads(
+                Path(result["response_path"]).read_text(encoding="utf-8")
+            )
             latency = (payload.get("operational") or {}).get("latency_seconds")
             cost = (payload.get("operational") or {}).get("cost")
             if isinstance(latency, (int, float)):
@@ -720,13 +818,17 @@ def lock_judge(
         raise ContractError(f"model must be one of {JUDGE_MODELS}")
     if not reason.strip():
         raise ContractError("judge lock requires a non-empty reason")
-    selection_path = config.public_root / "batches" / batch_id / "judge_pilot_selection.json"
+    selection_path = (
+        config.public_root / "batches" / batch_id / "judge_pilot_selection.json"
+    )
     try:
         selection = json.loads(selection_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise GateBlocked(f"judge pilot selection is unavailable: {exc}") from exc
     ids = [str(value) for value in selection.get("internal_doc_ids", [])]
-    with Store(config.database_path, busy_timeout_ms=config.runtime.busy_timeout_ms) as store:
+    with Store(
+        config.database_path, busy_timeout_ms=config.runtime.busy_timeout_ms
+    ) as store:
         all_metrics = {
             candidate: judge_expert_metrics(
                 store, batch_id=batch_id, model=candidate, ids=ids
@@ -735,9 +837,13 @@ def lock_judge(
         }
         metrics = all_metrics[model]
         if metrics.get("status") != "complete":
-            raise GateBlocked("all pilot documents require finalized expert review before judge-lock")
+            raise GateBlocked(
+                "all pilot documents require finalized expert review before judge-lock"
+            )
         unavailable = [
-            row for row in store.list_judge_results(batch_id, model=model) if row["status"] != "valid"
+            row
+            for row in store.list_judge_results(batch_id, model=model)
+            if row["status"] != "valid"
         ]
         if unavailable:
             raise GateBlocked(f"judge {model} has unavailable/invalid pilot outputs")
@@ -749,7 +855,12 @@ def lock_judge(
             "metrics": metrics,
             "pilot_model_metrics": all_metrics,
             "lock_fingerprint": fingerprint_json(
-                {"batch_id": batch_id, "model": model, "reason": reason.strip(), "metrics": metrics}
+                {
+                    "batch_id": batch_id,
+                    "model": model,
+                    "reason": reason.strip(),
+                    "metrics": metrics,
+                }
             ),
         }
         path = config.public_root / "batches" / batch_id / "judge_lock.json"
@@ -759,7 +870,9 @@ def lock_judge(
                 raise GateBlocked("a different production judge is already locked")
             return existing
         write_json_atomic(path, payload, mode=0o644)
-        summary_path = config.public_root / "batches" / batch_id / "judge_pilot_summary.json"
+        summary_path = (
+            config.public_root / "batches" / batch_id / "judge_pilot_summary.json"
+        )
         if summary_path.exists():
             summary = json.loads(summary_path.read_text(encoding="utf-8"))
             for candidate, candidate_metrics in all_metrics.items():

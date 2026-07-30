@@ -31,7 +31,9 @@ def _read_hmac_key(path: Path | None) -> bytes:
         try:
             key = path.read_bytes().strip()
         except OSError as exc:
-            raise ConfigurationError(f"cannot read HMAC key file {path}: {exc}") from exc
+            raise ConfigurationError(
+                f"cannot read HMAC key file {path}: {exc}"
+            ) from exc
     else:
         value = os.environ.get("DQCHECK_HMAC_KEY")
         if value is None:
@@ -68,6 +70,108 @@ def _annotation_completed(record: dict[str, Any]) -> bool | None:
     if isinstance(record.get("is_completed"), bool):
         return bool(record["is_completed"])
     return None
+
+
+def annotation_attribution(record: dict[str, Any]) -> dict[str, Any]:
+    """Return the non-secret human attribution fields carried by an export row."""
+
+    nested = record.get("annotation")
+    if not isinstance(nested, dict):
+        return {}
+
+    def user(value: Any) -> dict[str, Any] | None:
+        if not isinstance(value, dict):
+            return None
+        username = normalize_text(value.get("username"))
+        user_id = value.get("id")
+        if not username and user_id is None:
+            return None
+        result: dict[str, Any] = {"username": username}
+        if isinstance(user_id, (int, str)) and not isinstance(user_id, bool):
+            result["id"] = user_id
+        return result
+
+    result: dict[str, Any] = {}
+    for key in ("completed_by", "last_editor"):
+        normalized_user = user(nested.get(key))
+        if normalized_user is not None:
+            result[key] = normalized_user
+    for key in ("edit_count", "unique_users_count"):
+        value = nested.get(key)
+        if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+            result[key] = value
+    return result
+
+
+def annotation_attribution_path(config: AppConfig, batch_id: str) -> Path:
+    return config.sensitive_root / "batches" / batch_id / "annotation_attribution.json"
+
+
+def import_annotation_attribution(
+    *, config: AppConfig, batch_id: str, annotation_zip: Path
+) -> dict[str, Any]:
+    """Import per-document annotator identity into a private, atomic sidecar."""
+
+    source_sha256 = sha256_file(annotation_zip)
+    target = annotation_attribution_path(config, batch_id)
+    if target.exists():
+        existing = json.loads(target.read_text(encoding="utf-8"))
+        if (
+            existing.get("batch_id") == batch_id
+            and existing.get("source_sha256") == source_sha256
+        ):
+            return existing
+
+    _, records = read_json_records(annotation_zip, config.security)
+    by_raw_id: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for record in records:
+        raw_id = _annotation_id(record.payload)
+        if raw_id:
+            by_raw_id[raw_id].append(record.payload)
+
+    with Store(
+        config.database_path, busy_timeout_ms=config.runtime.busy_timeout_ms
+    ) as store:
+        documents = store.list_documents(batch_id)
+        if not documents:
+            raise GateBlocked(f"batch has no documents: {batch_id}")
+        attributions: dict[str, dict[str, Any]] = {}
+        failures: list[str] = []
+        for document in documents:
+            matches = by_raw_id.get(str(document["raw_document_id"]), [])
+            if len(matches) != 1:
+                failures.append(str(document["internal_doc_id"]))
+                continue
+            attribution = annotation_attribution(matches[0])
+            if not attribution:
+                failures.append(str(document["internal_doc_id"]))
+                continue
+            attributions[str(document["internal_doc_id"])] = attribution
+        if failures:
+            raise GateBlocked(
+                "annotation attribution coverage failed for "
+                f"{len(failures)} documents; no sidecar was written"
+            )
+        payload = {
+            "schema_version": 1,
+            "batch_id": batch_id,
+            "source_sha256": source_sha256,
+            "created_at": _utc_now(),
+            "document_count": len(documents),
+            "attributed_document_count": len(attributions),
+            "attributions": attributions,
+        }
+        write_json_atomic(target, payload, mode=0o600)
+        store.add_event(
+            batch_id,
+            "annotation_attribution_imported",
+            {
+                "source_sha256": source_sha256,
+                "document_count": len(documents),
+                "attributed_document_count": len(attributions),
+            },
+        )
+    return payload
 
 
 def _annotation_text_digest(record: dict[str, Any]) -> str | None:
@@ -183,7 +287,10 @@ def validate_ready(config: AppConfig, batch_id: str) -> dict[str, Any]:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise GateBlocked(f"batch {batch_id} has no valid READY.json: {exc}") from exc
-    if payload.get("batch_id") != batch_id or payload.get("config_fingerprint") != config.fingerprint:
+    if (
+        payload.get("batch_id") != batch_id
+        or payload.get("config_fingerprint") != config.fingerprint
+    ):
         raise GateBlocked(f"batch {batch_id} READY contract does not match this config")
     public_dir = path.parent
     manifest = public_dir / "manifest.json"
@@ -206,7 +313,9 @@ def prepare_batch(
     annotation_zip = annotation_zip.resolve()
     document_pool_zip = document_pool_zip.resolve()
     if not annotation_zip.is_file() or not document_pool_zip.is_file():
-        raise FileNotFoundError("both annotation and document-pool ZIP files must exist")
+        raise FileNotFoundError(
+            "both annotation and document-pool ZIP files must exist"
+        )
     key = _read_hmac_key(hmac_key_file)
 
     annotation_audit, raw_annotation_records = read_json_records(
@@ -218,12 +327,21 @@ def prepare_batch(
         for record in raw_annotation_records
         if any(
             key_name in record.payload
-            for key_name in ("evrakId", "document_id", "current_references", "annotation")
+            for key_name in (
+                "evrakId",
+                "document_id",
+                "current_references",
+                "annotation",
+            )
         )
     ]
-    pool_records = [record for record in raw_pool_records if "evrakOid" in record.payload]
+    pool_records = [
+        record for record in raw_pool_records if "evrakOid" in record.payload
+    ]
     if not annotations:
-        raise ContractError("annotation ZIP contains no recognizable annotation records")
+        raise ContractError(
+            "annotation ZIP contains no recognizable annotation records"
+        )
     if not pool_records:
         raise ContractError("document-pool ZIP contains no evrakOid records")
 
@@ -255,8 +373,10 @@ def prepare_batch(
                 config_fingerprint=config.fingerprint,
                 metadata={
                     "input_contract": input_contract,
-                    "annotation_zip_audit": annotation_audit.__dict__ | {"path": str(annotation_audit.path)},
-                    "pool_zip_audit": pool_audit.__dict__ | {"path": str(pool_audit.path)},
+                    "annotation_zip_audit": annotation_audit.__dict__
+                    | {"path": str(annotation_audit.path)},
+                    "pool_zip_audit": pool_audit.__dict__
+                    | {"path": str(pool_audit.path)},
                     "started_at": _utc_now(),
                 },
             )
@@ -384,7 +504,9 @@ def prepare_batch(
                                         {
                                             "code": "source_text_not_in_selected_channel",
                                             "reference_index": index,
-                                            "source_text_sha256": sha256_text(normalize_text(source)),
+                                            "source_text_sha256": sha256_text(
+                                                normalize_text(source)
+                                            ),
                                         }
                                     )
                             completed = _annotation_completed(annotation)
@@ -401,9 +523,14 @@ def prepare_batch(
                                 "text": text,
                                 "text_sha256": sha256_text(text),
                                 "human_references": references,
-                                "annotation_text_sha256": _annotation_text_digest(annotation),
+                                "annotation_text_sha256": _annotation_text_digest(
+                                    annotation
+                                ),
                                 "metadata": {
                                     "annotation_completed": completed,
+                                    "annotation_attribution": annotation_attribution(
+                                        annotation
+                                    ),
                                     "reference_count": len(references),
                                     "source_entry": records[0].entry_name,
                                     "pool_entry": pool_groups[raw_id][0].entry_name,
@@ -482,7 +609,9 @@ def prepare_batch(
                 "input_fingerprint": input_fingerprint,
                 "config_fingerprint": config.fingerprint,
                 "documents": prepared_checksums,
-                "private_mapping_sha256": sha256_file(sensitive_dir / "private_mapping.json"),
+                "private_mapping_sha256": sha256_file(
+                    sensitive_dir / "private_mapping.json"
+                ),
                 "quarantine_sha256": sha256_file(sensitive_dir / "quarantine.jsonl"),
             }
             write_json_atomic(sensitive_dir / "manifest.json", private_manifest)
@@ -525,7 +654,9 @@ def prepare_batch(
                 f"{sha256_file(sensitive_dir / 'manifest.json')}  sensitive-manifest.json",
             ]
             checksums_path = public_dir / "SHA256SUMS.txt"
-            write_text_atomic(checksums_path, "\n".join(checksum_lines) + "\n", mode=0o644)
+            write_text_atomic(
+                checksums_path, "\n".join(checksum_lines) + "\n", mode=0o644
+            )
             ready = {
                 "schema_version": 1,
                 "batch_id": effective_batch_id,
@@ -538,7 +669,9 @@ def prepare_batch(
                 "quarantine_count": public_manifest["counts"]["quarantine"],
                 "manifest_sha256": sha256_file(manifest_path),
                 "checksums_sha256": sha256_file(checksums_path),
-                "sensitive_manifest_sha256": sha256_file(sensitive_dir / "manifest.json"),
+                "sensitive_manifest_sha256": sha256_file(
+                    sensitive_dir / "manifest.json"
+                ),
             }
             write_json_atomic(public_dir / "READY.json", ready, mode=0o644)
             validate_ready(config, effective_batch_id)

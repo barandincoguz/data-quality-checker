@@ -1,6 +1,12 @@
 from __future__ import annotations
 
-from data_quality_checker.hitl import ab_diff, evidence_segments, review_position
+from data_quality_checker.hitl import (
+    ab_diff,
+    evidence_segments,
+    review_guidance,
+    review_position,
+    summarize_diff,
+)
 
 
 def _ref(no="213", ad="Vergi Usul Kanunu", madde="413", fikra="", bent="", src="k"):
@@ -20,6 +26,7 @@ def test_ab_diff_marks_identical_reference_as_same() -> None:
 
     assert len(rows) == 1
     assert rows[0]["status"] == "same"
+    assert rows[0]["status_label"] == "Aynı"
     assert rows[0]["field_diffs"] == []
     assert rows[0]["core"]["kanun_no"] == "213"
     assert rows[0]["core"]["madde"] == "413"
@@ -34,6 +41,7 @@ def test_ab_diff_flags_only_a_and_only_b() -> None:
     assert by_status == {"only_a", "only_b"}
     only_a = next(r for r in rows if r["status"] == "only_a")
     assert only_a["a"] and not only_a["b"]
+    assert only_a["status_label"] == "Yalnız insan anotasyonunda"
 
 
 def test_ab_diff_reports_field_level_difference_for_matched_core() -> None:
@@ -75,6 +83,25 @@ def test_ab_diff_preserves_first_appearance_order_across_a_then_b() -> None:
 
 def test_ab_diff_handles_empty_candidates() -> None:
     assert ab_diff([], []) == []
+
+
+def test_summarize_diff_counts_same_and_different_groups() -> None:
+    rows = ab_diff(
+        [_ref(madde="1"), _ref(madde="2")],
+        [_ref(madde="1"), _ref(madde="3")],
+    )
+
+    assert summarize_diff(rows) == {
+        "same_count": 1,
+        "difference_count": 2,
+        "total_count": 3,
+    }
+
+
+def test_review_guidance_explains_red_yellow_and_green_purpose() -> None:
+    assert "Kanun veya madde" in review_guidance("RED")["title"]
+    assert "fıkra, bent" in review_guidance("YELLOW")["explanation"]
+    assert "kalite kontrol" in review_guidance("GREEN")["title"]
 
 
 def test_evidence_segments_returns_single_plain_run_without_spans() -> None:

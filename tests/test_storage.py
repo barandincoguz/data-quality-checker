@@ -92,3 +92,41 @@ def test_prediction_resume_rejects_model_drift(tmp_path) -> None:
         store.persist_prediction(**kwargs)
         with pytest.raises(FingerprintMismatch):
             store.persist_prediction(**{**kwargs, "model_fingerprint": "changed"})
+
+
+def test_review_and_audit_event_commit_atomically(tmp_path) -> None:
+    with Store(tmp_path / "db.sqlite3") as store:
+        store.create_batch(
+            batch_id="batch-1",
+            input_fingerprint="a" * 64,
+            config_fingerprint="b" * 64,
+        )
+        store.add_document("batch-1", sample_document())
+        store.connection.execute(
+            """
+            CREATE TRIGGER reject_review_event
+            BEFORE INSERT ON batch_events
+            WHEN NEW.event_type='expert_review_updated'
+            BEGIN
+              SELECT RAISE(ABORT, 'injected event failure');
+            END
+            """
+        )
+
+        with pytest.raises(sqlite3.IntegrityError, match="injected event failure"):
+            store.update_review_with_event(
+                batch_id="batch-1",
+                internal_doc_id="d000001",
+                expected_version=0,
+                status="finalized",
+                action="accept_human",
+                final_references=[],
+                reason=None,
+                reviewer="fixture",
+                event_payload={"internal_doc_id": "d000001"},
+            )
+
+        review = store.get_review("batch-1", "d000001")
+        assert review is not None
+        assert review["status"] == "pending"
+        assert review["row_version"] == 0

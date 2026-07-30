@@ -494,6 +494,59 @@ class Store:
         assert result is not None
         return result
 
+    def update_review_with_event(
+        self,
+        *,
+        batch_id: str,
+        internal_doc_id: str,
+        expected_version: int,
+        status: str,
+        action: str | None,
+        final_references: list[dict[str, str]] | None,
+        reason: str | None,
+        reviewer: str | None,
+        event_payload: dict[str, Any],
+    ) -> tuple[dict[str, Any], int]:
+        """Commit a review mutation and its audit event as one unit."""
+
+        now = time.time()
+        with self.transaction():
+            cursor = self.connection.execute(
+                """
+                UPDATE reviews
+                   SET status=?, action=?, final_references_json=?, reason=?, reviewer=?,
+                       row_version=row_version+1, updated_at_epoch=?
+                 WHERE batch_id=? AND internal_doc_id=? AND row_version=?
+                """,
+                (
+                    status,
+                    action,
+                    None if final_references is None else _json(final_references),
+                    reason,
+                    reviewer,
+                    now,
+                    batch_id,
+                    internal_doc_id,
+                    expected_version,
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise VersionConflict(
+                    f"review {batch_id}/{internal_doc_id} changed concurrently"
+                )
+            event = self.connection.execute(
+                """
+                INSERT INTO batch_events(
+                  batch_id, event_type, payload_json, created_at_epoch
+                ) VALUES (?, 'expert_review_updated', ?, ?)
+                """,
+                (batch_id, _json(event_payload), now),
+            )
+            event_id = int(event.lastrowid)
+        result = self.get_review(batch_id, internal_doc_id)
+        assert result is not None
+        return result, event_id
+
     def get_review(self, batch_id: str, internal_doc_id: str) -> dict[str, Any] | None:
         return _row(
             self.connection.execute(

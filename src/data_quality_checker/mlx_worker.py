@@ -500,6 +500,16 @@ def _resolve_validation_adapter(request: dict[str, Any]) -> Path | None:
     return adapter_path
 
 
+def _wants_validation_loss(request: dict[str, Any]) -> bool:
+    """Whether to run the teacher-forced loss pass after generation.
+
+    That pass costs roughly as much as generation itself and only informs
+    training. An inference-only comparison can opt out, but must say so
+    explicitly so every existing training request keeps reporting the loss.
+    """
+    return request.get("compute_validation_loss", True) is not False
+
+
 def _validate(request: dict[str, Any]) -> dict[str, Any]:
     """Generate a resumable validation split and compute teacher-forced loss."""
 
@@ -644,16 +654,19 @@ def _validate(request: dict[str, Any]) -> dict[str, Any]:
     predictions_path = output_dir / "predictions.json"
     write_json_atomic(predictions_path, predictions)
 
-    dataset = NoThinkChatDataset(data_path, tokenizer)
-    validation_loss = float(
-        evaluate(
-            model,
-            dataset,
-            batch_size=1,
-            num_batches=-1,
-            max_seq_length=int(request["max_sequence_length"]),
+    if _wants_validation_loss(request):
+        dataset = NoThinkChatDataset(data_path, tokenizer)
+        validation_loss: float | None = float(
+            evaluate(
+                model,
+                dataset,
+                batch_size=1,
+                num_batches=-1,
+                max_seq_length=int(request["max_sequence_length"]),
+            )
         )
-    )
+    else:
+        validation_loss = None
     record_files = [
         {
             "path": str((records_dir / f"doc_{doc_id}.json").relative_to(output_dir)),

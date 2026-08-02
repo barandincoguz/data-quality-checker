@@ -16,6 +16,7 @@ from data_quality_checker.fingerprints import sha256_file
 from data_quality_checker.mlx_worker import (
     _cached_validation_record,
     _resolve_validation_adapter,
+    _wants_validation_loss,
 )
 
 
@@ -154,3 +155,15 @@ def test_validation_adapter_fails_closed_when_a_checksum_has_no_adapter() -> Non
         _resolve_validation_adapter(
             {"adapter_path": None, "adapter_sha256": "0" * 64}
         )
+
+
+def test_validation_loss_is_computed_unless_a_request_opts_out() -> None:
+    """The teacher-forced loss pass costs ~30s/doc and is a training diagnostic.
+
+    Inference-only comparisons (base model vs base model on a benchmark
+    universe) do not read it, so they can opt out -- but only explicitly,
+    so every existing training request keeps producing it.
+    """
+    assert _wants_validation_loss({}) is True
+    assert _wants_validation_loss({"compute_validation_loss": True}) is True
+    assert _wants_validation_loss({"compute_validation_loss": False}) is False

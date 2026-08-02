@@ -475,6 +475,31 @@ def _cached_validation_record(
     return payload
 
 
+def _resolve_validation_adapter(request: dict[str, Any]) -> Path | None:
+    """Resolve and checksum-gate the validation adapter, if one was requested.
+
+    Returns ``None`` for a base-model run (no ``adapter_path``, or an explicit
+    ``null``/empty one), so the same validation contract can score an
+    un-finetuned model against a finetuned one on identical data.
+
+    Fails closed when ``adapter_sha256`` is supplied without ``adapter_path``:
+    that combination almost always means a caller meant to score an adapter and
+    lost the path, and silently running the base model would publish a
+    base-model number under a finetuned label.
+    """
+    raw = request.get("adapter_path")
+    if not raw:
+        if request.get("adapter_sha256"):
+            raise IntegrityError(
+                "validation request carries adapter_sha256 without adapter_path"
+            )
+        return None
+    adapter_path = Path(raw).resolve()
+    if sha256_file(adapter_path / "adapters.safetensors") != request.get("adapter_sha256"):
+        raise FingerprintMismatch("validation adapter fingerprint mismatch")
+    return adapter_path
+
+
 def _validate(request: dict[str, Any]) -> dict[str, Any]:
     """Generate a resumable validation split and compute teacher-forced loss."""
 
@@ -490,13 +515,11 @@ def _validate(request: dict[str, Any]) -> dict[str, Any]:
 
     data_path = Path(request["data_path"]).resolve()
     doc_ids_path = Path(request["doc_ids_path"]).resolve()
-    adapter_path = Path(request["adapter_path"]).resolve()
+    adapter_path = _resolve_validation_adapter(request)
     if sha256_file(data_path) != request.get("data_sha256"):
         raise FingerprintMismatch("validation data fingerprint mismatch")
     if sha256_file(doc_ids_path) != request.get("doc_ids_sha256"):
         raise FingerprintMismatch("validation doc-id fingerprint mismatch")
-    if sha256_file(adapter_path / "adapters.safetensors") != request.get("adapter_sha256"):
-        raise FingerprintMismatch("validation adapter fingerprint mismatch")
 
     rows = _read_jsonl(data_path)
     doc_ids = json.loads(doc_ids_path.read_text(encoding="utf-8"))
@@ -514,7 +537,10 @@ def _validate(request: dict[str, Any]) -> dict[str, Any]:
     records_dir = output_dir / "records"
     records_dir.mkdir(parents=True, exist_ok=True)
     request_fingerprint = str(request["request_fingerprint"])
-    model, tokenizer = load(str(request["model_path"]), adapter_path=str(adapter_path))
+    if adapter_path is None:
+        model, tokenizer = load(str(request["model_path"]))
+    else:
+        model, tokenizer = load(str(request["model_path"]), adapter_path=str(adapter_path))
 
     records: list[dict[str, Any]] = []
     for doc_id, row in zip(doc_ids, rows):

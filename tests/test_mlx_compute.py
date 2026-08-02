@@ -12,7 +12,11 @@ from data_quality_checker.mlx_compute import (
     build_snapshot_manifest,
     parse_worker_result,
 )
-from data_quality_checker.mlx_worker import _cached_validation_record
+from data_quality_checker.fingerprints import sha256_file
+from data_quality_checker.mlx_worker import (
+    _cached_validation_record,
+    _resolve_validation_adapter,
+)
 
 
 def test_qwen_disabled_thinking_requires_the_empty_closed_sentinel() -> None:
@@ -103,3 +107,50 @@ def test_resume_equivalence_compares_every_recoverable_state_component() -> None
     changed["optimizer_tensor_fingerprint"] = "different"
     with pytest.raises(IntegrityError, match="optimizer_tensor_fingerprint"):
         assert_equivalent_training_state(state, changed)
+
+
+# ---------------------------------------------------------------------------
+# Base-model (adapter-free) validation support
+# ---------------------------------------------------------------------------
+
+
+def _adapter_dir(tmp_path: Path, payload: bytes = b"weights") -> Path:
+    directory = tmp_path / "adapters"
+    directory.mkdir()
+    (directory / "adapters.safetensors").write_bytes(payload)
+    return directory
+
+
+def test_validation_adapter_is_optional_when_absent_or_null() -> None:
+    assert _resolve_validation_adapter({}) is None
+    assert _resolve_validation_adapter({"adapter_path": None}) is None
+    assert _resolve_validation_adapter({"adapter_path": ""}) is None
+
+
+def test_validation_adapter_resolves_and_accepts_a_matching_checksum(
+    tmp_path: Path,
+) -> None:
+    directory = _adapter_dir(tmp_path)
+    digest = sha256_file(directory / "adapters.safetensors")
+    resolved = _resolve_validation_adapter(
+        {"adapter_path": str(directory), "adapter_sha256": digest}
+    )
+    assert resolved == directory.resolve()
+
+
+def test_validation_adapter_rejects_a_mismatched_checksum(tmp_path: Path) -> None:
+    directory = _adapter_dir(tmp_path)
+    with pytest.raises(FingerprintMismatch, match="adapter fingerprint mismatch"):
+        _resolve_validation_adapter(
+            {"adapter_path": str(directory), "adapter_sha256": "0" * 64}
+        )
+
+
+def test_validation_adapter_fails_closed_when_a_checksum_has_no_adapter() -> None:
+    """A checksum without a path would silently downgrade an SFT run to base."""
+    with pytest.raises(IntegrityError, match="adapter_sha256 without adapter_path"):
+        _resolve_validation_adapter({"adapter_sha256": "0" * 64})
+    with pytest.raises(IntegrityError, match="adapter_sha256 without adapter_path"):
+        _resolve_validation_adapter(
+            {"adapter_path": None, "adapter_sha256": "0" * 64}
+        )

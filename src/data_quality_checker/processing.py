@@ -14,6 +14,7 @@ from .constants import MODEL_ID, MODEL_REVISION
 from .contracts import validate_reference_list
 from .errors import ContractError, FingerprintMismatch, GateBlocked, IntegrityError
 from .fingerprints import fingerprint_json, sha256_file, sha256_text
+from .mlx_worker import _optional_float, _optional_int
 from .g0 import SYSTEM_PROMPT
 from .heartbeat import RunLease
 from .preparation import validate_ready
@@ -178,15 +179,28 @@ class MlxG0Backend:
         pieces: list[str] = []
         output_tokens = 0
         finish_reason = ""
+        # Performance counters reported next to accuracy; see
+        # `docs/agents/local-inference-metrics.md`. The first yield gives
+        # time-to-first-token; the final response carries mlx_lm's prefill and
+        # decode throughput and peak memory, which used to be discarded.
+        ttft_seconds: float | None = None
+        prompt_tps: float | None = None
+        generation_tps: float | None = None
+        peak_memory_bytes: int | None = None
         for response in stream_generate(
             self.model,
             self.tokenizer,
             prompt=prompt,
             max_tokens=self.max_generation_tokens,
         ):
+            if ttft_seconds is None:
+                ttft_seconds = time.perf_counter() - started
             pieces.append(response.text)
             output_tokens = int(response.generation_tokens)
             finish_reason = str(response.finish_reason or finish_reason)
+            prompt_tps = _optional_float(getattr(response, "prompt_tps", None), prompt_tps)
+            generation_tps = _optional_float(getattr(response, "generation_tps", None), generation_tps)
+            peak_memory_bytes = _optional_int(getattr(response, "peak_memory", None), peak_memory_bytes)
         raw = "".join(pieces)
         truncated = finish_reason == "length"
         try:
@@ -210,6 +224,10 @@ class MlxG0Backend:
                 "truncated": truncated,
                 "finish_reason": finish_reason,
                 "generation_attempted": True,
+                "ttft_seconds": ttft_seconds,
+                "prompt_tps": prompt_tps,
+                "generation_tps": generation_tps,
+                "peak_memory_bytes": peak_memory_bytes,
             },
         )
 

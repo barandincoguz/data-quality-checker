@@ -22,36 +22,9 @@ from typing import Any
 from .atomic import write_json_atomic
 from .errors import ContractError, FingerprintMismatch, IntegrityError
 from .fingerprints import fingerprint_json, sha256_file
+from .performance import EMPTY_PERFORMANCE, optional_float, optional_int
 
 LEGAL_TUPLE_FIELDS = ("kanun_no", "kanun_ad", "madde", "fikra", "bent")
-
-# Per-request performance counters. Reported alongside accuracy so local-versus-
-# cloud choices can be argued as a trade-off; see
-# `docs/agents/local-inference-metrics.md`. `None` means "not measured on this
-# path" and is never silently read as zero.
-PERFORMANCE_FIELDS = (
-    "ttft_seconds",
-    "generation_seconds",
-    "prompt_tps",
-    "generation_tps",
-    "peak_memory_bytes",
-)
-_EMPTY_PERFORMANCE: dict[str, Any] = dict.fromkeys(PERFORMANCE_FIELDS)
-
-
-def _optional_float(value: Any, fallback: float | None) -> float | None:
-    try:
-        return float(value) if value is not None else fallback
-    except (TypeError, ValueError):
-        return fallback
-
-
-def _optional_int(value: Any, fallback: int | None) -> int | None:
-    try:
-        return int(value) if value is not None else fallback
-    except (TypeError, ValueError):
-        return fallback
-
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -173,7 +146,7 @@ def _generate_one(
             "input_tokens": input_tokens,
             "output_tokens": 0,
             "finish_reason": "input_too_long",
-            **_EMPTY_PERFORMANCE,
+            **EMPTY_PERFORMANCE,
         }
     pieces: list[str] = []
     output_tokens = 0
@@ -198,9 +171,9 @@ def _generate_one(
         pieces.append(response.text)
         output_tokens = int(response.generation_tokens)
         finish_reason = str(response.finish_reason or finish_reason)
-        prompt_tps = _optional_float(getattr(response, "prompt_tps", None), prompt_tps)
-        generation_tps = _optional_float(getattr(response, "generation_tps", None), generation_tps)
-        peak_memory_bytes = _optional_int(getattr(response, "peak_memory", None), peak_memory_bytes)
+        prompt_tps = optional_float(getattr(response, "prompt_tps", None), prompt_tps)
+        generation_tps = optional_float(getattr(response, "generation_tps", None), generation_tps)
+        peak_memory_bytes = optional_int(getattr(response, "peak_memory", None), peak_memory_bytes)
     generation_seconds = time.perf_counter() - started
     raw = "".join(pieces).strip()
     parse_error: str | None = None

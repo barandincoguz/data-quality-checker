@@ -21,6 +21,33 @@ from .atomic import write_json_atomic
 SCHEMA_VERSION = 1
 PERCENTILES = (50, 90, 95, 99)
 
+# Per-request performance counters. `None` means "not measured on this path" and
+# is never silently read as zero, so an old run cannot look like a fast one.
+PERFORMANCE_FIELDS = (
+    "ttft_seconds",
+    "generation_seconds",
+    "prompt_tps",
+    "generation_tps",
+    "peak_memory_bytes",
+)
+EMPTY_PERFORMANCE: dict[str, Any] = dict.fromkeys(PERFORMANCE_FIELDS)
+
+
+def optional_float(value: Any, fallback: float | None = None) -> float | None:
+    """Coerce a counter to float, keeping the previous value when it is absent."""
+    try:
+        return float(value) if value is not None else fallback
+    except (TypeError, ValueError, OverflowError):
+        return fallback
+
+
+def optional_int(value: Any, fallback: int | None = None) -> int | None:
+    """Coerce a counter to int, keeping the previous value when it is absent."""
+    try:
+        return int(value) if value is not None else fallback
+    except (TypeError, ValueError, OverflowError):
+        return fallback
+
 
 def _percentile(ordered: Sequence[float], percentile: float) -> float:
     """Nearest-rank percentile; deterministic and dependency-free."""
@@ -31,9 +58,26 @@ def _percentile(ordered: Sequence[float], percentile: float) -> float:
 
 
 def distribution(samples: Iterable[float]) -> dict[str, Any]:
-    values = sorted(float(sample) for sample in samples if sample is not None)
+    """Summarise a counter. Unusable samples are skipped and counted, never fatal.
+
+    A single corrupt record must not cost the whole run its performance summary,
+    so non-numeric values are dropped and reported as `unusable` rather than
+    raising. `count` always describes how many samples actually contributed, which
+    is what makes a partially measured field readable.
+    """
+    values: list[float] = []
+    unusable = 0
+    for sample in samples:
+        if sample is None:
+            continue
+        coerced = optional_float(sample)
+        if coerced is None or coerced != coerced or coerced in (float("inf"), float("-inf")):
+            unusable += 1
+            continue
+        values.append(coerced)
     if not values:
-        return {"count": 0}
+        return {"count": 0, "unusable": unusable} if unusable else {"count": 0}
+    values.sort()
     summary: dict[str, Any] = {
         "count": len(values),
         "mean": round(statistics.fmean(values), 4),
@@ -43,6 +87,8 @@ def distribution(samples: Iterable[float]) -> dict[str, Any]:
     }
     for percentile in PERCENTILES:
         summary[f"p{percentile}"] = round(_percentile(values, percentile), 4)
+    if unusable:
+        summary["unusable"] = unusable
     return summary
 
 

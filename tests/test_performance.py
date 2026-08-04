@@ -7,6 +7,8 @@ import pytest
 from data_quality_checker.performance import (
     SCHEMA_VERSION,
     distribution,
+    optional_float,
+    optional_int,
     summarize_operational_records,
     write_performance_summary,
 )
@@ -121,3 +123,79 @@ def test_summary_carries_no_document_text_or_identity():
     serialized = json.dumps(summary, ensure_ascii=False)
     assert "gizli belge metni" not in serialized
     assert "ali" not in serialized
+
+
+# --------------------------------------------------------------------------- #
+# edge cases
+# --------------------------------------------------------------------------- #
+
+def test_a_single_corrupt_record_does_not_cost_the_whole_summary():
+    """Telemetry must degrade, not vanish, when one counter is malformed."""
+    summary = distribution([1.0, "abc", {}, 3.0, None])
+    assert summary["count"] == 2
+    assert summary["unusable"] == 2
+    assert summary["mean"] == 2.0
+
+
+def test_non_finite_counters_are_treated_as_unusable():
+    summary = distribution([float("inf"), float("nan"), float("-inf"), 2.0])
+    assert summary["count"] == 1
+    assert summary["unusable"] == 3
+
+
+def test_all_samples_unusable_reports_zero_count_with_the_reason():
+    assert distribution(["x", "y"]) == {"count": 0, "unusable": 2}
+
+
+def test_clean_sample_carries_no_unusable_key():
+    assert "unusable" not in distribution([1.0, 2.0])
+
+
+def test_single_sample_collapses_every_percentile_onto_that_value():
+    summary = distribution([5.0])
+    assert summary["p50"] == summary["p95"] == summary["p99"] == 5.0
+
+
+def test_partially_measured_field_reports_its_own_smaller_count():
+    """A field measured on some documents must not look like it covered all."""
+    records = [_record(ttft_seconds=0.3), _record(), _record()]
+    summary = summarize_operational_records(records, provenance={})
+    assert summary["document_count"] == 3
+    assert summary["ttft_seconds"]["count"] == 1
+    assert "ttft_seconds" not in summary.get("not_measured", [])
+
+
+def test_empty_run_summarises_without_dividing_by_zero():
+    summary = summarize_operational_records([], provenance={"universe": "u"})
+    assert summary["document_count"] == 0
+    assert summary["latency_seconds"] == {"count": 0}
+    assert summary["reliability"]["finish_reason_counts"] == {}
+
+
+def test_zero_wall_clock_is_ignored_rather_than_dividing_by_zero():
+    summary = summarize_operational_records(
+        [_record()], provenance={}, wall_clock_seconds=0)
+    assert "wall_clock_seconds" not in summary.get("throughput", {})
+
+
+def test_missing_finish_reason_is_labelled_unknown():
+    summary = summarize_operational_records(
+        [_record(finish_reason=None)], provenance={})
+    assert summary["reliability"]["finish_reason_counts"] == {"unknown": 1}
+
+
+def test_optional_helpers_survive_every_bad_input():
+    assert optional_float(None) is None
+    assert optional_float(None, 1.5) == 1.5
+    assert optional_float("abc", 1.5) == 1.5
+    assert optional_float("3.5") == 3.5
+    assert optional_float({}, 2.0) == 2.0
+    assert optional_int(3.7) == 3
+    assert optional_int(float("inf"), 5) == 5, "OverflowError must not escape"
+    assert optional_int("12") == 12
+    assert optional_int([], 7) == 7
+
+
+def test_peak_memory_zero_is_not_read_as_a_measurement():
+    summary = summarize_operational_records([_record(peak_memory_bytes=0)], provenance={})
+    assert "peak_memory_bytes" in summary["not_measured"]

@@ -14,7 +14,7 @@ from .constants import MODEL_ID, MODEL_REVISION
 from .contracts import validate_reference_list
 from .errors import ContractError, FingerprintMismatch, GateBlocked, IntegrityError
 from .fingerprints import fingerprint_json, sha256_file, sha256_text
-from .mlx_worker import _optional_float, _optional_int
+from .performance import optional_float, optional_int
 from .g0 import SYSTEM_PROMPT
 from .heartbeat import RunLease
 from .preparation import validate_ready
@@ -198,9 +198,9 @@ class MlxG0Backend:
             pieces.append(response.text)
             output_tokens = int(response.generation_tokens)
             finish_reason = str(response.finish_reason or finish_reason)
-            prompt_tps = _optional_float(getattr(response, "prompt_tps", None), prompt_tps)
-            generation_tps = _optional_float(getattr(response, "generation_tps", None), generation_tps)
-            peak_memory_bytes = _optional_int(getattr(response, "peak_memory", None), peak_memory_bytes)
+            prompt_tps = optional_float(getattr(response, "prompt_tps", None), prompt_tps)
+            generation_tps = optional_float(getattr(response, "generation_tps", None), generation_tps)
+            peak_memory_bytes = optional_int(getattr(response, "peak_memory", None), peak_memory_bytes)
         raw = "".join(pieces)
         truncated = finish_reason == "length"
         try:

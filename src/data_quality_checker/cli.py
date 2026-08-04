@@ -88,6 +88,38 @@ def build_parser() -> argparse.ArgumentParser:
     develop.add_argument("--resume", action="store_true")
     develop.set_defaults(handler=commands.train_g0)
 
+    q36 = subparsers.add_parser(
+        "q36-p1", help="operate the isolated controlled Qwen3.6-27B SFT track"
+    )
+    q36_actions = q36.add_subparsers(dest="q36_action", required=True)
+    q36_preflight = q36_actions.add_parser(
+        "preflight", help="seal Q36-P1 inputs and inspect all fail-closed gates"
+    )
+    q36_preflight.add_argument("--batch-id", default="neon_wl_v1")
+    q36_preflight.add_argument(
+        "--build-data",
+        action="store_true",
+        help="write sensitive training sources only after the GREEN audit passes",
+    )
+    q36_preflight.add_argument(
+        "--skip-token-measurement",
+        action="store_true",
+        help="software-test aid; leaves the common inference-contract gate closed",
+    )
+    q36_preflight.set_defaults(handler=commands.q36_p1_preflight)
+    q36_views = q36_actions.add_parser(
+        "views", help="seal raw full-extraction and derive the production 213/413 view"
+    )
+    q36_views.add_argument("--predictions", type=Path, required=True)
+    q36_views.add_argument("--output-dir", type=Path, required=True)
+    q36_views.set_defaults(handler=commands.q36_p1_views)
+    q36_gold = q36_actions.add_parser(
+        "gold-view", help="derive the symmetric production 213/413 gold view"
+    )
+    q36_gold.add_argument("--source", type=Path, required=True)
+    q36_gold.add_argument("--output", type=Path, required=True)
+    q36_gold.set_defaults(handler=commands.q36_p1_gold_view)
+
     process = subparsers.add_parser(
         "process", help="run resumable G0 inference and routing"
     )

@@ -257,6 +257,43 @@ Release; prediction checksum, zorunlu review, deferred kayıt, GREEN audit ve
 kilitli judge coverage kapılarından biri eksikse durur. Mevcut release üzerine
 yazılmaz.
 
+## 8. Q36-P1 kontrollü SFT preflight
+
+Q36-P1, G0'dan bağımsızdır. Repo kökünden:
+
+```bash
+export PYTHONPATH="$PWD/data-quality-checker-weak-learning-program/src"
+DQPY=/opt/llm-lab/.venv/bin/python
+DQCONFIG=data-quality-checker-weak-learning-program/configs/default.json
+
+$DQPY -m data_quality_checker --config "$DQCONFIG" q36-p1 preflight
+```
+
+Komut pinned Qwen3.6-27B snapshotını ve tokenizerı kullanarak prompt/model/data
+fingerprintlerini, GREEN split-leakage sınıflandırmasını ve üç evaluation
+evreninin ortak token bütçesini ölçer. `green_audit.status=passed` olmadan
+`--build-data` fail-closed durur; eğitim veya inference başlatmaz.
+
+Audit review, bu runbook'un 6. bölümündeki yerel HITL ve backup sözleşmesini
+kullanır. Audit geçtikten sonra training source exportu:
+
+```bash
+$DQPY -m data_quality_checker --config "$DQCONFIG" \
+  q36-p1 preflight --build-data
+```
+
+Prediction/gold production görünümü:
+
+```bash
+$DQPY -m data_quality_checker --config "$DQCONFIG" q36-p1 views \
+  --predictions <raw.json> --output-dir <views-dir>
+$DQPY -m data_quality_checker --config "$DQCONFIG" q36-p1 gold-view \
+  --source <gold.json-or-dir> --output <filtered.json-or-dir>
+```
+
+Tam Q36 sözleşmesi ve audit sonrası compute kapıları:
+`tasks/q36_p1_controlled_sft_2026_08_04/{PLAN,RUNBOOK}.md`.
+
 ## Kurtarma
 
 - Aynı input/config/model fingerprint'iyle komutu yeniden çalıştırın.

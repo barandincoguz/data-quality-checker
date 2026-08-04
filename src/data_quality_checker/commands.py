@@ -66,6 +66,40 @@ def train_g0(args: Namespace, config: AppConfig) -> int:
     return 0
 
 
+def q36_p1_preflight(args: Namespace, config: AppConfig) -> int:
+    from .q36_p1 import bootstrap_q36_p1
+
+    result = bootstrap_q36_p1(
+        config=config,
+        batch_id=args.batch_id,
+        build_data=args.build_data,
+        measure_tokens=not args.skip_token_measurement,
+    )
+    print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0
+
+
+def q36_p1_views(args: Namespace, config: AppConfig) -> int:
+    del config
+    from .q36_p1 import write_prediction_views
+
+    result = write_prediction_views(
+        raw_predictions=args.predictions,
+        output_dir=args.output_dir,
+    )
+    print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0
+
+
+def q36_p1_gold_view(args: Namespace, config: AppConfig) -> int:
+    del config
+    from .q36_p1 import write_production_gold_view
+
+    result = write_production_gold_view(source=args.source, output=args.output)
+    print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0
+
+
 def process(args: Namespace, config: AppConfig) -> int:
     from .processing import process_batch
 
@@ -136,9 +170,12 @@ def review_backup(args: Namespace, config: AppConfig) -> int:
         review_backup_status,
     )
 
-    with review_backup_lock(config=config, batch_id=args.batch_id), Store(
-        config.database_path, busy_timeout_ms=config.runtime.busy_timeout_ms
-    ) as store:
+    with (
+        review_backup_lock(config=config, batch_id=args.batch_id),
+        Store(
+            config.database_path, busy_timeout_ms=config.runtime.busy_timeout_ms
+        ) as store,
+    ):
         if args.review_backup_action == "create":
             result = create_review_backup(
                 config=config, store=store, batch_id=args.batch_id

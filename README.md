@@ -131,6 +131,26 @@ Gerçek adapter mühürlenmeden `process` komutu G0 registry eksikliği nedeniyl
 durur. Testlerdeki `--fake-backend` seçenekleri yalnız fixture kabulü içindir ve
 help çıktısında bilerek gösterilmez.
 
+## Q36-P1 kontrollü SFT sınırı
+
+Qwen3.6-27B deneyi G0'dan ayrı `Q36-P1` kimliğiyle fail-closed hazırlanır:
+
+```bash
+$DQPY -m data_quality_checker \
+  --config data-quality-checker-weak-learning-program/configs/default.json \
+  q36-p1 preflight
+```
+
+Preflight exact model revisionı, G0 ile byte-identical promptu, canonical
+`394/50/50` split'i, GREEN-342 altı-yol dağılımını ve canonical test-50 + dış
+validation-100 + dış sealed-400 için ortak inference token bütçesini mühürler.
+35 belgeli GREEN insan auditi geçmeden `--build-data` hassas training exportu
+yazmaz ve compute başlatılmaz.
+
+Ham inference byte'larını koruyup production `213/413` görünümü üretmek için
+`q36-p1 views`; gold tarafındaki simetrik görünüm için `q36-p1 gold-view`
+kullanılır. Ayrıntılı sıra ve kapılar [Q36-P1 runbook'undadır](../tasks/q36_p1_controlled_sft_2026_08_04/RUNBOOK.md).
+
 ## Test
 
 ```bash

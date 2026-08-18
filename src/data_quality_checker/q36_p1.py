@@ -140,12 +140,12 @@ def _utc_now() -> str:
 
 
 def _repo_root(config: AppConfig) -> Path:
-    candidate = config.source_path.resolve().parents[2]
-    if not (candidate / "AGENTS.md").is_file():
-        raise IntegrityError(
-            f"cannot resolve repository root from {config.source_path}"
-        )
-    return candidate
+    for candidate in (config.source_path.resolve().parent, *config.source_path.resolve().parents):
+        if (candidate / "AGENTS.md").is_file() or (candidate / "pyproject.toml").is_file():
+            return candidate
+    raise IntegrityError(
+        f"cannot resolve repository root from {config.source_path}"
+    )
 
 
 def _read_json(path: Path) -> Any:

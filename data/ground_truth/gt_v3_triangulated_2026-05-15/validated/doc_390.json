@@ -1,0 +1,52 @@
+{
+  "doc_id": 390,
+  "ozelge_no": "B.07.4.DEF.0.28.10.00-043-1-2",
+  "text": "T.C. GİRESUN VALİLİĞİ Defterdarlık Gelir Müdürlüğü Sayı : B.07.4.DEF.0.28.10.00-043-1-2 22/09/2011 Konu : Sorumlu Sıfatıyla Verilecek Katma Değer Beyannamesi İlgide kayıtlı özelge talep formunda, Yüksek Öğretim Kredi ve Yurtlar Kurumuna ait öğrenci yurdu içerisinde kantin hizmeti vermekte olduğunuz, söz konusu kurum ile yapılan sözleşme uyarınca kira ödemesinde bulunmadığınız ancak sözleşmenin ilgili maddesine göre demirbaş eşya ve sabit tesislerin amortismanı ile işletmede kullanılan elektrik, su, sıcak su ve benzeri giderlerine karşılık zaruri masraf ödediğiniz belirtilerek, yapılan bu ödemeden dolayı tarafınızca sorumlu sıfatıyla 2 Nolu KDV Beyannamesi verilip verilmeyeceği konusunda Başkanlığımızdan bilgi talep edilmektedir. Katma Değer Vergisi (KDV) Kanununun l/3-f maddesinde; Gelir Vergisi Kanununun 70 inci maddesinde belirtilen mal ve hakların kiralanması işlemlerinin katma değer vergisine tabi olduğu belirtilmiş, aynı Kanunun 17 inci maddesinin 4 üncü fıkrasının (d) bendinde, iktisadi işletmelere dahil olmayan gayrimenkullerin kiralanması işlemlerinin katma değer vergisinden müstesna olduğu hükme bağlanmıştır. Yüksek Öğretim Kredi ve Yurtlar Kurumuna bağlı öğrenci yurtlarındaki kantin açık alan, salon ve benzeri yerlerin ticari, eğitsel, kültürel, sosyal ve sportif etkinliklerde kullanılmak üzere üçüncü şahıslara kiralanması işlemi gayrimenkulün değil, işletme hakkının kiralanması mahiyetinde olduğundan KDV Kanununun 1/3-f maddesine göre katma değer vergisine tabidir. Öte yandan, 30 Seri No.lu Katma Değer Vergisi Genel Tebliği'nin \"F-Kiralama ve Reklam Verme İşlemlerinde Sorumluluk Uygulaması\" alt başlığında, Kanunun 1/3-f maddesine göre vergilendirilen kiralama işlemleri ile ilgili katma değer vergisinin; kiraya verenin başka faaliyetleri nedeniyle gerçek usulde katma değer vergisi mükellefiyetinin bulunmaması ve kiralayanın da gerçek usulde katma değer vergisi mükellefi olması durumunda kiralayan tarafından sorumlu sıfatıyla beyan edileceği açıklanmıştır. Aynı Kanunun 27 nci maddesinde ise bedeli bulunmayan veya bilinmeyen işlemler ile 1/2 Nizamiye M. Orhan Yılmaz C. KNo:49 28200 GİRESUN Ayrıntılı bilgi için irtibat : Beratiye AYAZ MEMUR Telefon : (0454) 216 19 37 / (0454) 212 32 00 Faks : (0454) 751 30 28 e-posta : Elektronik Ağ : bedelin mal, menfaat, hizmet gibi paradan başka değerler olması halinde matrahın, işlemin mahiyetine göre emsal bedeli veya emsal ücreti olacağı, bedelin emsal bedeline veya emsal ücretine göre açık bir şekilde düşük olduğu ve bu düşüklüğün mükellefçe haklı bir sebeple açıklanamadığı hallerde de, matrah olarak emsal bedelin veya emsal ücretin esas alınacağı ve emsal bedelin veya emsal ücretin Vergi Usul Kanunu hükümlerine göre tespit olunacağı hüküm altına alınmıştır. Buna göre, Vergi Usul Kanunu hükümlerine göre tespit edilen emsal kira bedeli üzerinden KDV hesaplanması ve bu tutarın, tarafınızca 2 No.lu KDV Beyannamesiyle beyan edilmesi gerekmektedir. Bilgi edinilmesini rica ederim. (*) Bu Özelge 213 sayılı Vergi Usul Kanununun 413.maddesine dayanılarak verilmiştir. (**) İnceleme, yargı ya da uzlaşmada olduğu halde bu konuya ilişkin olarak yanlış bilgi verilmiş ise bu özelge geçersizdir. (***) Talebiniz üzerine tayin edilmiş olan bu özelgeye uygun işlem yapmanız hâlinde, bu fiilleriniz dolayısıyla vergi tarh edilmesi icap ederse, tarafınıza vergi cezası kesilmeyecek ve tarh edilen vergi için gecikme faizi hesaplanmayacaktır. 2/2 Nizamiye M. Orhan Yılmaz C. KNo:49 28200 GİRESUN Ayrıntılı bilgi için irtibat : Beratiye AYAZ MEMUR Telefon : (0454) 216 19 37 / (0454) 212 32 00 Faks : (0454) 751 30 28 e-posta : Elektronik Ağ :",
+  "references": [
+    {
+      "type": "kanun_madde_referansi",
+      "kanun_no": "3065",
+      "kanun_ad": "Katma Değer Vergisi Kanunu",
+      "madde": "1",
+      "fikra": "3",
+      "bent": "f",
+      "source_text": "Katma Değer Vergisi (KDV) Kanununun l/3-f maddesinde"
+    },
+    {
+      "type": "kanun_madde_referansi",
+      "kanun_no": "3065",
+      "kanun_ad": "Katma Değer Vergisi Kanunu",
+      "madde": "17",
+      "fikra": "4",
+      "bent": "d",
+      "source_text": "aynı Kanunun 17 inci maddesinin 4 üncü fıkrasının (d) bendinde"
+    },
+    {
+      "type": "kanun_madde_referansi",
+      "kanun_no": "3065",
+      "kanun_ad": "Katma Değer Vergisi Kanunu",
+      "madde": "27",
+      "fikra": "",
+      "bent": "",
+      "source_text": "Aynı Kanunun 27 nci maddesinde"
+    },
+    {
+      "type": "kanun_madde_referansi",
+      "kanun_no": "193",
+      "kanun_ad": "Gelir Vergisi Kanunu",
+      "madde": "70",
+      "fikra": "",
+      "bent": "",
+      "source_text": "Gelir Vergisi Kanununun 70 inci maddesinde"
+    },
+    {
+      "type": "kanun_madde_referansi",
+      "kanun_no": "213",
+      "kanun_ad": "Vergi Usul Kanunu",
+      "madde": "413",
+      "fikra": "",
+      "bent": "",
+      "source_text": "213 sayılı Vergi Usul Kanununun 413.maddesine"
+    }
+  ]
+}

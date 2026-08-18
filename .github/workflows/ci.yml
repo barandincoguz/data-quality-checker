@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+        cache: 'pip'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        python -m pip install -e ".[test,dev]"
+
+    - name: Lint with ruff
+      run: |
+        ruff check src/ tests/
+
+    - name: Test with pytest
+      run: |
+        pytest -v -ra --cov=data_quality_checker --cov-report=xml
+
+    - name: Validate Sample Data Pipeline
+      run: |
+        python sample_data/generate_sample_zips.py
+        dqcheck --config configs/presets/sample_data.json prepare \
+          --annotation-zip sample_data/mock_annotations.zip \
+          --document-pool-zip sample_data/mock_documents.zip \
+          --batch-id ci_batch_001 \
+          --hmac-key-file sample_data/sample_hmac.key
+        dqcheck --config configs/presets/sample_data.json process \
+          --prepared-batch ci_batch_001 --fake-backend
+        dqcheck --config configs/presets/sample_data.json status \
+          --batch-id ci_batch_001

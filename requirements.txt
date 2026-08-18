@@ -1,0 +1,2 @@
+# Core runtime dependencies
+Flask>=3.1,<4

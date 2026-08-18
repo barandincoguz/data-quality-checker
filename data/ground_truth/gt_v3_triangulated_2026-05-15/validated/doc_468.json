@@ -1,0 +1,61 @@
+{
+  "doc_id": 468,
+  "ozelge_no": "-",
+  "text": "T.C. GELİR İDARESİ BAŞKANLIĞI (Mükellef Hizmetleri Katma Değer Vergisi Grup Müdürlüğü) Sayı : - Konu : İlgi de kayıtlı özelge talep formu ve ekleri incelenmiş olup, ithali gerçekleştirilmiş olan sulu tip otomobil akümülatörlerinin (elektrik motorlu araçların motorunu çalıştıran cinsten olmayan) ÖTV'ye tabi olup olmadığı konusunda bilgi verilmesi talep edilmiştir. 4760 sayılı Özel Tüketim Vergisi Kanununun 1 inci maddesinin (c) bendinde; bu Kanuna ekli (IV) sayılı listedeki malların ithalatı veya imal ya da inşa edenler tarafından tesliminin bir defaya mahsus olmak üzere özel tüketim vergisine tabi olduğu, 1/2 nci maddesinde ise Kanuna ekli listelerde yer alan malların Türk Gümrük Tarife Cetvelinde tanımlanan eşyalar olduğu hükme bağlanmıştır. Kanunun 4/1-a maddesinde ise; özel tüketim vergisinin mükellefinin Kanuna ekli (IV) sayılı listedeki malları imal, inşa veya ithal edenler olduğu açıklanmıştır. Aynı Kanunun 12 nci maddesinin 1 numaralı fıkrasında; Kanuna ekli listelerde yer alan mallardan karşılarında belirlenin tutar ve oranlarda ÖTV alınacağı hükme bağlanmıştır. Diğer taraftan, Kanuna ekli IV sayılı listeye 6322 sayılı kanunun 31. maddesiyle \"85.07 Elektrik akümülatörleri (bunların separatörleri dahil) (kare veya dikdörtgen şeklinde olsun olmasın) (yalnız elektrik motorlu taşıt araçlarının motorunu çalıştırmaya mahsus olanlar)\" sırası eklenmek suretiyle, 85.07 GTİP numarası kapsamındaki akümülatörlerden yalnızca elektrik motorlu taşıt araçlarının motorunu çalıştırmaya mahsus olanların ithalatı ve imal veya inşa edenler tarafından teslimi 15/6/2012 tarihinden itibaren ÖTV kapsamına alınmıştır. Buna göre, ilgi de kayıtlı özelge talep formunuz ekinde ibraz edilen gümrük beyannamesi ile ithalini yapmış olduğunuz ve 85.07 GTİP pozisyonunda yer alan akümülatörlerin, elektirik motorlu taşıt araçlarının motorunu çalıştıran cinsten akümülatörler olmaması halinde ÖTV'ye tabi olmayacaktır. Bilgi edinilmesini rica ederim. 1/2 Ayrıntılı bilgi için irtibat : Telefon : Faks : e-posta : Elektronik Ağ : (*) Bu Özelge 213 sayılı Vergi Usul Kanununun 413.maddesine dayanılarak verilmiştir. (**) İnceleme, yargı ya da uzlaşmada olduğu halde bu konuya ilişkin olarak yanlış bilgi verilmiş ise bu özelge geçersizdir. (***) Talebiniz üzerine tayin edilmiş olan bu özelgeye uygun işlem yapmanız hâlinde, bu fiilleriniz dolayısıyla vergi tarh edilmesi icap ederse, tarafınıza vergi cezası kesilmeyecek ve tarh edilen vergi için gecikme faizi hesaplanmayacaktır. 2/2 Ayrıntılı bilgi için irtibat : Telefon : Faks : e-posta : Elektronik Ağ :",
+  "references": [
+    {
+      "type": "kanun_madde_referansi",
+      "kanun_no": "4760",
+      "kanun_ad": "Özel Tüketim Vergisi Kanunu",
+      "madde": "1",
+      "fikra": "",
+      "bent": "c",
+      "source_text": "4760 sayılı Özel Tüketim Vergisi Kanununun 1 inci maddesinin (c) bendinde"
+    },
+    {
+      "type": "kanun_madde_referansi",
+      "kanun_no": "4760",
+      "kanun_ad": "Özel Tüketim Vergisi Kanunu",
+      "madde": "1",
+      "fikra": "2",
+      "bent": "",
+      "source_text": "1/2 nci maddesinde"
+    },
+    {
+      "type": "kanun_madde_referansi",
+      "kanun_no": "4760",
+      "kanun_ad": "Özel Tüketim Vergisi Kanunu",
+      "madde": "4",
+      "fikra": "1",
+      "bent": "a",
+      "source_text": "Kanunun 4/1-a maddesinde"
+    },
+    {
+      "type": "kanun_madde_referansi",
+      "kanun_no": "4760",
+      "kanun_ad": "Özel Tüketim Vergisi Kanunu",
+      "madde": "12",
+      "fikra": "1",
+      "bent": "",
+      "source_text": "Aynı Kanunun 12 nci maddesinin 1 numaralı fıkrasında"
+    },
+    {
+      "type": "kanun_madde_referansi",
+      "kanun_no": "6322",
+      "kanun_ad": "",
+      "madde": "31",
+      "fikra": "",
+      "bent": "",
+      "source_text": "6322 sayılı kanunun 31. maddesiyle"
+    },
+    {
+      "type": "kanun_madde_referansi",
+      "kanun_no": "213",
+      "kanun_ad": "Vergi Usul Kanunu",
+      "madde": "413",
+      "fikra": "",
+      "bent": "",
+      "source_text": "213 sayılı Vergi Usul Kanununun 413.maddesine"
+    }
+  ]
+}

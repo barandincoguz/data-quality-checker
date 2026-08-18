@@ -1,0 +1,43 @@
+{
+  "doc_id": 111,
+  "ozelge_no": "B.07.1.GİB.4.09.15.01-8.2011.1.KDV.28.MD.-11",
+  "text": "T.C. GELİR İDARESİ BAŞKANLIĞI AYDIN VERGİ DAİRESİ BAŞKANLIĞI Vergi ve Anlaşmalar Uygulama Müdürlüğü Sayı : B.07.1.GİB.4.09.15.01-8.2011.1.KDV.28.MD.-11 16/11/2011 Konu : Dijital Ateş Ölçerlerin KDV Oranı İlgide kayıtlı özelge talep formunuzda, firmanız tarafından yurt dışından ithal edilerek yurt içinde satılan ateş ölçere (dijital derece) uygulayanacak katma değer vergisi (KDV) oranı sorulmaktadır. KDV Kanununun 1/1 inci maddesinde, Türkiye'de ticari, sınai, zirai faaliyet ve serbest meslek faaliyeti çerçevesinde yapılan teslim ve hizmetlerin, 1/2 nci maddesinde, her türlü mal ve hizmet ithalinin KDV ye tabi olduğu hükme bağlanmıştır. KDV oranları, KDV Kanununun 28 inci maddesinin Bakanlar Kuruluna verdiği yetkiye dayanılarak yayımlanan 2007/13033 sayılı Kararname ile, Kararname eki I sayılı listede yer alan teslim ve hizmetler için % 1, II sayılı listede yer alan teslim ve hizmetler için % 8, bu listeler dışındaki vergiye tabi işlemle için % 18 olarak tespit edilmiştir. Türk Gümrük Tarife Cetvelinin 90.25 tarife pozisyonunda “… termometreler …” tanımlanmıştır. Ticari hayatta ateş ölçer olarak isimlendirilen eşya bu tarife pozisyonuna ait Gümrük Tarife İstatistik Pozisyon (GTİP) numaralarında; sıvılı, sıvısız, kaydedici tertibatlı, elektronik veya elektrikli vb. şekillerde olup olmamalarına göre sayılmıştır. 2007/13033 sayılı Kararname eki II sayılı listenin B/22 nci sırasında GTİP ler itibariyle yer alan ve tıpta kullanılan bazı mallar %8 oranında KDV ye tabi tutulmaktadır. Ancak, söz konusu 22 nci sırada “90.25” tarife pozisyonu kapsamındaki eşyalar sayılmamıştır. Buna göre, firmanız tarafından ithal edilen ve iç piyasaya satılan dijital ateş ölçerin teslimi genel oranda (%18) KDV ye tabi tutulacaktır. Bilgi edinilmesini rica ederim. (*) Bu Özelge 213 sayılı Vergi Usul Kanununun 413.maddesine dayanılarak verilmiştir. 1/2 Ramazanpaşa M. Egemenlik Bulvarı 09100 AYDIN Ayrıntılı bilgi için irtibat : Meral CABA GELİR UZMANI Telefon : (0256) 212 81 72 Faks : (0256) 225 16 73 e-posta : Elektronik Ağ : (**) İnceleme, yargı ya da uzlaşmada olduğu halde bu konuya ilişkin olarak yanlış bilgi verilmiş ise bu özelge geçersizdir. (***) Talebiniz üzerine tayin edilmiş olan bu özelgeye uygun işlem yapmanız hâlinde, bu fiilleriniz dolayısıyla vergi tarh edilmesi icap ederse, tarafınıza vergi cezası kesilmeyecek ve tarh edilen vergi için gecikme faizi hesaplanmayacaktır. 2/2 Ramazanpaşa M. Egemenlik Bulvarı 09100 AYDIN Ayrıntılı bilgi için irtibat : Meral CABA GELİR UZMANI Telefon : (0256) 212 81 72 Faks : (0256) 225 16 73 e-posta : Elektronik Ağ :",
+  "references": [
+    {
+      "type": "kanun_madde_referansi",
+      "kanun_no": "3065",
+      "kanun_ad": "Katma Değer Vergisi Kanunu",
+      "madde": "1",
+      "fikra": "1",
+      "bent": "",
+      "source_text": "KDV Kanununun 1/1 inci maddesinde"
+    },
+    {
+      "type": "kanun_madde_referansi",
+      "kanun_no": "3065",
+      "kanun_ad": "Katma Değer Vergisi Kanunu",
+      "madde": "1",
+      "fikra": "2",
+      "bent": "",
+      "source_text": "1/2 nci maddesinde"
+    },
+    {
+      "type": "kanun_madde_referansi",
+      "kanun_no": "3065",
+      "kanun_ad": "Katma Değer Vergisi Kanunu",
+      "madde": "28",
+      "fikra": "",
+      "bent": "",
+      "source_text": "KDV Kanununun 28 inci maddesinin"
+    },
+    {
+      "type": "kanun_madde_referansi",
+      "kanun_no": "213",
+      "kanun_ad": "Vergi Usul Kanunu",
+      "madde": "413",
+      "fikra": "",
+      "bent": "",
+      "source_text": "213 sayılı Vergi Usul Kanununun 413.maddesine"
+    }
+  ]
+}

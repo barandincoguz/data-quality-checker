@@ -1,0 +1,52 @@
+{
+  "doc_id": 31,
+  "ozelge_no": "-",
+  "text": "T.C. GELİR İDARESİ BAŞKANLIĞI (Mükellef Hizmetleri KDV ve Diğer Vergiler Grup Müdürlüğü) Sayı : - Konu : İlgide kayıtlı özelge talep formunuzda, 5018 sayılı Kanuna ekli cetveller kapsamındaki idare, kurum ve kuruluşlara, kendi yazılımınız olan hukuk mevzuat programı satışında tevkifat yapılıp yapılmayacağına ilişkin Başkanlık görüşümüz talep edilmektedir. 3065 sayılı Katma Değer Vergisi Kanunu’nun ; 1 inci maddesinde; ticari, sınai, zirai faaliyet ve serbest meslek faaliyeti çerçevesinde Türkiye’de yapılan teslim ve hizmetlerin KDV’ ye tabi olduğu, 6 ncı maddesinde işlemlerin Türkiye’de yapılmasını, malların teslim anında Türkiye’de bulunmasını ve hizmetin Türkiye’de yapılmasını veya hizmetten Türkiye’de faydalanılmasını ifade ettiği, 9 uncu maddesi ile gerekli görülen hallerde Maliye Bakanlığının, vergi alacağının emniyet altına alınması amacıyla, vergiye tabi işlemlere taraf olanları verginin ödenmesinden sorumlu tutabileceği, hükme bağlanmıştır. Diğer taraftan konuyla ilgili olarak yayımlanan 60 No.lu KDV Sirkülerinin “2.2.2.13. 5018 Sayılı Kanuna Ekli Cetvellerde Yer Alanların Hizmet Alımları” başlıklı bölümünde; “117 Seri No.lu KDV Genel Tebliğinin (3.2.13) bölümünde, KDV mükellefleri tarafından, 5018 sayılı Kanuna ekli cetveller kapsamındaki idare, kurum ve kuruşlara ifa edilen ve Tebliğde belirtilmeyen diğer bütün hizmet ifalarında söz konusu idare, kurum ve kuruşlar tarafından 5/10 oranında KDV tevkifatı uygulanacaktır.” denilmiştir. Bu çerçevede, 5018 sayılı Kanuna ekli cetveller kapsamındaki idare, kurum ve kuruluşlara yapacağınız hukuk mevzuat programı satış bedellerine ait KDV tutarı üzerinden 117 Seri No.lu KDV Genel Tebliğinin (3.2.13.) bölümüne göre (5/10) oranında tevkifat uygulanması gerekmektedir. Bilgi edinilmesini rica ederim. 1/2 Ayrıntılı bilgi için irtibat : Telefon : Faks : e-posta : Elektronik Ağ : (*) Bu Özelge 213 sayılı Vergi Usul Kanununun 413.maddesine dayanılarak verilmiştir. (**) İnceleme, yargı ya da uzlaşmada olduğu halde bu konuya ilişkin olarak yanlış bilgi verilmiş ise bu özelge geçersizdir. (***) Talebiniz üzerine tayin edilmiş olan bu özelgeye uygun işlem yapmanız hâlinde, bu fiilleriniz dolayısıyla vergi tarh edilmesi icap ederse, tarafınıza vergi cezası kesilmeyecek ve tarh edilen vergi için gecikme faizi hesaplanmayacaktır. 2/2 Ayrıntılı bilgi için irtibat : Telefon : Faks : e-posta : Elektronik Ağ :",
+  "references": [
+    {
+      "type": "kanun_madde_referansi",
+      "kanun_no": "5018",
+      "kanun_ad": "Kamu Mali Yönetimi ve Kontrol Kanunu",
+      "madde": "",
+      "fikra": "",
+      "bent": "",
+      "source_text": "5018 sayılı Kanuna ekli cetveller"
+    },
+    {
+      "type": "kanun_madde_referansi",
+      "kanun_no": "3065",
+      "kanun_ad": "Katma Değer Vergisi Kanunu",
+      "madde": "1",
+      "fikra": "",
+      "bent": "",
+      "source_text": "3065 sayılı Katma Değer Vergisi Kanunu’nun ; 1 inci maddesinde"
+    },
+    {
+      "type": "kanun_madde_referansi",
+      "kanun_no": "3065",
+      "kanun_ad": "Katma Değer Vergisi Kanunu",
+      "madde": "6",
+      "fikra": "",
+      "bent": "",
+      "source_text": "6 ncı maddesinde"
+    },
+    {
+      "type": "kanun_madde_referansi",
+      "kanun_no": "3065",
+      "kanun_ad": "Katma Değer Vergisi Kanunu",
+      "madde": "9",
+      "fikra": "",
+      "bent": "",
+      "source_text": "9 uncu maddesi"
+    },
+    {
+      "type": "kanun_madde_referansi",
+      "kanun_no": "213",
+      "kanun_ad": "Vergi Usul Kanunu",
+      "madde": "413",
+      "fikra": "",
+      "bent": "",
+      "source_text": "213 sayılı Vergi Usul Kanununun 413.maddesine"
+    }
+  ]
+}

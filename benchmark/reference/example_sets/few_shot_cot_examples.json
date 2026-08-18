@@ -1,0 +1,237 @@
+{
+  "variant": "few-shot-cot",
+  "examples": [
+    {
+      "id": "doc_1_explicit_bent_anaphora",
+      "doc_id": 1,
+      "focus_tags": [
+        "explicit_bent",
+        "anaphora"
+      ],
+      "input_text": "213 sayılı Vergi Usul Kanununun mükerrer 298 inci maddesinin (A) fıkrasının (1) numaralı bendinde yeniden değerleme oranı düzenlenmiştir. Aynı Kanunun geçici 25 inci maddesinin (g) bendinde de benzer bir hüküm yer almaktadır.",
+      "expected_output": {
+        "references": [
+          {
+            "type": "kanun_madde_referansi",
+            "kanun_no": "213",
+            "kanun_ad": "Vergi Usul Kanunu",
+            "madde": "mükerrer 298",
+            "fikra": "A",
+            "bent": "1",
+            "source_text": "213 sayılı Vergi Usul Kanununun mükerrer 298 inci maddesinin (A) fıkrasının (1) numaralı bendinde"
+          },
+          {
+            "type": "kanun_madde_referansi",
+            "kanun_no": "213",
+            "kanun_ad": "Vergi Usul Kanunu",
+            "madde": "geçici 25",
+            "fikra": "",
+            "bent": "g",
+            "source_text": "Aynı Kanunun geçici 25 inci maddesinin (g) bendinde de"
+          }
+        ]
+      }
+    },
+    {
+      "id": "doc_10_roman_slash_form",
+      "doc_id": 10,
+      "focus_tags": [
+        "roman_slash_form",
+        "table_reference"
+      ],
+      "input_text": "488 sayılı Kanuna ekli (1) sayılı tablonun IV/1-a fıkrası uyarınca damga vergisi uygulanır.",
+      "expected_output": {
+        "references": [
+          {
+            "type": "kanun_madde_referansi",
+            "kanun_no": "488",
+            "kanun_ad": "Damga Vergisi Kanunu",
+            "madde": "1",
+            "fikra": "",
+            "bent": "a",
+            "source_text": "488 sayılı Kanuna ekli (1) sayılı tablonun IV/1-a fıkrası uyarınca"
+          }
+        ]
+      }
+    },
+    {
+      "id": "doc_16_composite_bent_and_slash",
+      "doc_id": 16,
+      "focus_tags": [
+        "composite_bent",
+        "slash_form"
+      ],
+      "input_text": "Gelir Vergisi Kanununun 94 üncü maddesinin birinci fıkrasının (2/b) numaralı bendi ile KDV Kanununun 17/4-a maddesinde yer alan istisna birlikte değerlendirilmelidir.",
+      "expected_output": {
+        "references": [
+          {
+            "type": "kanun_madde_referansi",
+            "kanun_no": "193",
+            "kanun_ad": "Gelir Vergisi Kanunu",
+            "madde": "94",
+            "fikra": "1",
+            "bent": "2/b",
+            "source_text": "Gelir Vergisi Kanununun 94 üncü maddesinin birinci fıkrasının (2/b) numaralı bendi"
+          },
+          {
+            "type": "kanun_madde_referansi",
+            "kanun_no": "",
+            "kanun_ad": "KDV Kanunu",
+            "madde": "17",
+            "fikra": "4",
+            "bent": "a",
+            "source_text": "KDV Kanununun 17/4-a maddesinde"
+          }
+        ]
+      }
+    },
+    {
+      "id": "doc_18_table_dedup",
+      "doc_id": 18,
+      "focus_tags": [
+        "table_reference",
+        "deduplication"
+      ],
+      "input_text": "10/12/2003 tarihli ve 5018 sayılı Kamu Malî Yönetimi ve Kontrol Kanununun eki I, II, III ve IV sayılı cetvellerde yer alan kamu idarelerinde çalışan personele yapılacak ödemeler değerlendirilmiştir.",
+      "expected_output": {
+        "references": [
+          {
+            "type": "kanun_madde_referansi",
+            "kanun_no": "5018",
+            "kanun_ad": "Kamu Mali Yönetimi ve Kontrol Kanunu",
+            "madde": "",
+            "fikra": "",
+            "bent": "",
+            "source_text": "10/12/2003 tarihli ve 5018 sayılı Kamu Malî Yönetimi ve Kontrol Kanununun eki I, II, III ve IV sayılı cetvellerde yer alan kamu idarelerinde"
+          }
+        ]
+      }
+    },
+    {
+      "id": "doc_36_alt_bent_and_slash",
+      "doc_id": 36,
+      "focus_tags": [
+        "alt_bent",
+        "slash_form"
+      ],
+      "input_text": "4760 Sayılı Özel Tüketim Vergisi Kanununun 7 nci maddesinin birinci fıkrasının (2) numaralı bendinin (a) alt bendinde sayılan taşıtlar ile Kanunun (7/2-d) maddesinde belirtilen durumlar birlikte değerlendirilir.",
+      "expected_output": {
+        "references": [
+          {
+            "type": "kanun_madde_referansi",
+            "kanun_no": "4760",
+            "kanun_ad": "Özel Tüketim Vergisi Kanunu",
+            "madde": "7",
+            "fikra": "1",
+            "bent": "a",
+            "source_text": "4760 Sayılı Özel Tüketim Vergisi Kanununun 7 nci maddesinin birinci fıkrasının (2) numaralı bendinin (a) alt bendinde"
+          },
+          {
+            "type": "kanun_madde_referansi",
+            "kanun_no": "4760",
+            "kanun_ad": "Özel Tüketim Vergisi Kanunu",
+            "madde": "7",
+            "fikra": "2",
+            "bent": "d",
+            "source_text": "Kanunun (7/2-d) maddesinde"
+          }
+        ]
+      }
+    },
+    {
+      "id": "doc_77_multi_bent_list",
+      "doc_id": 77,
+      "focus_tags": [
+        "multi_bent_list",
+        "explicit_bent"
+      ],
+      "input_text": "70 inci maddenin birinci fıkrasının (1), (2), (4) ve (7) numaralı bentlerinde sayılan gelir unsurları değer artışı kazancı kapsamında değerlendirilir.",
+      "expected_output": {
+        "references": [
+          {
+            "type": "kanun_madde_referansi",
+            "kanun_no": "193",
+            "kanun_ad": "Gelir Vergisi Kanunu",
+            "madde": "70",
+            "fikra": "1",
+            "bent": "1",
+            "source_text": "70 inci maddenin birinci fıkrasının (1), (2), (4) ve (7) numaralı bentlerinde"
+          },
+          {
+            "type": "kanun_madde_referansi",
+            "kanun_no": "193",
+            "kanun_ad": "Gelir Vergisi Kanunu",
+            "madde": "70",
+            "fikra": "1",
+            "bent": "2",
+            "source_text": "70 inci maddenin birinci fıkrasının (1), (2), (4) ve (7) numaralı bentlerinde"
+          },
+          {
+            "type": "kanun_madde_referansi",
+            "kanun_no": "193",
+            "kanun_ad": "Gelir Vergisi Kanunu",
+            "madde": "70",
+            "fikra": "1",
+            "bent": "4",
+            "source_text": "70 inci maddenin birinci fıkrasının (1), (2), (4) ve (7) numaralı bentlerinde"
+          },
+          {
+            "type": "kanun_madde_referansi",
+            "kanun_no": "193",
+            "kanun_ad": "Gelir Vergisi Kanunu",
+            "madde": "70",
+            "fikra": "1",
+            "bent": "7",
+            "source_text": "70 inci maddenin birinci fıkrasının (1), (2), (4) ve (7) numaralı bentlerinde"
+          }
+        ]
+      }
+    },
+    {
+      "id": "synthetic_generic_only_single_row",
+      "doc_id": 0,
+      "focus_tags": [
+        "generic_only",
+        "single_row_rule",
+        "document_level_compaction"
+      ],
+      "input_text": "488 sayılı Damga Vergisi Kanunu kapsamında değerlendirme yapılır. Damga Vergisi Kanunu hükümleri ayrıca dikkate alınır.",
+      "expected_output": {
+        "references": [
+          {
+            "type": "kanun_madde_referansi",
+            "kanun_no": "488",
+            "kanun_ad": "Damga Vergisi Kanunu",
+            "madde": "",
+            "fikra": "",
+            "bent": "",
+            "source_text": "488 sayılı Damga Vergisi Kanunu kapsamında"
+          }
+        ]
+      }
+    },
+    {
+      "id": "synthetic_same_tuple_and_generic_suppression",
+      "doc_id": 0,
+      "focus_tags": [
+        "same_tuple_dedup",
+        "generic_suppression",
+        "document_level_compaction"
+      ],
+      "input_text": "4760 sayılı Özel Tüketim Vergisi Kanununun 7/2-c maddesi uygulanır. Aynı Kanunun 7/2-c maddesi tekrar hatırlatılır. Ayrıca Özel Tüketim Vergisi Kanunu kapsamında işlem yapılır.",
+      "expected_output": {
+        "references": [
+          {
+            "type": "kanun_madde_referansi",
+            "kanun_no": "4760",
+            "kanun_ad": "Özel Tüketim Vergisi Kanunu",
+            "madde": "7",
+            "fikra": "2",
+            "bent": "c",
+            "source_text": "4760 sayılı Özel Tüketim Vergisi Kanununun 7/2-c maddesi"
+          }
+        ]
+      }
+    }
+  ]
+}

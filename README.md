@@ -1,161 +1,131 @@
-# Data Quality Checker
+# Data Quality Checker (dqcheck)
 
-Türkçe hukuk belgelerindeki insan anotasyonlarını, canonical-only Qwen3.5-9B
-çıktıları ve uzman incelemesiyle karşılaştıran yerel bir kalite kontrol akışıdır.
+[![CI](https://github.com/Murat-Karakaya-Akademi/data-quality-checker/actions/workflows/ci.yml/badge.svg)](https://github.com/Murat-Karakaya-Akademi/data-quality-checker/actions)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
 
-Akış:
+**Data Quality Checker (`dqcheck`)** is a standalone, crash-resilient Human-in-the-Loop (HITL) quality control, audit, and weak-supervision platform designed for extracting and validating structured legal reference annotations from Turkish legal and revenue ruling texts.
+
+---
+
+## 🌟 Key Features
+
+- **🛡️ Safe ZIP Ingestion**: Non-extracting streaming ZIP reader with protection against path traversal, symlink attacks, and zip bombs.
+- **⚡ Local Apple Silicon / MLX Acceleration**: Integrated inference and stateful training for Qwen-based models (`Qwen3.5-9B`, `Q36-P1`) with checkpoint resumption.
+- **🎯 Semantic Quality Routing**: Automatically buckets documents into `GREEN` (consensus clean), `YELLOW` (minor discrepancy), `RED` (major conflict), and `QUARANTINE` (malformed).
+- **🖥️ Local HITL Web Review**: Modern, lightweight Flask web interface running locally (`127.0.0.1`) with HMAC-based security and no external tracking.
+- **💾 Crash-Resilient ACID Storage**: SQLite storage with atomic transaction commits, verified live online backups, and restore-smoke testing.
+- **📦 Atomic Dataset Release**: Produces cryptographically sealed and versioned reference datasets.
+
+---
+
+## 📐 Architecture & Workflow
 
 ```text
-ZIP hazırlama -> G0 prediction -> semantic router -> judge -> HITL -> release
++-------------------+      +-------------------+      +-------------------+
+|  1. Safe ZIP      | ---> |  2. G0 Model      | ---> |  3. Semantic      |
+|     Preparation   |      |     Inference     |      |     Router        |
++-------------------+      +-------------------+      +-------------------+
+                                                                |
+                                                                v
++-------------------+      +-------------------+      +-------------------+
+|  6. Atomic        | <--- |  5. HITL Web      | <--- |  4. Blind Judge   |
+|     Release       |      |     Review & DB   |      |     Pilot         |
++-------------------+      +-------------------+      +-------------------+
 ```
 
-## Güvenlik sınırı
+---
 
-- Ham belge kimlikleri, seçilen metinler, model/judge cevapları ve uzman
-  kararları yalnız `data/sensitive/data_quality_checker/` altında tutulur.
-- `artifacts/data_quality_checker/` yalnız HMAC kimlikleri, checksum'lar,
-  sayımlar ve reason-code içeren redakte manifestler içindir.
-- ZIP dosyaları topluca extract edilmez. Güvensiz yollar, symlink, şifreli
-  entry, duplicate ad, aşırı boyut ve compression ratio reddedilir.
-- Canonical eğitim kaynağı yalnız
-  `data/ground_truth/gt_v3_triangulated_2026-05-15/validated/` dizinidir.
+## 🚀 Quick Start
 
-## Çalıştırma
-
-Repo kökünden, paket kurulumu yapmadan:
+### 1. Installation
 
 ```bash
-export PYTHONPATH="$PWD/data-quality-checker-weak-learning-program/src"
-DQPY=/opt/llm-lab/.venv/bin/python
+git clone https://github.com/Murat-Karakaya-Akademi/data-quality-checker.git
+cd data-quality-checker
 
-$DQPY -m data_quality_checker --help
-$DQPY -m data_quality_checker train-bootstrap --generation G0
+# Install core package
+pip install -e .
+
+# Or install with development & compute dependencies
+pip install -e ".[dev,test,compute]"
 ```
 
-Editable kurulum istenirse:
+### 2. Run Tests
 
 ```bash
-/opt/llm-lab/.venv/bin/python -m pip install -e \
-  './data-quality-checker-weak-learning-program[test,compute]'
-dqcheck --help
+pytest -q
+# Or with make:
+make test
 ```
 
-Temel batch akışı:
+### 3. Demo with Sample Data in 30 Seconds
 
 ```bash
-dqcheck prepare \
-  --annotation-zip /izinli/yol/annotations.zip \
-  --document-pool-zip /izinli/yol/documents.zip \
-  --hmac-key-file /izinli/yol/dqcheck-hmac.key
+# 1. Generate sample mock archives
+python sample_data/generate_sample_zips.py
 
-dqcheck import-attribution \
-  --batch-id <batch-id> \
-  --annotation-zip /izinli/yol/annotations.zip
+# 2. Ingest and prepare the batch
+dqcheck --config configs/presets/sample_data.json prepare \
+  --annotation-zip sample_data/mock_annotations.zip \
+  --document-pool-zip sample_data/mock_documents.zip \
+  --batch-id demo_batch_001 \
+  --hmac-key-file sample_data/sample_hmac.key
 
-dqcheck process --prepared-batch <batch-id> --generation G0 --resume
-dqcheck reroute --batch-id <batch-id>
-dqcheck reroute --batch-id <batch-id> --apply
-dqcheck pilot-judges --batch-id <batch-id> --allow-external-judge
-dqcheck serve --batch-id <batch-id>
-dqcheck release --batch-id <batch-id>
+# 3. Run semantic routing with fake backend
+dqcheck --config configs/presets/sample_data.json process \
+  --prepared-batch demo_batch_001 --fake-backend
+
+# 4. Check batch status
+dqcheck --config configs/presets/sample_data.json status --batch-id demo_batch_001
+
+# 5. Launch the HITL review interface
+dqcheck --config configs/presets/sample_data.json serve --batch-id demo_batch_001 --port 5055
 ```
+Open [http://127.0.0.1:5055](http://127.0.0.1:5055) in your browser.
 
-`serve` yalnız `127.0.0.1` üzerinde açılır. Session secret ve erişim token'ı
-ortam değişkenlerinden verilmelidir; ayrıntılar [runbook](docs/RUNBOOK.md)
-içindedir.
+---
 
-HITL ekranı insan anotasyonu ile G0 model çıktısını açık etiketlerle gösterir;
-körleme uygulanmaz. `import-attribution`, eski hazırlanmış batch'lerde eksik
-olan `completed_by`/`last_editor` bilgisini kaynak ZIP'ten belge kimliğiyle
-eşleyip yalnız hassas veri kökündeki `0600` izinli sidecar'a yazar.
+## 📋 CLI Command Summary
 
-Her HITL kararı, review satırı ve `expert_review_updated` audit event'i aynı
-SQLite transaction'ında commit edildikten sonra tam veritabanının doğrulanmış
-online snapshot'ı alınır. Snapshot doğrulanmadan başarılı API cevabı veya form
-redirect'i verilmez. En son beş doğrulanmış durum korunur; UI güncel korunan
-karar sayısını gösterir. Operasyon komutları:
+| Command | Description |
+|---|---|
+| `dqcheck prepare` | Securely ingests raw annotation and document pool ZIP archives. |
+| `dqcheck import-attribution` | Privately imports human annotator identities into a secure sidecar. |
+| `dqcheck process` | Executes model inference (MLX / Qwen) and semantic routing. |
+| `dqcheck reroute` | Recomputes or applies reference-policy bucket transformations. |
+| `dqcheck pilot-judges` | Runs blind automated LLM judge evaluations against human expert annotations. |
+| `dqcheck judge-lock` | Locks an approved judge model for production pipelines. |
+| `dqcheck serve` | Serves the local-only Human-in-the-Loop web review interface. |
+| `dqcheck review-backup` | Operates and verifies ACID SQLite snapshots and restore smoke tests. |
+| `dqcheck release` | Exports an atomic, versioned, cryptographic release manifest. |
+| `dqcheck status` | Inspects batch lifecycle state and bucket distributions. |
 
-```bash
-dqcheck review-backup create --batch-id <batch-id>
-dqcheck review-backup verify --batch-id <batch-id>
-dqcheck review-backup status --batch-id <batch-id>
-dqcheck review-backup restore-smoke --batch-id <batch-id>
-```
+For full command arguments, see [docs/CLI_REFERENCE.md](docs/CLI_REFERENCE.md).
 
-Bu snapshot'lar `data/sensitive/data_quality_checker/review_backups/` altında
-ve ana veritabanıyla aynı makinededir. Yanlışlıkla silme/bozulma ve süreç
-çökmesine karşı kurtarma noktası sağlar; makine veya disk kaybına karşı
-off-host yedek yerine geçmez.
+---
 
-`reroute` varsayılan olarak salt preflight'tır. Sealed ham predictionları veya
-belge metnini değiştirmeden sürümlü reference-policy görünümünü hesaplar.
-`--apply`, prediction checksum/coverage ve pending-review kapıları geçtikten
-sonra doğrulanmış SQLite backup alır ve yeni router bucket'larını tek
-transaction'da uygular.
+## 🔒 Security & Privacy Boundary
 
-## G0 compute sınırı
+- **HMAC Tokenization**: Real document identities are pseudonymized into deterministic HMAC digests (`dq_<hex>`).
+- **Local Isolation**: The HITL web server binds exclusively to `127.0.0.1`.
+- **Sidecar Permissions**: Annotator attribution files are written with strict `0600` file permissions.
+- **No Remote Telemetry**: Zero external network requests during annotation, routing, or review.
 
-`train-bootstrap` varsayılan olarak canonical veriyi, split'i, checksum'ları ve
-fake full-state resume testini hazırlar; model indirmez. `--execute` gerçek MLX
-train/generate ve failure-resume kabul smoke'larını çalıştırır, fakat uzun G0
-development eğitimi başlatmaz.
+---
 
-Uzun development koşusunun kilitli planını compute başlatmadan görmek için:
+## 📚 Documentation
 
-```bash
-dqcheck train-g0 \
-  --run-id dqcheck_g0_qwen3_5_9b_<fingerprint> \
-  --candidate lr5e-5 --target-updates 50
-```
+- [System Architecture](docs/ARCHITECTURE.md)
+- [CLI Reference Manual](docs/CLI_REFERENCE.md)
+- [HITL Reviewer Guide](docs/HITL_GUIDE.md)
+- [Operations Runbook](docs/RUNBOOK.md)
+- [Security Policy](SECURITY.md)
+- [Contributing Guidelines](CONTRIBUTING.md)
 
-`train-g0` gerçek koşuyu 25-update segmentlere böler. Her segmentten sonra
-full-state checkpoint'i doğrular, validation-50 generation ve canonical metrik
-değerlendirmesini tamamlar. `--execute` yalnız yeşil compute preflight ve `tmux`
-içinde çalışır; `--resume` tamamlanmış segment/validation kayıtlarını atlar.
-İki başlangıç adayı yalnız peak LR bakımından farklıdır: `5e-5` ve `1e-4`.
+---
 
-Mac Studio compute kabulünde tam belge inference/validation bağlamı `12288`,
-backward eğitim bağlamı `1536` token olarak doğrulandı. Uzun train belgeleri
-sessizce kırpılmaz: örtüşmeli ve fingerprint'li doğal pencereler, belge başına
-en fazla bir boş pencere ve çok-referanslı dense-replay satırlarıyla `394`
-belge `3726` eğitim satırına dönüşür; tek replay hedefi en fazla `10` referans
-taşır. Candidate metin coverage'ı negative
-sampling öncesi, gold referans coverage'ı ise eğitim görünümünde eksiksiz
-olmadan koşu açılmaz.
+## 📄 License
 
-Hiperparametre seçimi validation-50 üzerinde yapılır. Ayrı test-50 seçim
-sonrasında yalnız bir kez açılır; bu iki rol birlikte 100 holdout belgeyi
-oluşturur. Test sonucu görülmeden final 494-belge refit başlamaz.
-
-Gerçek adapter mühürlenmeden `process` komutu G0 registry eksikliği nedeniyle
-durur. Testlerdeki `--fake-backend` seçenekleri yalnız fixture kabulü içindir ve
-help çıktısında bilerek gösterilmez.
-
-## Q36-P1 kontrollü SFT sınırı
-
-Qwen3.6-27B deneyi G0'dan ayrı `Q36-P1` kimliğiyle fail-closed hazırlanır:
-
-```bash
-$DQPY -m data_quality_checker \
-  --config data-quality-checker-weak-learning-program/configs/default.json \
-  q36-p1 preflight
-```
-
-Preflight exact model revisionı, G0 ile byte-identical promptu, canonical
-`394/50/50` split'i, GREEN-342 altı-yol dağılımını ve canonical test-50 + dış
-validation-100 + dış sealed-400 için ortak inference token bütçesini mühürler.
-35 belgeli GREEN insan auditi geçmeden `--build-data` hassas training exportu
-yazmaz ve compute başlatılmaz.
-
-Ham inference byte'larını koruyup production `213/413` görünümü üretmek için
-`q36-p1 views`; gold tarafındaki simetrik görünüm için `q36-p1 gold-view`
-kullanılır. Ayrıntılı sıra ve kapılar [Q36-P1 runbook'undadır](../tasks/q36_p1_controlled_sft_2026_08_04/RUNBOOK.md).
-
-## Test
-
-```bash
-cd data-quality-checker-weak-learning-program
-/opt/llm-lab/.venv/bin/python -m pytest -q
-```
-
-Varsayılan testler model yüklemez. Gerçek MLX kabulü ayrı compute kapısıdır.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.

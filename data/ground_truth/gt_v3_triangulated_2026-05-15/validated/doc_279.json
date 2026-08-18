@@ -1,0 +1,43 @@
+{
+  "doc_id": 279,
+  "ozelge_no": "-",
+  "text": "T.C. VALİLİĞİ Defterdarlık Gelir Müdürlüğü Sayı : - Konu : İlgide kayıtlı talep formunda, \"arı keki\" satışında uygulanması gereken katma değer vergisi (KDV) oranı sorulmaktadır. 3065 sayılı KDV Kanununun; 1/1 inci maddesinde, Türkiye’de ticari, sınai, zirai faaliyet ve serbest meslek faaliyeti çerçevesinde yapılan teslim ve hizmetlerin, 1/2 nci maddesinde ise her türlü mal ve hizmet ithalatının, KDV ye tabi olduğu hükme bağlanmıştır. KDV oranları, KDV Kanununun 28 inci maddesinin Bakanlar Kuruluna verdiği yetkiye dayanılarak yayımlanan 2007/13033 sayılı Bakanlar Kurulu Kararnamesi (BKK) ile BKK eki (I) sayılı listede yer alan teslim ve hizmetler için (%1), (II) sayılı listede yer alan teslim ve hizmetler için (%8), listelerde yer alanlar hariç vergiye tabi işlemler için (%18) olarak tespit edilmiştir. 2007/13033 sayılı BKK eki (II) sayılı listenin (B/13-a) sırasında “17 no.lu fasılında yer alan mallar“ yer almaktadır. TGTC nin 17. faslında “Şeker ve Şeker Mamülleri” tanımlanmıştır. Arı kekinin insan gıdası olarak kullanılanları, TGTC nin 17. faslına ait “1702.90.95.00.90 Diğerleri” GTİP numarasında yer almaktadır. Dolayısıyla, insan gıdası olarak kullanılan \"arı keki\"nin, 2007/13033 sayılı BKK eki (II) sayılı listenin (B/13-a) sırasında değerlendirilerek, tesliminin %8 oranında KDV ye tabi tutulması gerekmektedir. 2007/13033 sayılı BKK eki (II) sayılı listenin (B/23) sırasında “....her türlü fenni karma yemler….” sayılmıştır. TGTC nin 23. faslında “Gıda Sanayiinin Kalıntı ve Döküntüleri; Hayvanlar İçin Hazırlanmış Kaba Yemler” tanımlanmıştır. Arı kekinin hayvan gıdası olarak kullanılmaya elverişli olanları, TGTC’nin 23. faslına ait “2309.90.96.90.19 Diğerleri” GTİP numarasında yer almaktadır. Buna göre, hayvan gıdası olarak kullanılan \"arı keki\"nin, 2007/13033 sayılı BKK eki II sayılı listenin (B/23) sırasında sayılan “....her türlü fenni karma yemler….” kapsamında değerlendirilerek, tesliminin (%8) oranında KDV’ye tabi tutulması gerekmektedir. Bilgi edinilmesini rica ederim. 1/2 Ayrıntılı bilgi için irtibat : Telefon : Faks : e-posta : Elektronik Ağ : (*) Bu Özelge 213 sayılı Vergi Usul Kanununun 413.maddesine dayanılarak verilmiştir. (**) İnceleme, yargı ya da uzlaşmada olduğu halde bu konuya ilişkin olarak yanlış bilgi verilmiş ise bu özelge geçersizdir. (***) Talebiniz üzerine tayin edilmiş olan bu özelgeye uygun işlem yapmanız hâlinde, bu fiilleriniz dolayısıyla vergi tarh edilmesi icap ederse, tarafınıza vergi cezası kesilmeyecek ve tarh edilen vergi için gecikme faizi hesaplanmayacaktır. 2/2 Ayrıntılı bilgi için irtibat : Telefon : Faks : e-posta : Elektronik Ağ :",
+  "references": [
+    {
+      "type": "kanun_madde_referansi",
+      "kanun_no": "3065",
+      "kanun_ad": "Katma Değer Vergisi Kanunu",
+      "madde": "1",
+      "fikra": "1",
+      "bent": "",
+      "source_text": "3065 sayılı KDV Kanununun; 1/1 inci maddesinde"
+    },
+    {
+      "type": "kanun_madde_referansi",
+      "kanun_no": "3065",
+      "kanun_ad": "Katma Değer Vergisi Kanunu",
+      "madde": "1",
+      "fikra": "2",
+      "bent": "",
+      "source_text": "1/2 nci maddesinde ise"
+    },
+    {
+      "type": "kanun_madde_referansi",
+      "kanun_no": "3065",
+      "kanun_ad": "Katma Değer Vergisi Kanunu",
+      "madde": "28",
+      "fikra": "",
+      "bent": "",
+      "source_text": "KDV Kanununun 28 inci maddesinin"
+    },
+    {
+      "type": "kanun_madde_referansi",
+      "kanun_no": "213",
+      "kanun_ad": "Vergi Usul Kanunu",
+      "madde": "413",
+      "fikra": "",
+      "bent": "",
+      "source_text": "213 sayılı Vergi Usul Kanununun 413.maddesine"
+    }
+  ]
+}

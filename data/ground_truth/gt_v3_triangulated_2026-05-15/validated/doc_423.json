@@ -1,0 +1,43 @@
+{
+  "doc_id": 423,
+  "ozelge_no": "B.07.1.GİB.4.31.15.01-HRÇ-5-05-6",
+  "text": "T.C. GELİR İDARESİ BAŞKANLIĞI HATAY VERGİ DAİRESİ BAŞKANLIĞI Mükellef Hizmetleri Grup Müdürlüğü Sayı : B.07.1.GİB.4.31.15.01-HRÇ-5-05-6 21.07.2010 Konu : Belediye Harç Muafiyeti İlgide kayıtlı özelge talep formunda, Bakanlar Kurulu Kararıyla kamu yararına çalışan dernek statüsünde olan Derneğinizin yaptıracağı öğrenci yurdunun bina inşaat harcından istisna olup olmadığı hususunda Başkanlığımız görüşü sorulmaktadır. 2464 sayılı Belediye Gelirleri Kanununun Ek 1 inci maddesinin birinci fıkrası ile belediye sınırları ve mücavir alanlar içinde yapılan her türlü bina inşaatı (ilave ve tadiller dahil), inşaat veya tadilat ruhsatının alınmasında Ek 6 ncı maddesinde yer alan tarifede gösterilen nispet ve hallerde bina inşaat harcına tabi tutulmuştur. Anılan Kanunun Ek 2 nci maddesinin (g) fıkrasıyla da karşılık gözetmeksizin Devlete devrolunmak şartıyla inşa edilen okullar ve öğrenci yurtlarının, bina inşaat harcından istisna tutulacağı hükme bağlanmıştır. Bu itibarla, Derneğinizin yaptıracağı öğrenci yurdunun karşılık gözetilmeksizin Devlete devrolunmak şartıyla inşa edilmesi halinde söz konusu inşaatın bina inşaat harcından istisna tutulması, karşılık gözetilmeksizin Devlete devrolunmak şartıyla inşa edilmemesi halinde ise istisna tutulmaması gerekmektedir. Bilgi edinilmesini rica ederim. Harun DUMLU Vergi Dairesi Başkanı V. (*) Bu Özelge 213 sayılı Vergi Usul Kanununun 413.maddesine dayanılarak verilmiştir. (**) İnceleme, yargı ya da uzlaşmada olduğu halde bu konuya ilişkin olarak yanlış bilgi verilmiş ise bu özelge geçersizdir. 1/1 Kışlasaray Mah. Fevzi Çakmak C. Vilayet B. B Blo 31070 Ayrıntılı bilgi için irtibat : HÜLYA UYSUN GELİR UZMANI Telefon : (0326) 214 96 39 Faks : (0326) 215 37 35 e-posta : Elektronik Ağ :",
+  "references": [
+    {
+      "type": "kanun_madde_referansi",
+      "kanun_no": "2464",
+      "kanun_ad": "Belediye Gelirleri Kanunu",
+      "madde": "Ek 1",
+      "fikra": "1",
+      "bent": "",
+      "source_text": "2464 sayılı Belediye Gelirleri Kanununun Ek 1 inci maddesinin birinci fıkrası"
+    },
+    {
+      "type": "kanun_madde_referansi",
+      "kanun_no": "2464",
+      "kanun_ad": "Belediye Gelirleri Kanunu",
+      "madde": "Ek 6",
+      "fikra": "",
+      "bent": "",
+      "source_text": "Ek 6 ncı maddesinde"
+    },
+    {
+      "type": "kanun_madde_referansi",
+      "kanun_no": "2464",
+      "kanun_ad": "Belediye Gelirleri Kanunu",
+      "madde": "Ek 2",
+      "fikra": "",
+      "bent": "g",
+      "source_text": "Anılan Kanunun Ek 2 nci maddesinin (g) fıkrasıyla"
+    },
+    {
+      "type": "kanun_madde_referansi",
+      "kanun_no": "213",
+      "kanun_ad": "Vergi Usul Kanunu",
+      "madde": "413",
+      "fikra": "",
+      "bent": "",
+      "source_text": "213 sayılı Vergi Usul Kanununun 413.maddesine"
+    }
+  ]
+}

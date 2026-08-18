@@ -1,0 +1,52 @@
+{
+  "doc_id": 81,
+  "ozelge_no": "B.07.1.GİB.4.38.15.01-KDV-20-870-113",
+  "text": "T.C. GELİR İDARESİ BAŞKANLIĞI KAYSERİ VERGİ DAİRESİ BAŞKANLIĞI (Mükellef Hizmetleri Grup Müdürlüğü) Sayı : B.07.1.GİB.4.38.15.01-KDV-20-870-113 24/07/2012 Konu : Tali sigorta acentesi İlgide kayıtlı özelge talep formunda, tali sigorta acentesi olarak düzenlenen poliçeler karşılığında elde edilen komisyon gelirlerinin katma değer vergisine tabi olup olmadığı hususunda Başkanlığımız görüşü talep edilmektedir. KDV Kanununun 1/1 inci maddesine göre, ticari, sınai, zirai faaliyet ve serbest meslek faaliyeti çerçevesinde Türkiye’de yapılan teslim ve hizmetler KDV ye tabidir. Aynı Kanunun 17/4-e maddesi ile banka ve sigorta muameleleri vergisi kapsamına giren işlemler ve sigorta aracılarının sigorta şirketlerine yaptığı sigorta muamelelerine ilişkin işlemleri KDV den istisna edilmiştir. Sigorta aracılarının sigorta şirketlerine yaptığı sigorta muamelelerine yönelik işlemlerde KDV istisnası uygulamasına ilişkin açıklamalara 110 Seri No.lu KDV Genel Tebliğinin \"Sigorta Aracılarının KDV Uygulaması Karşısındaki Durumu\" başlıklı (A.2) bölümünde yer verilmiştir. Öte yandan, 5684 sayılı Sigortacılık Kanununun 2 nci maddesinin birinci fıkrasının (b) bendinde, sigorta acentesi ve brokerleri sigorta aracıları olarak sayılmış, aynı maddenin (1) bendinde ise sigorta acentesi; ticari mümessil, ticari vekil, satış memuru veya müstahdem gibi tabi bir sıfatı olmaksızın bir sözleşmeye dayanarak muayyen bir yer veya bölge içinde daimi bir surette sigorta şirketlerinin nam ve hesabına sigorta sözleşmelerine aracılık etmeyi veya bunları sigorta şirketleri adına yapmayı meslek edinen, sözleşmenin akdinden önce hazırlık çalışmalarını yürüten ve sözleşmenin uygulanması ile tazminatın ödenmesinde yardımcı olan kişi olarak tanımlanmıştır. Dolayısıyla, söz konusu istisna hükmü kapsamında faaliyetleri KDV den istisna tutulan sigorta aracıları, 5684 sayılı Kanuna göre belirlenecektir. Öte yandan, sigorta şirketi tarafından alınan sigorta bedeli BSMV ye tabi bulunmaktadır. Buna göre; tali sigorta acentesi olarak BSMV ye tabi tutardan daha yüksek tutarda bir bedel tahsil ediliyorsa aradaki fark genel hükümler çerçevesinde KDV ye tabi olacaktır. BSMV ye tabi tutardan daha yüksek tutarda bir bedel tahsil edilmiyor ise, sigorta şirketi tarafından toplam bedel üzerinden BSMV hesaplandığı için KDV hesaplanmasına gerek bulunmamaktadır. Bilgi edinilmesini rica ederim. 1/2 Gevher Nesibe Mah. Tekin Sok. Kat: 5 KNo:8 38010 KAYSERİ Ayrıntılı bilgi için irtibat : Elif YÜCEER Gelir Uzmanı Telefon : (0352) 222 37 73 Faks : (0352) 222 67 54 e-posta : Elektronik Ağ : EK : Özelge Talep Formu (*) Bu Özelge 213 sayılı Vergi Usul Kanununun 413.maddesine dayanılarak verilmiştir. (**) İnceleme, yargı ya da uzlaşmada olduğu halde bu konuya ilişkin olarak yanlış bilgi verilmiş ise bu özelge geçersizdir. (***) Talebiniz üzerine tayin edilmiş olan bu özelgeye uygun işlem yapmanız hâlinde, bu fiilleriniz dolayısıyla vergi tarh edilmesi icap ederse, tarafınıza vergi cezası kesilmeyecek ve tarh edilen vergi için gecikme faizi hesaplanmayacaktır. 2/2 Gevher Nesibe Mah. Tekin Sok. Kat: 5 KNo:8 38010 KAYSERİ Ayrıntılı bilgi için irtibat : Elif YÜCEER Gelir Uzmanı Telefon : (0352) 222 37 73 Faks : (0352) 222 67 54 e-posta : Elektronik Ağ :",
+  "references": [
+    {
+      "type": "kanun_madde_referansi",
+      "kanun_no": "3065",
+      "kanun_ad": "Katma Değer Vergisi Kanunu",
+      "madde": "1",
+      "fikra": "1",
+      "bent": "",
+      "source_text": "KDV Kanununun 1/1 inci maddesine"
+    },
+    {
+      "type": "kanun_madde_referansi",
+      "kanun_no": "3065",
+      "kanun_ad": "Katma Değer Vergisi Kanunu",
+      "madde": "17",
+      "fikra": "4",
+      "bent": "e",
+      "source_text": "Aynı Kanunun 17/4-e maddesi"
+    },
+    {
+      "type": "kanun_madde_referansi",
+      "kanun_no": "5684",
+      "kanun_ad": "Sigortacılık Kanunu",
+      "madde": "2",
+      "fikra": "1",
+      "bent": "b",
+      "source_text": "5684 sayılı Sigortacılık Kanununun 2 nci maddesinin birinci fıkrasının (b) bendinde"
+    },
+    {
+      "type": "kanun_madde_referansi",
+      "kanun_no": "5684",
+      "kanun_ad": "Sigortacılık Kanunu",
+      "madde": "2",
+      "fikra": "",
+      "bent": "1",
+      "source_text": "aynı maddenin (1) bendinde"
+    },
+    {
+      "type": "kanun_madde_referansi",
+      "kanun_no": "213",
+      "kanun_ad": "Vergi Usul Kanunu",
+      "madde": "413",
+      "fikra": "",
+      "bent": "",
+      "source_text": "213 sayılı Vergi Usul Kanununun 413.maddesine"
+    }
+  ]
+}

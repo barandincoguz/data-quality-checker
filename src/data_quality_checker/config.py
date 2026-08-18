@@ -58,7 +58,13 @@ class AppConfig:
 
 
 def default_config_path() -> Path:
-    return Path(__file__).resolve().parents[2] / "configs" / "default.json"
+    candidate = Path(__file__).resolve().parents[2] / "configs" / "default.json"
+    if candidate.is_file():
+        return candidate
+    cwd_candidate = Path.cwd() / "configs" / "default.json"
+    if cwd_candidate.is_file():
+        return cwd_candidate
+    return candidate
 
 
 def _positive_int(payload: dict[str, Any], key: str) -> int:

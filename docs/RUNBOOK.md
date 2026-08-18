@@ -5,9 +5,9 @@
 Repo kökünden:
 
 ```bash
-cd data-quality-checker-weak-learning-program
-/opt/llm-lab/.venv/bin/python -m pytest -q
-PYTHONPATH=src /opt/llm-lab/.venv/bin/python -m data_quality_checker --help
+cd /Users/student2/data-quality-checker
+pytest -q
+dqcheck --help
 ```
 
 Bu adım model indirmez ve dış servise çağrı yapmaz.
@@ -30,9 +30,8 @@ değildir. Terminal kaybına karşı ayrı bir tmux session kullanın:
 
 ```bash
 tmux new-session -s dqcheck-g0
-cd /Users/student2/ner-project/data-quality-checker-weak-learning-program
-PYTHONPATH=src /opt/llm-lab/.venv/bin/python -m data_quality_checker \
-  train-bootstrap --generation G0 --execute
+cd /Users/student2/data-quality-checker
+dqcheck train-bootstrap --generation G0 --execute
 ```
 
 İzlenecek dosyalar ilgili run dizinindeki `compute_acceptance/heartbeat.json`
@@ -65,10 +64,8 @@ Her adayı ayrı bir `tmux` oturumunda sıralı çalıştırın:
 
 ```bash
 tmux -L dqcheck-qwen35 new-session -s dqcheck-g0-lr5
-cd /Users/student2/ner-project
-PYTHONPATH=data-quality-checker-weak-learning-program/src \
-  /opt/llm-lab/.venv/bin/python -m data_quality_checker \
-  train-g0 --run-id <run-id> --candidate lr5e-5 \
+cd /Users/student2/data-quality-checker
+dqcheck train-g0 --run-id <run-id> --candidate lr5e-5 \
   --target-updates 50 --execute
 ```
 
@@ -258,15 +255,12 @@ kilitli judge coverage kapılarından biri eksikse durur. Mevcut release üzerin
 yazılmaz.
 
 ## 8. Q36-P1 kontrollü SFT preflight
-
+ 
 Q36-P1, G0'dan bağımsızdır. Repo kökünden:
 
 ```bash
-export PYTHONPATH="$PWD/data-quality-checker-weak-learning-program/src"
-DQPY=/opt/llm-lab/.venv/bin/python
-DQCONFIG=data-quality-checker-weak-learning-program/configs/default.json
-
-$DQPY -m data_quality_checker --config "$DQCONFIG" q36-p1 preflight
+cd /Users/student2/data-quality-checker
+dqcheck q36-p1 preflight
 ```
 
 Komut pinned Qwen3.6-27B snapshotını ve tokenizerı kullanarak prompt/model/data
@@ -278,17 +272,14 @@ Audit review, bu runbook'un 6. bölümündeki yerel HITL ve backup sözleşmesin
 kullanır. Audit geçtikten sonra training source exportu:
 
 ```bash
-$DQPY -m data_quality_checker --config "$DQCONFIG" \
-  q36-p1 preflight --build-data
+dqcheck q36-p1 preflight --build-data
 ```
 
 Prediction/gold production görünümü:
 
 ```bash
-$DQPY -m data_quality_checker --config "$DQCONFIG" q36-p1 views \
-  --predictions <raw.json> --output-dir <views-dir>
-$DQPY -m data_quality_checker --config "$DQCONFIG" q36-p1 gold-view \
-  --source <gold.json-or-dir> --output <filtered.json-or-dir>
+dqcheck q36-p1 views --predictions <raw.json> --output-dir <views-dir>
+dqcheck q36-p1 gold-view --source <gold.json-or-dir> --output <filtered.json-or-dir>
 ```
 
 Tam Q36 sözleşmesi ve audit sonrası compute kapıları:

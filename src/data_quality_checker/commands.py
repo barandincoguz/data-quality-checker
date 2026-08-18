@@ -172,22 +172,14 @@ def review_backup(args: Namespace, config: AppConfig) -> int:
 
     with (
         review_backup_lock(config=config, batch_id=args.batch_id),
-        Store(
-            config.database_path, busy_timeout_ms=config.runtime.busy_timeout_ms
-        ) as store,
+        Store(config.database_path, busy_timeout_ms=config.runtime.busy_timeout_ms) as store,
     ):
         if args.review_backup_action == "create":
-            result = create_review_backup(
-                config=config, store=store, batch_id=args.batch_id
-            )
+            result = create_review_backup(config=config, store=store, batch_id=args.batch_id)
         elif args.review_backup_action == "restore-smoke":
-            result = restore_review_backup_smoke(
-                config=config, store=store, batch_id=args.batch_id
-            )
+            result = restore_review_backup_smoke(config=config, store=store, batch_id=args.batch_id)
         else:
-            result = review_backup_status(
-                config=config, store=store, batch_id=args.batch_id
-            )
+            result = review_backup_status(config=config, store=store, batch_id=args.batch_id)
     print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
     return 0
 
@@ -203,9 +195,7 @@ def release(args: Namespace, config: AppConfig) -> int:
 def status(args: Namespace, config: AppConfig) -> int:
     if not config.database_path.exists():
         raise GateBlocked(f"database does not exist: {config.database_path}")
-    with Store(
-        config.database_path, busy_timeout_ms=config.runtime.busy_timeout_ms
-    ) as store:
+    with Store(config.database_path, busy_timeout_ms=config.runtime.busy_timeout_ms) as store:
         result: dict[str, Any] = store.status_summary(args.batch_id)
     print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
     return 0

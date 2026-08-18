@@ -15,7 +15,7 @@ import os
 import socket
 import time
 import traceback
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -26,8 +26,9 @@ from .performance import EMPTY_PERFORMANCE, optional_float, optional_int
 
 LEGAL_TUPLE_FIELDS = ("kanun_no", "kanun_ad", "madde", "fikra", "bent")
 
+
 def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _checkpoint_projection(checkpoint: Path) -> dict[str, Any]:
@@ -53,20 +54,12 @@ def _checkpoint_projection(checkpoint: Path) -> dict[str, Any]:
         "adapter_sha256": sha256_file(checkpoint / "adapters.safetensors"),
         "optimizer_sha256": sha256_file(checkpoint / "optimizer.safetensors"),
         "mlx_rng_sha256": sha256_file(checkpoint / "mlx_rng.safetensors"),
-        "adapter_tensor_fingerprint": tensor_fingerprint(
-            checkpoint / "adapters.safetensors"
-        ),
-        "optimizer_tensor_fingerprint": tensor_fingerprint(
-            checkpoint / "optimizer.safetensors"
-        ),
-        "mlx_rng_tensor_fingerprint": tensor_fingerprint(
-            checkpoint / "mlx_rng.safetensors"
-        ),
+        "adapter_tensor_fingerprint": tensor_fingerprint(checkpoint / "adapters.safetensors"),
+        "optimizer_tensor_fingerprint": tensor_fingerprint(checkpoint / "optimizer.safetensors"),
+        "mlx_rng_tensor_fingerprint": tensor_fingerprint(checkpoint / "mlx_rng.safetensors"),
         "scheduler_state": trainer_state["scheduler_state"],
         "data_cursor": trainer_state["data_cursor"],
-        "python_rng_state_fingerprint": fingerprint_json(
-            trainer_state["python_rng_state"]
-        ),
+        "python_rng_state_fingerprint": fingerprint_json(trainer_state["python_rng_state"]),
     }
 
 
@@ -271,9 +264,7 @@ def _salvage_repeated_json_prefix(raw_output: str) -> dict[str, Any] | None:
             "terminal_duplicate_run_length": terminal_run_length,
             "discarded_incomplete_suffix_chars": len(raw_output) - object_end - 1,
             "synthetic_closing_bracket": True,
-            "repaired_prefix_sha256": hashlib.sha256(
-                candidate.encode("utf-8")
-            ).hexdigest(),
+            "repaired_prefix_sha256": hashlib.sha256(candidate.encode("utf-8")).hexdigest(),
         }
 
 
@@ -401,8 +392,7 @@ def _generate_window_fallback(
                     "window_count": len(intervals),
                     "completed_window_count": len(windows),
                     "repetition_recovery_count": sum(
-                        window["repetition_recovery"] is not None
-                        for window in windows
+                        window["repetition_recovery"] is not None for window in windows
                     ),
                     "total_input_tokens": total_input_tokens,
                     "windows": windows,
@@ -448,9 +438,7 @@ def _generate(request: dict[str, Any]) -> dict[str, Any]:
     if mx.metal.is_available():
         mx.set_wired_limit(mx.device_info()["max_recommended_working_set_size"])
     mx.reset_peak_memory()
-    model, tokenizer = load(
-        str(request["model_path"]), adapter_path=str(request["adapter_path"])
-    )
+    model, tokenizer = load(str(request["model_path"]), adapter_path=str(request["adapter_path"]))
     generated = _generate_one(
         model=model,
         tokenizer=tokenizer,
@@ -510,9 +498,7 @@ def _resolve_validation_adapter(request: dict[str, Any]) -> Path | None:
     raw = request.get("adapter_path")
     if not raw:
         if request.get("adapter_sha256"):
-            raise IntegrityError(
-                "validation request carries adapter_sha256 without adapter_path"
-            )
+            raise IntegrityError("validation request carries adapter_sha256 without adapter_path")
         return None
     adapter_path = Path(raw).resolve()
     if sha256_file(adapter_path / "adapters.safetensors") != request.get("adapter_sha256"):
@@ -608,13 +594,9 @@ def _validate(request: dict[str, Any]) -> dict[str, Any]:
                 max_input_tokens=int(request["max_sequence_length"]),
                 window_tokens=int(request["window_fallback_tokens"]),
                 overlap_tokens=int(request["window_fallback_overlap_tokens"]),
-                max_generation_tokens=int(
-                    request["window_fallback_max_generation_tokens"]
-                ),
+                max_generation_tokens=int(request["window_fallback_max_generation_tokens"]),
                 recover_repetition=bool(
-                    request.get(
-                        "window_fallback_repetition_recovery_enabled", False
-                    )
+                    request.get("window_fallback_repetition_recovery_enabled", False)
                 ),
             )
             fallback = {
@@ -702,24 +684,17 @@ def _validate(request: dict[str, Any]) -> dict[str, Any]:
         "parse_count": sum(bool(record["parse_ok"]) for record in records),
         "success_count": sum(record["status"] == "success" for record in records),
         "empty_output_count": sum(not record["raw_output"].strip() for record in records),
-        "zero_reference_output_count": sum(
-            not record["references"] for record in records
-        ),
+        "zero_reference_output_count": sum(not record["references"] for record in records),
         "parsed_zero_reference_output_count": sum(
-            bool(record["parse_ok"]) and not record["references"]
-            for record in records
+            bool(record["parse_ok"]) and not record["references"] for record in records
         ),
-        "predicted_reference_count": sum(
-            len(record["references"]) for record in records
-        ),
+        "predicted_reference_count": sum(len(record["references"]) for record in records),
         "runaway_output_count": sum(bool(record["runaway"]) for record in records),
         "fallback_attempt_count": sum(
-            bool((record.get("fallback") or {}).get("attempted"))
-            for record in records
+            bool((record.get("fallback") or {}).get("attempted")) for record in records
         ),
         "fallback_recovery_count": sum(
-            bool((record.get("fallback") or {}).get("recovered"))
-            for record in records
+            bool((record.get("fallback") or {}).get("recovered")) for record in records
         ),
         "validation_loss": validation_loss,
         "predictions_path": str(predictions_path),
@@ -752,9 +727,7 @@ def _loss(request: dict[str, Any]) -> dict[str, Any]:
     adapter_path = Path(request["adapter_path"]).resolve()
     if sha256_file(data_path) != request.get("data_sha256"):
         raise FingerprintMismatch("loss-smoke data fingerprint mismatch")
-    if sha256_file(adapter_path / "adapters.safetensors") != request.get(
-        "adapter_sha256"
-    ):
+    if sha256_file(adapter_path / "adapters.safetensors") != request.get("adapter_sha256"):
         raise FingerprintMismatch("loss-smoke adapter fingerprint mismatch")
     model, tokenizer = load(str(request["model_path"]), adapter_path=str(adapter_path))
     dataset = NoThinkChatDataset(data_path, tokenizer)

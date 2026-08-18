@@ -102,9 +102,7 @@ def test_green_pool_classification_reproduces_locked_six_way_distribution(
             raw_id = f"raw-{index}"
             document_hash = sha256_text(f"neon-document:{raw_id}")
             if category == "overlap":
-                overlap.append(
-                    {"document_id_hash": document_hash, "canonical_doc_ids": [1]}
-                )
+                overlap.append({"document_id_hash": document_hash, "canonical_doc_ids": [1]})
             elif category == "quarantine":
                 quarantine.append(
                     {
@@ -118,20 +116,14 @@ def test_green_pool_classification_reproduces_locked_six_way_distribution(
                     "public_doc_id": f"public-{index}",
                     "raw_document_id": raw_id,
                     "text_sha256": f"{index + 10000:064x}",
-                    "metadata_json": json.dumps(
-                        {"annotation_completed": category != "incomplete"}
-                    ),
+                    "metadata_json": json.dumps({"annotation_completed": category != "incomplete"}),
                 }
             )
     (historical / "split_manifest.json").write_text(
         json.dumps({"documents": documents}), encoding="utf-8"
     )
-    (historical / "canonical_overlap.json").write_text(
-        json.dumps(overlap), encoding="utf-8"
-    )
-    (historical / "quarantine.json").write_text(
-        json.dumps(quarantine), encoding="utf-8"
-    )
+    (historical / "canonical_overlap.json").write_text(json.dumps(overlap), encoding="utf-8")
+    (historical / "quarantine.json").write_text(json.dumps(quarantine), encoding="utf-8")
 
     result = classify_green_pool(green, repo_root=tmp_path)
     assert result["document_count"] == 342
@@ -194,10 +186,7 @@ def test_green_audit_blocks_pending_and_escalates_membership_changes() -> None:
 
 
 def test_213_413_reconstruction_requires_exact_evidence_and_is_idempotent() -> None:
-    footer = (
-        "Bu Özelge 213 sayılı Vergi Usul Kanununun 413.maddesine "
-        "dayanılarak verilmiştir."
-    )
+    footer = "Bu Özelge 213 sayılı Vergi Usul Kanununun 413.maddesine dayanılarak verilmiştir."
     references, audit = reconstruct_vuk_213_article_413(
         [_reference()], document_text=f"Başlangıç. {footer} Son."
     )
@@ -240,9 +229,7 @@ def test_prediction_views_preserve_raw_bytes_and_filter_exact_identity(
             ],
         }
     ]
-    raw.write_text(
-        json.dumps(rows, ensure_ascii=False, separators=(",", ":")), encoding="utf-8"
-    )
+    raw.write_text(json.dumps(rows, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
     before = raw.read_bytes()
     first = write_prediction_views(raw_predictions=raw, output_dir=tmp_path / "views")
     second = write_prediction_views(raw_predictions=raw, output_dir=tmp_path / "views")
@@ -308,9 +295,7 @@ def test_common_inference_budget_only_escalates_when_measurements_require_it() -
 
     measured = measure_inference_contract(
         tokenizer=_Tokenizer(),
-        universes={
-            "canonical_test_50": [{"text": "bir iki üç", "references": [_reference()]}]
-        },
+        universes={"canonical_test_50": [{"text": "bir iki üç", "references": [_reference()]}]},
     )
     assert measured["selected"]["input_tokens"] == 16384
     assert measured["selected"]["output_tokens"] == 4096

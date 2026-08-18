@@ -14,7 +14,7 @@ import subprocess
 import sys
 import time
 from dataclasses import asdict
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -28,14 +28,13 @@ from .heartbeat import RunLease
 from .locking import process_exists
 from .mlx_stateful import NoThinkChatDataset, StatefulTrainingConfig
 
-
 # Exact-model probes on this 96 GiB host rejected 1792 and above while 1536
 # passed with headroom. Re-smoke the new training view at that established cap.
 TRAINING_SEQUENCE_LENGTH_CANDIDATES = (1536,)
 
 
 def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def build_snapshot_manifest(snapshot: Path, *, expected_revision: str) -> dict[str, Any]:
@@ -114,9 +113,7 @@ def assert_thinking_is_disabled(prompt: str) -> None:
 
     sentinel = "<think>\n\n</think>\n\n"
     if not prompt.endswith(sentinel):
-        raise IntegrityError(
-            "Qwen3.5 thinking-disable sentinel is missing, open, or non-empty"
-        )
+        raise IntegrityError("Qwen3.5 thinking-disable sentinel is missing, open, or non-empty")
 
 
 def _existing_passed_attempt(stage_dir: Path, request_fingerprint: str) -> dict[str, Any] | None:
@@ -137,8 +134,7 @@ def _existing_passed_attempt(stage_dir: Path, request_fingerprint: str) -> dict[
             and process_exists(int(payload["pid"]))
         ):
             raise GateBlocked(
-                f"compute worker is already running for {stage_dir.name} "
-                f"with pid={payload['pid']}"
+                f"compute worker is already running for {stage_dir.name} with pid={payload['pid']}"
             )
     return None
 
@@ -187,9 +183,7 @@ def _run_worker(
                 except subprocess.TimeoutExpired:
                     process.kill()
                     process.wait()
-                raise GateBlocked(
-                    f"compute worker {stage} exceeded timeout={timeout_seconds}s"
-                )
+                raise GateBlocked(f"compute worker {stage} exceeded timeout={timeout_seconds}s")
             lease.beat(
                 stage=stage,
                 child_pid=process.pid,
@@ -244,17 +238,12 @@ def _load_jsonl(path: Path) -> list[dict[str, Any]]:
 def _tokenizer_preflight(model_path: Path, data_dir: Path) -> dict[str, Any]:
     from mlx_lm.utils import load_tokenizer
 
-    tokenizer = load_tokenizer(
-        str(model_path), tokenizer_config_extra={"trust_remote_code": True}
-    )
+    tokenizer = load_tokenizer(str(model_path), tokenizer_config_extra={"trust_remote_code": True})
     datasets = {
         split: NoThinkChatDataset(data_dir / f"{split}.jsonl", tokenizer)
         for split in ("train", "valid", "test")
     }
-    rows = {
-        split: _load_jsonl(data_dir / f"{split}.jsonl")
-        for split in ("train", "valid", "test")
-    }
+    rows = {split: _load_jsonl(data_dir / f"{split}.jsonl") for split in ("train", "valid", "test")}
     if any(
         row["messages"][1]["content"].rstrip().endswith("/no_think")
         for split_rows in rows.values()
@@ -273,9 +262,7 @@ def _tokenizer_preflight(model_path: Path, data_dir: Path) -> dict[str, Any]:
     combined: list[tuple[int, str, int]] = []
     longest_by_split: dict[str, tuple[int, str, int]] = {}
     for split, dataset in datasets.items():
-        split_items = [
-            (count, split, index) for index, count in enumerate(dataset.token_counts)
-        ]
+        split_items = [(count, split, index) for index, count in enumerate(dataset.token_counts)]
         combined.extend(split_items)
         longest_by_split[split] = max(split_items)
     combined.sort()
@@ -306,9 +293,7 @@ def _tokenizer_preflight(model_path: Path, data_dir: Path) -> dict[str, Any]:
             "p95_tokens": counts[min(len(counts) - 1, math.ceil(len(counts) * 0.95) - 1)],
             "longest_split": longest[1],
             "longest_row_index": longest[2],
-            "split_maximum_tokens": {
-                split: item[0] for split, item in longest_by_split.items()
-            },
+            "split_maximum_tokens": {split: item[0] for split, item in longest_by_split.items()},
         },
     }
 
@@ -339,12 +324,8 @@ def _training_request(
         "target_updates": target_updates,
         "input_fingerprint": sha256_file(train_path),
         "model_fingerprint": model_fingerprint,
-        "trainer_implementation_sha256": sha256_file(
-            Path(__file__).with_name("mlx_stateful.py")
-        ),
-        "worker_implementation_sha256": sha256_file(
-            Path(__file__).with_name("mlx_worker.py")
-        ),
+        "trainer_implementation_sha256": sha256_file(Path(__file__).with_name("mlx_stateful.py")),
+        "worker_implementation_sha256": sha256_file(Path(__file__).with_name("mlx_worker.py")),
     }
     if resume_checkpoint is not None:
         request["resume_checkpoint"] = str(resume_checkpoint)
@@ -394,9 +375,7 @@ def run_compute_acceptance_preflight(
         snapshot_manifest = build_snapshot_manifest(
             model_path, expected_revision=config.model.revision
         )
-        write_json_atomic(
-            compute_root / "model_snapshot_manifest.json", snapshot_manifest
-        )
+        write_json_atomic(compute_root / "model_snapshot_manifest.json", snapshot_manifest)
         preflight["model_snapshot"] = snapshot_manifest
         preflight["compute_gates"]["exact_model_snapshot"] = True
         write_json_atomic(preflight_path, preflight, mode=0o644)
@@ -421,9 +400,7 @@ def run_compute_acceptance_preflight(
         )
 
         selected_sequence_length = next(
-            candidate
-            for candidate in SEQUENCE_LENGTH_CANDIDATES
-            if candidate >= longest_count
+            candidate for candidate in SEQUENCE_LENGTH_CANDIDATES if candidate >= longest_count
         )
         memory_failures: list[dict[str, Any]] = []
         selected_training_sequence_length: int | None = None
@@ -437,12 +414,8 @@ def run_compute_acceptance_preflight(
         training_view_dataset: NoThinkChatDataset | None = None
         for candidate in TRAINING_SEQUENCE_LENGTH_CANDIDATES:
             candidate_view_path = data_dir / f"train_context_{candidate}.jsonl"
-            candidate_view_doc_ids_path = (
-                data_dir / f"train_context_{candidate}_doc_ids.json"
-            )
-            candidate_view_manifest_path = (
-                data_dir / f"train_context_{candidate}_manifest.json"
-            )
+            candidate_view_doc_ids_path = data_dir / f"train_context_{candidate}_doc_ids.json"
+            candidate_view_manifest_path = data_dir / f"train_context_{candidate}_manifest.json"
             candidate_view = build_context_window_view(
                 source_path=data_dir / "train.jsonl",
                 source_doc_ids_path=data_dir / "train_doc_ids.json",
@@ -454,9 +427,7 @@ def run_compute_acceptance_preflight(
                 max_sequence_length=candidate,
             )
             candidate_rows = _load_jsonl(candidate_view_path)
-            candidate_dataset = NoThinkChatDataset(
-                candidate_view_path, tokenizer_info["tokenizer"]
-            )
+            candidate_dataset = NoThinkChatDataset(candidate_view_path, tokenizer_info["tokenizer"])
             probe_index = max(
                 range(len(candidate_dataset.token_counts)),
                 key=candidate_dataset.token_counts.__getitem__,
@@ -538,9 +509,7 @@ def run_compute_acceptance_preflight(
                 "action": "loss",
                 "model_path": str(model_path),
                 "adapter_path": str(memory_checkpoint),
-                "adapter_sha256": sha256_file(
-                    memory_checkpoint / "adapters.safetensors"
-                ),
+                "adapter_sha256": sha256_file(memory_checkpoint / "adapters.safetensors"),
                 "data_path": str(global_longest_path),
                 "data_sha256": sha256_file(global_longest_path),
                 "max_sequence_length": selected_sequence_length,

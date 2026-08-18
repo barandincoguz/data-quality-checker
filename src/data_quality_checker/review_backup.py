@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 import sqlite3
-import fcntl
 import tempfile
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -18,7 +18,6 @@ from .errors import IntegrityError
 from .fingerprints import fingerprint_json, sha256_file
 from .sqlite_backup import backup_database
 from .storage import Store
-
 
 _REVIEW_STATE_SQL = """
 SELECT internal_doc_id, status, action, final_references_json, reason,
@@ -87,9 +86,7 @@ def _prune_verified_snapshots(root: Path, *, keep: int) -> None:
         fsync_directory(manifest_dir)
 
 
-def create_review_backup(
-    *, config: AppConfig, store: Store, batch_id: str
-) -> dict[str, Any]:
+def create_review_backup(*, config: AppConfig, store: Store, batch_id: str) -> dict[str, Any]:
     """Create and verify a content-addressed snapshot of current review state."""
 
     source_state = _review_state(store.connection, batch_id)
@@ -97,9 +94,7 @@ def create_review_backup(
     state_fingerprint = fingerprint_json(source_state)
     root = config.sensitive_root / "review_backups" / batch_id
     snapshot_path = (
-        root
-        / "snapshots"
-        / f"reviews_{len(source_state):06d}_{state_fingerprint[:16]}.sqlite3"
+        root / "snapshots" / f"reviews_{len(source_state):06d}_{state_fingerprint[:16]}.sqlite3"
     )
     backup = backup_database(store.connection, snapshot_path)
 
@@ -122,31 +117,25 @@ def create_review_backup(
         "schema_version": 1,
         "status": "verified",
         "batch_id": batch_id,
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": datetime.now(UTC).isoformat(),
         "snapshot_path": str(snapshot_path.resolve()),
         "snapshot_sha256": sha256_file(snapshot_path),
         "snapshot_size": snapshot_path.stat().st_size,
         "review_count": len(source_state),
-        "finalized_review_count": sum(
-            row["status"] == "finalized" for row in source_state
-        ),
+        "finalized_review_count": sum(row["status"] == "finalized" for row in source_state),
         "review_state_fingerprint": state_fingerprint,
         "latest_review_event_id": latest_review_event_id,
         "integrity_check": integrity,
         "foreign_key_violation_count": 0,
         "reused_snapshot": bool(backup["reused"]),
     }
-    write_json_atomic(
-        root / "manifests" / f"{snapshot_path.stem}.json", payload, mode=0o600
-    )
+    write_json_atomic(root / "manifests" / f"{snapshot_path.stem}.json", payload, mode=0o600)
     write_json_atomic(root / "LATEST.json", payload, mode=0o600)
     _prune_verified_snapshots(root, keep=_SNAPSHOT_RETENTION)
     return payload
 
 
-def review_backup_status(
-    *, config: AppConfig, store: Store, batch_id: str
-) -> dict[str, Any]:
+def review_backup_status(*, config: AppConfig, store: Store, batch_id: str) -> dict[str, Any]:
     """Verify that LATEST protects the exact current non-pending review state."""
 
     latest_path = config.sensitive_root / "review_backups" / batch_id / "LATEST.json"
@@ -175,9 +164,7 @@ def review_backup_status(
         raise IntegrityError("review backup event sequence differs from live state")
     return {
         **payload,
-        "retained_snapshot_count": len(
-            list((latest_path.parent / "snapshots").glob("*.sqlite3"))
-        ),
+        "retained_snapshot_count": len(list((latest_path.parent / "snapshots").glob("*.sqlite3"))),
         "backup_lag": 0,
     }
 
@@ -197,9 +184,7 @@ def restore_review_backup_smoke(
         with sqlite3.connect(f"file:{restored_path}?mode=ro", uri=True) as restored:
             restored.row_factory = sqlite3.Row
             integrity = str(restored.execute("PRAGMA integrity_check").fetchone()[0])
-            foreign_key_violations = restored.execute(
-                "PRAGMA foreign_key_check"
-            ).fetchall()
+            foreign_key_violations = restored.execute("PRAGMA foreign_key_check").fetchall()
             restored_state = _review_state(restored, batch_id)
             restored_event_id = _latest_review_event_id(restored, batch_id)
 

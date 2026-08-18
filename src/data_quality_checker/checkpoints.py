@@ -7,9 +7,10 @@ import os
 import random
 import shutil
 import tempfile
-from datetime import datetime, timezone
+from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from .atomic import fsync_directory, write_json_atomic
 from .errors import FingerprintMismatch, IntegrityError
@@ -31,7 +32,7 @@ REQUIRED_STATEFUL_COMPONENTS = frozenset(
 
 
 def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def jsonable_random_state(state: tuple[Any, ...]) -> list[Any]:
@@ -148,9 +149,7 @@ class CheckpointManager:
     def _verify_directory(self, path: Path, *, expected_target: bool) -> dict[str, Any]:
         try:
             manifest = json.loads((path / "manifest.json").read_text(encoding="utf-8"))
-            trainer_state = json.loads(
-                (path / "trainer_state.json").read_text(encoding="utf-8")
-            )
+            trainer_state = json.loads((path / "trainer_state.json").read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
             raise IntegrityError(f"checkpoint cannot be parsed at {path}: {exc}") from exc
         if manifest.get("checkpoint_kind") != "stateful":

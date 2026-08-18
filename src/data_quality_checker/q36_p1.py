@@ -11,10 +11,11 @@ from __future__ import annotations
 import json
 import math
 import re
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 from .atomic import (
     write_bytes_atomic,
@@ -42,13 +43,10 @@ from .reference_policy import (
 )
 from .storage import Store
 
-
 EXPERIMENT_ID = "Q36-P1"
 Q36_MODEL_ID = "mlx-community/Qwen3.6-27B-OptiQ-4bit"
 Q36_MODEL_REVISION = "4e9a1cafd9c8bea42ce7f014e1231a4650010fc9"
-LOCKED_PROMPT_SHA256 = (
-    "9608317a5f77544279b6e46aaf059f99db2820de182068685b5df3d5529b7a8c"
-)
+LOCKED_PROMPT_SHA256 = "9608317a5f77544279b6e46aaf059f99db2820de182068685b5df3d5529b7a8c"
 TRAINING_CONTEXT_TOKENS = 1536
 INFERENCE_INPUT_TOKENS = 16384
 INFERENCE_OUTPUT_TOKENS = 4096
@@ -136,16 +134,14 @@ class Q36TrainingContract:
 
 
 def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _repo_root(config: AppConfig) -> Path:
     for candidate in (config.source_path.resolve().parent, *config.source_path.resolve().parents):
         if (candidate / "AGENTS.md").is_file() or (candidate / "pyproject.toml").is_file():
             return candidate
-    raise IntegrityError(
-        f"cannot resolve repository root from {config.source_path}"
-    )
+    raise IntegrityError(f"cannot resolve repository root from {config.source_path}")
 
 
 def _read_json(path: Path) -> Any:
@@ -184,9 +180,7 @@ def _neon_document_hash(raw_document_id: str) -> str:
 def _classification_inputs(repo_root: Path) -> dict[str, Any]:
     paths = _historical_paths(repo_root)
     split_manifest = _read_json(paths["split_manifest"])
-    documents = (
-        split_manifest.get("documents") if isinstance(split_manifest, dict) else None
-    )
+    documents = split_manifest.get("documents") if isinstance(split_manifest, dict) else None
     if not isinstance(documents, list):
         raise ContractError("historical split manifest has no documents list")
     by_text: dict[str, dict[str, Any]] = {}
@@ -195,9 +189,7 @@ def _classification_inputs(repo_root: Path) -> dict[str, Any]:
             continue
         text_sha256 = row.get("text_sha256")
         if not isinstance(text_sha256, str) or text_sha256 in by_text:
-            raise IntegrityError(
-                "historical external text hashes are missing or duplicated"
-            )
+            raise IntegrityError("historical external text hashes are missing or duplicated")
         by_text[text_sha256] = row
     overlap_rows = _read_json(paths["canonical_overlap"])
     quarantine_rows = _read_json(paths["quarantine"])
@@ -238,9 +230,7 @@ def classify_green_pool(
     for document in green_documents:
         internal_doc_id = str(document.get("internal_doc_id", ""))
         if not internal_doc_id or internal_doc_id in seen_internal_ids:
-            raise IntegrityError(
-                "GREEN documents contain a missing/duplicate internal ID"
-            )
+            raise IntegrityError("GREEN documents contain a missing/duplicate internal ID")
         seen_internal_ids.add(internal_doc_id)
         metadata = _read_json_text(document.get("metadata_json"), "metadata_json")
         text_sha256 = str(document.get("text_sha256", ""))
@@ -251,9 +241,7 @@ def classify_green_pool(
             try:
                 category = split_names[str(historical["split"])]
             except KeyError as exc:
-                raise IntegrityError(
-                    f"unknown historical split for {internal_doc_id}"
-                ) from exc
+                raise IntegrityError(f"unknown historical split for {internal_doc_id}") from exc
             historical_doc_id = int(historical["doc_id"])
         elif document_hash in inputs["overlap"]:
             category = "canonical_duplicate_cluster"
@@ -320,17 +308,13 @@ def inspect_green_audit(
 ) -> dict[str, Any]:
     sample_ids = audit.get("sample_internal_doc_ids")
     if not isinstance(sample_ids, list) or len(sample_ids) != GREEN_AUDIT_SAMPLE_SIZE:
-        raise IntegrityError(
-            f"GREEN audit sample must contain {GREEN_AUDIT_SAMPLE_SIZE} documents"
-        )
+        raise IntegrityError(f"GREEN audit sample must contain {GREEN_AUDIT_SAMPLE_SIZE} documents")
     if audit.get("green_count") != sum(EXPECTED_GREEN_DISTRIBUTION.values()):
         raise FingerprintMismatch("GREEN audit population count drift")
     documents = {str(row["internal_doc_id"]): row for row in green_documents}
     review_by_id = {str(row["internal_doc_id"]): row for row in reviews}
     if not set(map(str, sample_ids)).issubset(documents):
-        raise FingerprintMismatch(
-            "GREEN audit sample is no longer a subset of live GREEN"
-        )
+        raise FingerprintMismatch("GREEN audit sample is no longer a subset of live GREEN")
     details: list[dict[str, Any]] = []
     membership_changes = 0
     finalized = 0
@@ -431,9 +415,7 @@ def choose_inference_contract(
     inputs = list(input_token_counts)
     outputs = list(serialized_gold_token_counts)
     if not inputs or not outputs or min(inputs) <= 0 or min(outputs) <= 0:
-        raise ContractError(
-            "inference token counts must be non-empty positive integers"
-        )
+        raise ContractError("inference token counts must be non-empty positive integers")
     maximum_input = max(inputs)
     if maximum_input <= INFERENCE_INPUT_TOKENS:
         input_tokens = INFERENCE_INPUT_TOKENS
@@ -547,9 +529,7 @@ def _load_inference_universes(
                     "references": gold_by_id[doc_id].get("references", []),
                 }
             )
-        if len(rows) != len(gold) or len({int(row["doc_id"]) for row in docs}) != len(
-            rows
-        ):
+        if len(rows) != len(gold) or len({int(row["doc_id"]) for row in docs}) != len(rows):
             raise IntegrityError(f"{label} docs/gold coverage mismatch")
         universes[label] = rows
     return universes
@@ -560,14 +540,10 @@ def refit_optimizer_updates(
 ) -> int:
     if selected_development_update <= 0:
         raise ValueError("selected_development_update must be positive")
-    scaled = round(
-        selected_development_update * REFIT_DOCUMENTS / DEVELOPMENT_DOCUMENTS
-    )
+    scaled = round(selected_development_update * REFIT_DOCUMENTS / DEVELOPMENT_DOCUMENTS)
     if refit_training_view_rows is None:
         return scaled
-    return max(
-        scaled, Q36TrainingContract().optimizer_updates(refit_training_view_rows)
-    )
+    return max(scaled, Q36TrainingContract().optimizer_updates(refit_training_view_rows))
 
 
 def promotion_decision(
@@ -590,9 +566,7 @@ def promotion_decision(
         "core_f1_above_base": augmented["core_f1"] > base["core_f1"],
         "paired_ci_lower_nonnegative": paired_ci_lower >= 0,
         "docwise_not_below_base": augmented["docwise"] >= base["docwise"],
-        "recall_drop_vs_base_at_most_0_005": (
-            augmented["recall"] >= base["recall"] - 0.005
-        ),
+        "recall_drop_vs_base_at_most_0_005": (augmented["recall"] >= base["recall"] - 0.005),
         "f1_drop_vs_canonical_at_most_0_005": (
             augmented["core_f1"] >= canonical_only["core_f1"] - 0.005
         ),
@@ -632,9 +606,7 @@ def _seal_bytes(path: Path, payload: bytes) -> None:
     write_bytes_atomic(path, payload, validator=_validate_prediction_array)
 
 
-def write_prediction_views(
-    *, raw_predictions: Path, output_dir: Path
-) -> dict[str, Any]:
+def write_prediction_views(*, raw_predictions: Path, output_dir: Path) -> dict[str, Any]:
     """Seal exact raw bytes and derive the symmetric production prediction view."""
 
     raw_predictions = raw_predictions.resolve()
@@ -709,26 +681,19 @@ def _filtered_gold_payload(payload: Any) -> tuple[Any, int]:
         filtered, audit = apply_reference_policy(
             payload.get("references", []), policy_id=DEFAULT_REFERENCE_POLICY_ID
         )
-        return {**payload, "references": filtered}, int(
-            audit["removed_reference_count"]
-        )
+        return {**payload, "references": filtered}, int(audit["removed_reference_count"])
     raise ContractError("gold root must be an object or list")
 
 
 def _seal_json_payload(path: Path, payload: Any) -> None:
     serialized = (
-        json.dumps(
-            payload, ensure_ascii=False, sort_keys=True, indent=2, allow_nan=False
-        )
-        + "\n"
+        json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2, allow_nan=False) + "\n"
     ).encode("utf-8")
     if path.exists():
         if path.read_bytes() != serialized:
             raise FingerprintMismatch(f"immutable JSON output already differs: {path}")
         return
-    write_bytes_atomic(
-        path, serialized, validator=lambda candidate: _read_json(candidate)
-    )
+    write_bytes_atomic(path, serialized, validator=lambda candidate: _read_json(candidate))
 
 
 def write_production_gold_view(*, source: Path, output: Path) -> dict[str, Any]:
@@ -766,9 +731,7 @@ def write_production_gold_view(*, source: Path, output: Path) -> dict[str, Any]:
         "source_files": [
             {"path": path, "sha256": digest} for path, digest in source_hashes.items()
         ],
-        "output_files": [
-            {"path": str(path), "sha256": sha256_file(path)} for path in outputs
-        ],
+        "output_files": [{"path": str(path), "sha256": sha256_file(path)} for path in outputs],
         "document_file_count": len(outputs),
         "removed_reference_count": removed,
         "policy": reference_policy_spec(DEFAULT_REFERENCE_POLICY_ID),
@@ -820,9 +783,7 @@ def _write_training_sources(
         historical_doc_id = entry["historical_doc_id"]
         if not isinstance(historical_doc_id, int):
             raise IntegrityError("external-train row has no historical doc ID")
-        human = _read_json_text(
-            document["human_references_json"], "human_references_json"
-        )
+        human = _read_json_text(document["human_references_json"], "human_references_json")
         references, reconstruction = reconstruct_vuk_213_article_413(
             human, document_text=str(document["text"])
         )
@@ -919,9 +880,7 @@ def bootstrap_q36_p1(
         raise FingerprintMismatch("G0 compact prompt bytes/SHA256 drifted")
     repo_root = _repo_root(config)
     source = validate_canonical_sources(config)
-    with Store(
-        config.database_path, busy_timeout_ms=config.runtime.busy_timeout_ms
-    ) as store:
+    with Store(config.database_path, busy_timeout_ms=config.runtime.busy_timeout_ms) as store:
         batch = store.get_batch(batch_id)
         if batch is None or batch.get("status") not in {"processed", "released"}:
             raise GateBlocked("Q36-P1 requires the processed neon_wl_v1 batch")
@@ -930,22 +889,16 @@ def bootstrap_q36_p1(
     classification = classify_green_pool(green_documents, repo_root=repo_root)
     audit_path = config.public_root / "batches" / batch_id / "green_audit.json"
     audit_payload = _read_json(audit_path)
-    escalation_path = (
-        config.public_root / "batches" / batch_id / "green_escalation.json"
-    )
+    escalation_path = config.public_root / "batches" / batch_id / "green_escalation.json"
     audit = inspect_green_audit(
         audit=audit_payload,
         green_documents=green_documents,
         reviews=reviews,
         escalation_exists=escalation_path.exists(),
     )
-    snapshot = build_snapshot_manifest(
-        _model_snapshot_path(), expected_revision=Q36_MODEL_REVISION
-    )
+    snapshot = build_snapshot_manifest(_model_snapshot_path(), expected_revision=Q36_MODEL_REVISION)
     cache_ref = _model_snapshot_path().parents[1] / "refs/main"
-    cache_head = (
-        cache_ref.read_text(encoding="utf-8").strip() if cache_ref.is_file() else None
-    )
+    cache_head = cache_ref.read_text(encoding="utf-8").strip() if cache_ref.is_file() else None
     prompt = {
         "variant": PROMPT_VARIANT,
         "sha256": LOCKED_PROMPT_SHA256,
@@ -959,9 +912,7 @@ def bootstrap_q36_p1(
         "model_fingerprint": snapshot["fingerprint"],
         "prompt": prompt,
         "canonical_manifest_sha256": source["summary"]["canonical_manifest_sha256"],
-        "historical_split_sha256": classification["source_artifacts"]["split_manifest"][
-            "sha256"
-        ],
+        "historical_split_sha256": classification["source_artifacts"]["split_manifest"]["sha256"],
         "training_view_policy": TRAINING_VIEW_POLICY,
         "green_distribution": classification["counts"],
     }
@@ -1051,9 +1002,7 @@ def bootstrap_q36_p1(
         "experiment_id": EXPERIMENT_ID,
         "run_id": run_id,
         "generated_at": _utc_now(),
-        "status": "blocked"
-        if blockers
-        else "software_preflight_passed_compute_pending",
+        "status": "blocked" if blockers else "software_preflight_passed_compute_pending",
         "blockers": blockers,
         "long_run_allowed": False,
         "long_run_started": False,
@@ -1094,8 +1043,7 @@ def bootstrap_q36_p1(
             "exact_model_snapshot": True,
             "green_distribution_locked": True,
             "green_audit_passed": audit["status"] == "passed",
-            "split_leakage_check": classification["counts"]
-            == EXPECTED_GREEN_DISTRIBUTION,
+            "split_leakage_check": classification["counts"] == EXPECTED_GREEN_DISTRIBUTION,
             "common_inference_contract_measured": inference["status"] == "measured",
             "training_data_export": data_manifest is not None,
             "longest_row_forward_backward_optimizer_smoke": False,

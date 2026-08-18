@@ -58,9 +58,7 @@ def _snapshot(
     documents = store.list_documents(batch_id)
     predictions = store.list_predictions(batch_id, generation)
     if not documents or len(predictions) != len(documents):
-        raise IntegrityError(
-            f"prediction coverage incomplete: {len(predictions)}/{len(documents)}"
-        )
+        raise IntegrityError(f"prediction coverage incomplete: {len(predictions)}/{len(documents)}")
     prediction_by_id = {row["internal_doc_id"]: row for row in predictions}
     if len(prediction_by_id) != len(predictions):
         raise IntegrityError("duplicate prediction internal_doc_id")
@@ -81,12 +79,8 @@ def _snapshot(
         try:
             response = json.loads(response_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
-            raise IntegrityError(
-                f"prediction response cannot be parsed: {response_path}"
-            ) from exc
-        stored_model = validate_reference_list(
-            json.loads(prediction["references_json"])
-        )
+            raise IntegrityError(f"prediction response cannot be parsed: {response_path}") from exc
+        stored_model = validate_reference_list(json.loads(prediction["references_json"]))
         response_model = validate_reference_list(response.get("references"))
         if stored_model != response_model:
             raise IntegrityError(f"SQLite/file prediction drift: {internal_doc_id}")
@@ -102,14 +96,10 @@ def _snapshot(
             "model_references": stored_model,
             "preparation_status": str(document["preparation_status"]),
             "model_status": str(prediction["status"]),
-            "model_truncated": bool(
-                json.loads(prediction["operational_json"]).get("truncated")
-            ),
+            "model_truncated": bool(json.loads(prediction["operational_json"]).get("truncated")),
             "has_safe_text": bool(document["text"]),
         }
-        before = route_document(
-            **common, reference_policy_id=NO_REFERENCE_FILTER_POLICY_ID
-        )
+        before = route_document(**common, reference_policy_id=NO_REFERENCE_FILTER_POLICY_ID)
         after = route_document(**common, reference_policy_id=policy_id)
         decisions.append(
             {
@@ -202,9 +192,7 @@ def _public_payload(
         "review_load_red_plus_yellow": {
             "unfiltered": before["RED"] + before["YELLOW"],
             "filtered": after["RED"] + after["YELLOW"],
-            "absolute_delta": (
-                after["RED"] + after["YELLOW"] - before["RED"] - before["YELLOW"]
-            ),
+            "absolute_delta": (after["RED"] + after["YELLOW"] - before["RED"] - before["YELLOW"]),
         },
         "raw_prediction_files_modified": False,
     }
@@ -235,9 +223,7 @@ def reroute_batch(
     sensitive_dir = config.sensitive_root / "batches" / batch_id / "reroutes" / run_id
     public_dir = config.public_root / "batches" / batch_id / "reroutes" / run_id
     lease = RunLease(
-        lock_path=config.sensitive_root
-        / "locks"
-        / f"reroute_{batch_id}_{generation}.lock",
+        lock_path=config.sensitive_root / "locks" / f"reroute_{batch_id}_{generation}.lock",
         heartbeat_path=sensitive_dir / "heartbeat.json",
         purpose="reference-policy-reroute",
         run_id=run_id,
@@ -245,9 +231,7 @@ def reroute_batch(
         config_fingerprint=config.fingerprint,
     ).start(stage="preflight")
     try:
-        with Store(
-            config.database_path, busy_timeout_ms=config.runtime.busy_timeout_ms
-        ) as store:
+        with Store(config.database_path, busy_timeout_ms=config.runtime.busy_timeout_ms) as store:
             snapshot = _snapshot(
                 config=config,
                 store=store,
@@ -264,9 +248,7 @@ def reroute_batch(
             result_path = public_dir / "RESULT.json"
             if result_path.is_file():
                 try:
-                    existing_result = json.loads(
-                        result_path.read_text(encoding="utf-8")
-                    )
+                    existing_result = json.loads(result_path.read_text(encoding="utf-8"))
                 except json.JSONDecodeError as exc:
                     raise IntegrityError(
                         f"existing reroute result is invalid: {result_path}"
@@ -275,14 +257,10 @@ def reroute_batch(
                     existing_result.get("status") != "applied_and_verified"
                     or existing_result.get("prediction_set_fingerprint")
                     != snapshot["prediction_set_fingerprint"]
-                    or existing_result.get("policy", {}).get("fingerprint")
-                    != policy["fingerprint"]
-                    or snapshot["database_router_counts"]
-                    != snapshot["filtered_router_counts"]
+                    or existing_result.get("policy", {}).get("fingerprint") != policy["fingerprint"]
+                    or snapshot["database_router_counts"] != snapshot["filtered_router_counts"]
                 ):
-                    raise IntegrityError(
-                        "existing reroute result does not match live sealed state"
-                    )
+                    raise IntegrityError("existing reroute result does not match live sealed state")
                 lease.finish(status="completed")
                 return existing_result
             write_jsonl_atomic(sensitive_dir / "DECISIONS.jsonl", snapshot["decisions"])
@@ -312,12 +290,10 @@ def reroute_batch(
                     f"observed {len(changed_reviews)} changed reviews"
                 )
             database_matches_unfiltered = all(
-                row["database_bucket"] == row["unfiltered_bucket"]
-                for row in snapshot["decisions"]
+                row["database_bucket"] == row["unfiltered_bucket"] for row in snapshot["decisions"]
             )
             database_matches_filtered = all(
-                row["database_bucket"] == row["filtered_bucket"]
-                for row in snapshot["decisions"]
+                row["database_bucket"] == row["filtered_bucket"] for row in snapshot["decisions"]
             )
             event = store.connection.execute(
                 """SELECT payload_json FROM batch_events
@@ -377,12 +353,8 @@ def reroute_batch(
                                 {
                                     "run_id": run_id,
                                     "policy_id": policy_id,
-                                    "source_fingerprint": snapshot[
-                                        "source_fingerprint"
-                                    ],
-                                    "filtered_router_counts": snapshot[
-                                        "filtered_router_counts"
-                                    ],
+                                    "source_fingerprint": snapshot["source_fingerprint"],
+                                    "filtered_router_counts": snapshot["filtered_router_counts"],
                                 },
                                 ensure_ascii=False,
                                 sort_keys=True,
@@ -394,9 +366,7 @@ def reroute_batch(
             observed_raw = store.status_summary(batch_id)["documents"]
             observed = {bucket: int(observed_raw.get(bucket, 0)) for bucket in BUCKETS}
             if observed != snapshot["filtered_router_counts"]:
-                raise IntegrityError(
-                    f"post-reroute router coverage mismatch: {observed}"
-                )
+                raise IntegrityError(f"post-reroute router coverage mismatch: {observed}")
             result = {
                 **public,
                 "run_id": run_id,

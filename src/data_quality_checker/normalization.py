@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import re
 from collections import defaultdict
-from typing import Any, Iterable
+from collections.abc import Iterable
+from typing import Any
 
 from .contracts import validate_reference_list
 from .text import normalize_text
@@ -153,9 +154,7 @@ def full_identity(reference: dict[str, str]) -> tuple[str, str, str, str, str, s
 
 def compact_references(references: Iterable[dict[str, Any]]) -> list[dict[str, str]]:
     normalized = [normalize_reference(reference) for reference in references]
-    specific_laws = {
-        law_identity(reference) for reference in normalized if reference["madde"]
-    }
+    specific_laws = {law_identity(reference) for reference in normalized if reference["madde"]}
     compacted: list[dict[str, str]] = []
     seen: set[tuple[str, str, str, str, str, str]] = set()
     for reference in normalized:

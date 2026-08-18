@@ -7,9 +7,10 @@ import re
 import stat
 import unicodedata
 import zipfile
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Any, Iterable
+from typing import Any
 
 from .config import SecurityConfig
 from .errors import UnsafeArchive
@@ -129,7 +130,9 @@ def read_json_records(path: Path, security: SecurityConfig) -> tuple[ZipAudit, l
     except (OSError, zipfile.BadZipFile) as exc:
         raise UnsafeArchive(f"invalid ZIP archive {path}: {exc}") from exc
     with archive:
-        for info in sorted(archive.infolist(), key=lambda item: normalized_entry_name(item.filename.rstrip("/"))):
+        for info in sorted(
+            archive.infolist(), key=lambda item: normalized_entry_name(item.filename.rstrip("/"))
+        ):
             if info.is_dir():
                 continue
             normalized = normalized_entry_name(info.filename)

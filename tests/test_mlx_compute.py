@@ -6,13 +6,13 @@ from pathlib import Path
 import pytest
 
 from data_quality_checker.errors import FingerprintMismatch, IntegrityError
+from data_quality_checker.fingerprints import sha256_file
 from data_quality_checker.mlx_compute import (
-    assert_thinking_is_disabled,
     assert_equivalent_training_state,
+    assert_thinking_is_disabled,
     build_snapshot_manifest,
     parse_worker_result,
 )
-from data_quality_checker.fingerprints import sha256_file
 from data_quality_checker.mlx_worker import (
     _cached_validation_record,
     _resolve_validation_adapter,
@@ -21,15 +21,12 @@ from data_quality_checker.mlx_worker import (
 
 
 def test_qwen_disabled_thinking_requires_the_empty_closed_sentinel() -> None:
-    assert_thinking_is_disabled(
-        "<|im_start|>assistant\n<think>\n\n</think>\n\n"
-    )
+    assert_thinking_is_disabled("<|im_start|>assistant\n<think>\n\n</think>\n\n")
     with pytest.raises(IntegrityError, match="thinking-disable sentinel"):
         assert_thinking_is_disabled("<|im_start|>assistant\n<think>\n")
     with pytest.raises(IntegrityError, match="thinking-disable sentinel"):
-        assert_thinking_is_disabled(
-            "<|im_start|>assistant\n<think>reasoning</think>\n\n"
-        )
+        assert_thinking_is_disabled("<|im_start|>assistant\n<think>reasoning</think>\n\n")
+
 
 def test_snapshot_manifest_is_content_addressed_and_requires_exact_revision(
     tmp_path: Path,
@@ -86,9 +83,10 @@ def test_validation_record_resume_requires_the_same_request_fingerprint(
         json.dumps({"request_fingerprint": "a" * 64, "doc_id": 7}),
         encoding="utf-8",
     )
-    assert _cached_validation_record(
-        path, request_fingerprint="a" * 64, doc_id=7
-    ) == {"request_fingerprint": "a" * 64, "doc_id": 7}
+    assert _cached_validation_record(path, request_fingerprint="a" * 64, doc_id=7) == {
+        "request_fingerprint": "a" * 64,
+        "doc_id": 7,
+    }
     with pytest.raises(FingerprintMismatch, match="request mismatch"):
         _cached_validation_record(path, request_fingerprint="b" * 64, doc_id=7)
 
@@ -142,9 +140,7 @@ def test_validation_adapter_resolves_and_accepts_a_matching_checksum(
 def test_validation_adapter_rejects_a_mismatched_checksum(tmp_path: Path) -> None:
     directory = _adapter_dir(tmp_path)
     with pytest.raises(FingerprintMismatch, match="adapter fingerprint mismatch"):
-        _resolve_validation_adapter(
-            {"adapter_path": str(directory), "adapter_sha256": "0" * 64}
-        )
+        _resolve_validation_adapter({"adapter_path": str(directory), "adapter_sha256": "0" * 64})
 
 
 def test_validation_adapter_fails_closed_when_a_checksum_has_no_adapter() -> None:
@@ -152,9 +148,7 @@ def test_validation_adapter_fails_closed_when_a_checksum_has_no_adapter() -> Non
     with pytest.raises(IntegrityError, match="adapter_sha256 without adapter_path"):
         _resolve_validation_adapter({"adapter_sha256": "0" * 64})
     with pytest.raises(IntegrityError, match="adapter_sha256 without adapter_path"):
-        _resolve_validation_adapter(
-            {"adapter_path": None, "adapter_sha256": "0" * 64}
-        )
+        _resolve_validation_adapter({"adapter_path": None, "adapter_sha256": "0" * 64})
 
 
 def test_validation_loss_is_computed_unless_a_request_opts_out() -> None:

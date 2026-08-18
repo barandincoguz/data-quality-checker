@@ -98,9 +98,7 @@ def test_measured_performance_fields_are_summarized():
 
 def test_throughput_uses_wall_clock_when_supplied():
     records = [_record(output_tokens=100, latency_seconds=10.0) for _ in range(6)]
-    summary = summarize_operational_records(
-        records, provenance={}, wall_clock_seconds=120.0
-    )
+    summary = summarize_operational_records(records, provenance={}, wall_clock_seconds=120.0)
     throughput = summary["throughput"]
     assert throughput["wall_clock_seconds"] == 120.0
     assert throughput["documents_per_hour"] == pytest.approx(180.0)
@@ -128,6 +126,7 @@ def test_summary_carries_no_document_text_or_identity():
 # --------------------------------------------------------------------------- #
 # edge cases
 # --------------------------------------------------------------------------- #
+
 
 def test_a_single_corrupt_record_does_not_cost_the_whole_summary():
     """Telemetry must degrade, not vanish, when one counter is malformed."""
@@ -173,14 +172,12 @@ def test_empty_run_summarises_without_dividing_by_zero():
 
 
 def test_zero_wall_clock_is_ignored_rather_than_dividing_by_zero():
-    summary = summarize_operational_records(
-        [_record()], provenance={}, wall_clock_seconds=0)
+    summary = summarize_operational_records([_record()], provenance={}, wall_clock_seconds=0)
     assert "wall_clock_seconds" not in summary.get("throughput", {})
 
 
 def test_missing_finish_reason_is_labelled_unknown():
-    summary = summarize_operational_records(
-        [_record(finish_reason=None)], provenance={})
+    summary = summarize_operational_records([_record(finish_reason=None)], provenance={})
     assert summary["reliability"]["finish_reason_counts"] == {"unknown": 1}
 
 

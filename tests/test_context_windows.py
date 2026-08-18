@@ -10,9 +10,7 @@ from data_quality_checker.context_windows import build_context_window_view
 
 class _OffsetTokenizer:
     def __call__(self, text: str, **_: object) -> dict[str, list[tuple[int, int]]]:
-        return {
-            "offset_mapping": [match.span() for match in re.finditer(r"\S+", text)]
-        }
+        return {"offset_mapping": [match.span() for match in re.finditer(r"\S+", text)]}
 
 
 class _Tokenizer:
@@ -33,9 +31,7 @@ def _row(user: str, references: list[dict[str, str]]) -> dict[str, object]:
             {"role": "user", "content": user},
             {
                 "role": "assistant",
-                "content": json.dumps(
-                    references, ensure_ascii=False, separators=(",", ":")
-                ),
+                "content": json.dumps(references, ensure_ascii=False, separators=(",", ":")),
             },
         ]
     }
@@ -90,13 +86,16 @@ def test_context_window_view_is_lossless_bounded_and_idempotent(
         for row, doc_id in zip(rendered_rows, rendered_doc_ids, strict=True)
         if doc_id == 20
     )
-    assert build_context_window_view(
-        source_path=source,
-        source_doc_ids_path=doc_ids,
-        output_path=output,
-        output_doc_ids_path=output_ids,
-        manifest_path=manifest_path,
-        tokenizer=_Tokenizer(),
-        model_fingerprint="a" * 64,
-        max_sequence_length=8,
-    ) == manifest
+    assert (
+        build_context_window_view(
+            source_path=source,
+            source_doc_ids_path=doc_ids,
+            output_path=output,
+            output_doc_ids_path=output_ids,
+            manifest_path=manifest_path,
+            tokenizer=_Tokenizer(),
+            model_fingerprint="a" * 64,
+            max_sequence_length=8,
+        )
+        == manifest
+    )

@@ -119,9 +119,7 @@ def test_refit_bootstrap_trains_on_all_494_with_its_own_run_id(tmp_path: Path) -
     dev_root.mkdir()
     refit_root.mkdir()
     dev = train_bootstrap(config=isolated_config(dev_root), generation="G0")
-    refit = train_bootstrap(
-        config=isolated_config(refit_root), generation="G0", refit=True
-    )
+    refit = train_bootstrap(config=isolated_config(refit_root), generation="G0", refit=True)
     assert refit["run_id"] != dev["run_id"]
     counts = {k: v["count"] for k, v in refit["data_manifest"]["files"].items()}
     assert counts == {"train": 494, "valid": 50, "test": 50}

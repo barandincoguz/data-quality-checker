@@ -14,7 +14,8 @@ from __future__ import annotations
 import json
 import math
 import statistics
-from typing import Any, Iterable, Sequence
+from collections.abc import Iterable, Sequence
+from typing import Any
 
 from .atomic import write_json_atomic
 
@@ -148,12 +149,18 @@ def summarize_operational_records(
 
     throughput: dict[str, Any] = {}
     if latency_total > 0:
-        throughput["output_tokens_per_second_sum_of_latencies"] = round(output_total / latency_total, 3)
+        throughput["output_tokens_per_second_sum_of_latencies"] = round(
+            output_total / latency_total, 3
+        )
         throughput["seconds_per_document_mean"] = round(latency_total / max(1, len(rows)), 3)
     if wall_clock_seconds:
         throughput["wall_clock_seconds"] = round(float(wall_clock_seconds), 3)
-        throughput["documents_per_hour"] = round(len(rows) / (float(wall_clock_seconds) / 3600.0), 2)
-        throughput["output_tokens_per_second_wall_clock"] = round(output_total / float(wall_clock_seconds), 3)
+        throughput["documents_per_hour"] = round(
+            len(rows) / (float(wall_clock_seconds) / 3600.0), 2
+        )
+        throughput["output_tokens_per_second_wall_clock"] = round(
+            output_total / float(wall_clock_seconds), 3
+        )
     if throughput:
         summary["throughput"] = throughput
 

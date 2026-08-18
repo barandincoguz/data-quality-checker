@@ -7,15 +7,14 @@ from pathlib import Path
 
 import pytest
 
-from data_quality_checker.config import default_config_path, load_config
 from data_quality_checker.cli import main
+from data_quality_checker.config import default_config_path, load_config
 from data_quality_checker.errors import IntegrityError
 from data_quality_checker.fingerprints import sha256_file
 from data_quality_checker.hitl import create_hitl_app
 from data_quality_checker.preparation import prepare_batch
 from data_quality_checker.processing import process_batch
 from data_quality_checker.storage import Store
-
 
 SECRET = "s" * 32
 TOKEN = "t" * 32
@@ -179,12 +178,7 @@ def test_successful_review_is_present_in_a_verified_sqlite_backup(tmp_path) -> N
     assert response.status_code == 200
     durability = response.get_json()["durability"]
     assert durability["status"] == "verified"
-    latest_path = (
-        config.sensitive_root
-        / "review_backups"
-        / "batch"
-        / "LATEST.json"
-    )
+    latest_path = config.sensitive_root / "review_backups" / "batch" / "LATEST.json"
     latest = json.loads(latest_path.read_text(encoding="utf-8"))
     assert latest["latest_review_event_id"] == response.get_json()["review_event_id"]
     snapshot_path = Path(latest["snapshot_path"])
@@ -226,9 +220,7 @@ def test_app_startup_recreates_a_missing_review_backup(tmp_path) -> None:
 
 def test_app_startup_rejects_a_corrupted_latest_review_snapshot(tmp_path) -> None:
     config, _ = fixture(tmp_path)
-    latest_path = (
-        config.sensitive_root / "review_backups" / "batch" / "LATEST.json"
-    )
+    latest_path = config.sensitive_root / "review_backups" / "batch" / "LATEST.json"
     latest = json.loads(latest_path.read_text(encoding="utf-8"))
     Path(latest["snapshot_path"]).write_bytes(b"corrupted snapshot")
 
@@ -292,9 +284,7 @@ def test_startup_catches_up_after_a_committed_review_backup_failure(tmp_path) ->
         access_token=TOKEN,
     )
 
-    latest = json.loads(
-        (backup_root / "batch" / "LATEST.json").read_text(encoding="utf-8")
-    )
+    latest = json.loads((backup_root / "batch" / "LATEST.json").read_text(encoding="utf-8"))
     assert latest["status"] == "verified"
     assert latest["review_count"] == 1
     with Store(config.database_path) as store:
@@ -347,9 +337,7 @@ def test_review_backup_retains_the_latest_five_verified_snapshots(tmp_path) -> N
             assert snapshot.connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
 
 
-def test_review_backup_status_cli_reports_verified_current_state(
-    tmp_path, capsys
-) -> None:
+def test_review_backup_status_cli_reports_verified_current_state(tmp_path, capsys) -> None:
     config, _ = fixture(tmp_path)
 
     exit_code = main(
@@ -370,9 +358,7 @@ def test_review_backup_status_cli_reports_verified_current_state(
     assert payload["retained_snapshot_count"] == 1
 
 
-def test_review_backup_restore_smoke_cli_reloads_latest_snapshot(
-    tmp_path, capsys
-) -> None:
+def test_review_backup_restore_smoke_cli_reloads_latest_snapshot(tmp_path, capsys) -> None:
     config, _ = fixture(tmp_path)
 
     exit_code = main(
@@ -393,9 +379,7 @@ def test_review_backup_restore_smoke_cli_reloads_latest_snapshot(
     assert payload["review_state_fingerprint"]
 
 
-def test_review_backup_create_and_verify_cli_are_explicit_operations(
-    tmp_path, capsys
-) -> None:
+def test_review_backup_create_and_verify_cli_are_explicit_operations(tmp_path, capsys) -> None:
     config, _ = fixture(tmp_path)
 
     create_exit = main(
@@ -470,9 +454,7 @@ def test_evidence_only_green_edit_does_not_escalate(tmp_path) -> None:
     )
     assert response.status_code == 200
     assert response.get_json()["green_escalated"] is False
-    assert not (
-        config.public_root / "batches" / "batch" / "green_escalation.json"
-    ).exists()
+    assert not (config.public_root / "batches" / "batch" / "green_escalation.json").exists()
 
 
 def test_review_page_renders_diff_table_progress_and_editor(tmp_path) -> None:
@@ -552,6 +534,4 @@ def test_green_membership_change_escalates_all_remaining_green(tmp_path) -> None
     queue_after = client.get("/api/queue").get_json()["queue"]
     assert len(queue_after) == 34
     assert any(row["internal_doc_id"] not in sampled_ids for row in queue_after)
-    assert (
-        config.public_root / "batches" / "batch" / "green_escalation.json"
-    ).is_file()
+    assert (config.public_root / "batches" / "batch" / "green_escalation.json").is_file()

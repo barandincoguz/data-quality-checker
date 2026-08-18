@@ -9,10 +9,11 @@ import platform
 import random
 import shutil
 import sys
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from .atomic import write_json_atomic, write_jsonl_atomic
 from .config import AppConfig
@@ -30,7 +31,9 @@ from .fake_training import FakeStatefulTrainer
 from .fingerprints import fingerprint_json, sha256_bytes, sha256_file, sha256_text
 
 PROMPT_VARIANT = "few-shot-cot-v3-en-compact-recall-v2"
-TRAINING_VIEW_POLICY = "adaptive-context-fallback128-positive-only-dense-max10-tokenmean-looprepair-v10"
+TRAINING_VIEW_POLICY = (
+    "adaptive-context-fallback128-positive-only-dense-max10-tokenmean-looprepair-v10"
+)
 REFIT_SPLIT_POLICY = "refit-all-494-nominal-valid-and-test"
 
 SYSTEM_PROMPT = (
@@ -142,7 +145,7 @@ def repository_manifest_sha256(gt_dir: Path) -> str:
     lines = bytearray()
     for path in sorted(gt_dir.glob("doc_*.json")):
         relative = path.relative_to(repo_root).as_posix()
-        lines.extend(f"{sha256_file(path)}  {relative}\n".encode("utf-8"))
+        lines.extend(f"{sha256_file(path)}  {relative}\n".encode())
     return sha256_bytes(bytes(lines))
 
 
@@ -174,7 +177,9 @@ def build_split(doc_ids: list[int], *, seed: int = 42) -> dict[str, list[int]]:
 def validate_canonical_sources(config: AppConfig) -> dict[str, Any]:
     gt_paths = sorted(config.canonical_gt_dir.glob("doc_*.json"))
     if len(gt_paths) != 500:
-        raise ContractError(f"canonical GT must contain 500 doc_*.json files, found {len(gt_paths)}")
+        raise ContractError(
+            f"canonical GT must contain 500 doc_*.json files, found {len(gt_paths)}"
+        )
     digest = repository_manifest_sha256(config.canonical_gt_dir)
     if digest != CANONICAL_GT_MANIFEST_SHA256:
         raise IntegrityError(
@@ -207,9 +212,7 @@ def validate_canonical_sources(config: AppConfig) -> dict[str, Any]:
     examples = json.loads(config.example_bank_path.read_text(encoding="utf-8"))
     real_example_ids = _example_doc_ids(examples)
     if real_example_ids != set(EXEMPLAR_DOC_IDS):
-        raise ContractError(
-            f"few-shot exemplar IDs drifted: {sorted(real_example_ids)}"
-        )
+        raise ContractError(f"few-shot exemplar IDs drifted: {sorted(real_example_ids)}")
 
     split = build_split(list(documents), seed=42)
     reference_manifest = json.loads(
@@ -238,9 +241,7 @@ def validate_canonical_sources(config: AppConfig) -> dict[str, Any]:
 
 
 def _training_example(document: dict[str, Any]) -> dict[str, Any]:
-    target = json.dumps(
-        document["references"], ensure_ascii=False, separators=(",", ":")
-    )
+    target = json.dumps(document["references"], ensure_ascii=False, separators=(",", ":"))
     return {
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
@@ -384,9 +385,7 @@ def assert_test_improves_base(*, base_core_f1: float, tuned_core_f1: float) -> N
 
 def _fake_resume_regression(root: Path) -> dict[str, Any]:
     data = [0.25, -0.5, 1.25, 0.75]
-    uninterrupted = FakeStatefulTrainer(
-        data=data, seed=42, checkpoint_root=root / "uninterrupted"
-    )
+    uninterrupted = FakeStatefulTrainer(data=data, seed=42, checkpoint_root=root / "uninterrupted")
     uninterrupted.run(target_updates=12, checkpoint_every=4)
     uninterrupted_fingerprint = uninterrupted.trajectory_fingerprint()
 
@@ -455,9 +454,7 @@ def train_bootstrap(
     run_dir = config.training_runs_root / run_id
     data_dir = config.sensitive_root / "g0" / run_id / "data"
     public_dir = config.public_root / "g0" / run_id
-    effective_split = (
-        refit_split(source_summary["split"]) if refit else source_summary["split"]
-    )
+    effective_split = refit_split(source_summary["split"]) if refit else source_summary["split"]
     data_manifest = write_training_data(
         output_dir=data_dir,
         documents=source["documents"],
@@ -470,8 +467,7 @@ def train_bootstrap(
     # The mlx-lm version gate only applies to the real compute run.
     if execute and not environment["mlx_lm_version_ok"]:
         raise GateBlocked(
-            f"mlx-lm>={MINIMUM_MLX_LM} is required; observed "
-            f"{environment['packages']['mlx-lm']}"
+            f"mlx-lm>={MINIMUM_MLX_LM} is required; observed {environment['packages']['mlx-lm']}"
         )
     fake_resume = _fake_resume_regression(run_dir / "software_resume_regression")
     model_fingerprint = fingerprint_json(
@@ -513,7 +509,7 @@ def train_bootstrap(
     preflight = {
         "schema_version": 1,
         "run_id": run_id,
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": datetime.now(UTC).isoformat(),
         "status": "software_preflight_passed_compute_pending",
         "long_run_started": False,
         "prompt": prompt,

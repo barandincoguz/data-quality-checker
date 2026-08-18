@@ -44,9 +44,7 @@ def _evidence_compatible(left: str, right: str) -> bool:
     if not loose_left and not loose_right:
         return True
     return bool(
-        loose_left
-        and loose_right
-        and (loose_left in loose_right or loose_right in loose_left)
+        loose_left and loose_right and (loose_left in loose_right or loose_right in loose_left)
     )
 
 
@@ -66,12 +64,8 @@ def route_document(
     has_safe_text: bool = True,
     reference_policy_id: str = DEFAULT_REFERENCE_POLICY_ID,
 ) -> RouteDecision:
-    policy_human, _ = apply_reference_policy(
-        human_references, policy_id=reference_policy_id
-    )
-    policy_model, _ = apply_reference_policy(
-        model_references, policy_id=reference_policy_id
-    )
+    policy_human, _ = apply_reference_policy(human_references, policy_id=reference_policy_id)
+    policy_model, _ = apply_reference_policy(model_references, policy_id=reference_policy_id)
     human = compact_references(policy_human)
     model = compact_references(policy_model)
     full_human = {full_identity(reference) for reference in human}
@@ -93,9 +87,7 @@ def route_document(
             reasons.append("model_output_truncated")
         if not has_safe_text:
             reasons.append("safe_text_missing")
-        return RouteDecision(
-            "QUARANTINE", tuple(reasons), similarity, tuple(human), tuple(model)
-        )
+        return RouteDecision("QUARANTINE", tuple(reasons), similarity, tuple(human), tuple(model))
 
     if conflicting_law_identity(human) or conflicting_law_identity(model):
         return RouteDecision(
@@ -114,9 +106,7 @@ def route_document(
             reasons.append("missing_core_reference")
         if core_model - core_human:
             reasons.append("extra_or_different_core_reference")
-        return RouteDecision(
-            "RED", tuple(reasons), similarity, tuple(human), tuple(model)
-        )
+        return RouteDecision("RED", tuple(reasons), similarity, tuple(human), tuple(model))
 
     if full_human != full_model:
         return RouteDecision(
@@ -130,9 +120,7 @@ def route_document(
     human_by_key = {full_identity(reference): reference for reference in human}
     model_by_key = {full_identity(reference): reference for reference in model}
     if any(
-        not _evidence_compatible(
-            human_by_key[key]["source_text"], model_by_key[key]["source_text"]
-        )
+        not _evidence_compatible(human_by_key[key]["source_text"], model_by_key[key]["source_text"])
         for key in full_human
     ):
         return RouteDecision(

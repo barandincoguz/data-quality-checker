@@ -34,17 +34,13 @@ def test_policy_normalizes_before_matching_and_preserves_raw_input() -> None:
 
 def test_policy_none_is_an_auditable_identity_view() -> None:
     original = row()
-    kept, audit = apply_reference_policy(
-        [original], policy_id=NO_REFERENCE_FILTER_POLICY_ID
-    )
+    kept, audit = apply_reference_policy([original], policy_id=NO_REFERENCE_FILTER_POLICY_ID)
     assert kept == [original]
     assert audit["removed_reference_count"] == 0
 
 
 def test_policy_does_not_remove_nonexact_core_identity() -> None:
-    kept, audit = apply_reference_policy(
-        [row(madde="413/A"), row(kanun_no="3065", madde="413")]
-    )
+    kept, audit = apply_reference_policy([row(madde="413/A"), row(kanun_no="3065", madde="413")])
     assert len(kept) == 2
     assert audit["removed_reference_count"] == 0
 

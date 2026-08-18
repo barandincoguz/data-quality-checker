@@ -54,9 +54,7 @@ def _fixture_context(tmp_path: Path, *, preflight_passed: bool = True):
     (data_dir / "valid.jsonl").write_text(
         "".join(json.dumps(row) + "\n" for _ in range(50)), encoding="utf-8"
     )
-    (data_dir / "valid_doc_ids.json").write_text(
-        json.dumps(list(range(1, 51))), encoding="utf-8"
-    )
+    (data_dir / "valid_doc_ids.json").write_text(json.dumps(list(range(1, 51))), encoding="utf-8")
     model_path = tmp_path / "model" / ("b" * 40)
     model_path.mkdir(parents=True)
     run_dir = config.training_runs_root / RUN_ID
@@ -83,9 +81,7 @@ def _fixture_context(tmp_path: Path, *, preflight_passed: bool = True):
         "data_manifest": {"path": str(data_dir)},
         "recovery": {"long_run_allowed": preflight_passed},
     }
-    (run_dir / "run_config.json").write_text(
-        json.dumps(run_config), encoding="utf-8"
-    )
+    (run_dir / "run_config.json").write_text(json.dumps(run_config), encoding="utf-8")
     preflight_path = config.public_root / "g0" / RUN_ID / "preflight.json"
     preflight_path.parent.mkdir(parents=True)
     preflight_path.write_text(
@@ -337,9 +333,7 @@ def test_pilot_segments_train_validate_and_resume_idempotently(tmp_path: Path) -
     def evaluator_runner(**kwargs):
         update = int(kwargs["output_dir"].name.rsplit("_", 1)[1])
         report = _evaluation(update)
-        (kwargs["output_dir"] / "evaluation.json").write_text(
-            json.dumps(report), encoding="utf-8"
-        )
+        (kwargs["output_dir"] / "evaluation.json").write_text(json.dumps(report), encoding="utf-8")
         return report
 
     def verify_checkpoint(path: Path):
@@ -420,9 +414,7 @@ def test_resume_discovers_latest_verified_time_checkpoint(tmp_path: Path) -> Non
     def write_checkpoint(root: str, update: int) -> Path:
         checkpoint = Path(root) / f"update_{update:07d}"
         checkpoint.mkdir(parents=True, exist_ok=True)
-        (checkpoint / "adapters.safetensors").write_bytes(
-            f"adapter-{update}".encode()
-        )
+        (checkpoint / "adapters.safetensors").write_bytes(f"adapter-{update}".encode())
         (checkpoint / "manifest.json").write_text(
             json.dumps(
                 {
@@ -466,9 +458,7 @@ def test_resume_discovers_latest_verified_time_checkpoint(tmp_path: Path) -> Non
 
     def evaluator_runner(**kwargs):
         report = _evaluation(25)
-        (kwargs["output_dir"] / "evaluation.json").write_text(
-            json.dumps(report), encoding="utf-8"
-        )
+        (kwargs["output_dir"] / "evaluation.json").write_text(json.dumps(report), encoding="utf-8")
         return report
 
     def verify_checkpoint(path: Path):
@@ -510,7 +500,4 @@ def test_resume_discovers_latest_verified_time_checkpoint(tmp_path: Path) -> Non
             / "update_0000017"
         )
     ]
-    assert any(
-        entry.get("checkpoint_update") == 17
-        for entry in result["recovery_history"]
-    )
+    assert any(entry.get("checkpoint_update") == 17 for entry in result["recovery_history"])

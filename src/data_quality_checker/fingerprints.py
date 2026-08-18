@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 
 def sha256_bytes(payload: bytes) -> str:
@@ -39,9 +40,7 @@ def fingerprint_json(payload: Any) -> str:
     return sha256_bytes(canonical_json_bytes(payload))
 
 
-def directory_manifest(
-    paths: Iterable[Path], *, root: Path
-) -> list[dict[str, Any]]:
+def directory_manifest(paths: Iterable[Path], *, root: Path) -> list[dict[str, Any]]:
     root = root.resolve()
     rows: list[dict[str, Any]] = []
     for path in sorted((item.resolve() for item in paths), key=lambda item: item.as_posix()):

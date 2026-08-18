@@ -30,6 +30,7 @@ from .normalization import (
     core_identity,
     full_identity,
 )
+from .preparation import annotation_attribution_path
 from .reference_policy import (
     DEFAULT_REFERENCE_POLICY_ID,
     apply_reference_policy,
@@ -40,11 +41,9 @@ from .review_backup import (
     review_backup_lock,
     review_backup_status,
 )
-from .preparation import annotation_attribution_path
 from .storage import Store
 from .text import evidence_match_mode
 from .web import create_app
-
 
 LOGIN_TEMPLATE = """
 <!doctype html><meta charset="utf-8"><title>DQCheck Giriş</title>
@@ -252,9 +251,7 @@ def ab_diff(
             status = "only_a"
         elif b_refs and not a_refs:
             status = "only_b"
-        elif sorted(full_identity(r) for r in a_refs) == sorted(
-            full_identity(r) for r in b_refs
-        ):
+        elif sorted(full_identity(r) for r in a_refs) == sorted(full_identity(r) for r in b_refs):
             status = "same"
         else:
             status = "differs"
@@ -283,9 +280,7 @@ def ab_diff(
     return rows
 
 
-def review_position(
-    queue: list[dict[str, Any]], internal_doc_id: str
-) -> dict[str, int] | None:
+def review_position(queue: list[dict[str, Any]], internal_doc_id: str) -> dict[str, int] | None:
     """1-based position of a document within the ordered review queue."""
 
     for index, row in enumerate(queue, start=1):
@@ -383,9 +378,7 @@ def _review_requirements(
     documents = store.list_documents(batch_id)
     audit = ensure_green_audit_plan(config=config, store=store, batch_id=batch_id)
     audit_ids = {str(value) for value in audit["sample_internal_doc_ids"]}
-    escalation_path = (
-        config.public_root / "batches" / batch_id / "green_escalation.json"
-    )
+    escalation_path = config.public_root / "batches" / batch_id / "green_escalation.json"
     escalated = escalation_path.exists()
     required: set[str] = set(audit_ids)
     for document in documents:
@@ -407,12 +400,8 @@ def _review_requirements(
     return required, priority
 
 
-def review_queue(
-    *, config: AppConfig, store: Store, batch_id: str
-) -> list[dict[str, Any]]:
-    required, priority = _review_requirements(
-        config=config, store=store, batch_id=batch_id
-    )
+def review_queue(*, config: AppConfig, store: Store, batch_id: str) -> list[dict[str, Any]]:
+    required, priority = _review_requirements(config=config, store=store, batch_id=batch_id)
     documents = {row["internal_doc_id"]: row for row in store.list_documents(batch_id)}
     reviews = {row["internal_doc_id"]: row for row in store.list_reviews(batch_id)}
     queue = []
@@ -461,12 +450,8 @@ def _document_for_review(
     prediction = store.get_prediction(batch_id, internal_doc_id, "G0")
     if document is None or review is None or prediction is None:
         raise KeyError(internal_doc_id)
-    human, human_audit = apply_reference_policy(
-        json.loads(document["human_references_json"])
-    )
-    model, model_audit = apply_reference_policy(
-        json.loads(prediction["references_json"])
-    )
+    human, human_audit = apply_reference_policy(json.loads(document["human_references_json"]))
+    model, model_audit = apply_reference_policy(json.loads(prediction["references_json"]))
     mapping = "A=human,B=model"
     candidate_a, candidate_b = human, model
     judge_model = _locked_judge(config, batch_id)
@@ -496,8 +481,7 @@ def _document_for_review(
             "policy_id": DEFAULT_REFERENCE_POLICY_ID,
             "policy_fingerprint": reference_policy_spec()["fingerprint"],
             "removed_reference_count": (
-                human_audit["removed_reference_count"]
-                + model_audit["removed_reference_count"]
+                human_audit["removed_reference_count"] + model_audit["removed_reference_count"]
             ),
         },
     }
@@ -520,12 +504,8 @@ def _evidence_spans(
                 continue
             start = text.find(evidence)
             if start >= 0:
-                spans.append(
-                    {"start": start, "end": start + len(evidence), "candidate": label}
-                )
-    return sorted(
-        spans, key=lambda item: (item["start"], item["end"], item["candidate"])
-    )
+                spans.append({"start": start, "end": start + len(evidence), "candidate": label})
+    return sorted(spans, key=lambda item: (item["start"], item["end"], item["candidate"]))
 
 
 def evidence_segments(text: str, spans: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -553,11 +533,7 @@ def evidence_segments(text: str, spans: list[dict[str, Any]]) -> list[dict[str, 
     segments: list[dict[str, Any]] = []
     for lo, hi in zip(points, points[1:]):
         candidates = sorted(
-            {
-                span["candidate"]
-                for span in spans
-                if span["start"] <= lo and span["end"] >= hi
-            }
+            {span["candidate"] for span in spans if span["start"] <= lo and span["end"] >= hi}
         )
         if segments and segments[-1]["candidates"] == candidates:
             segments[-1]["text"] += text[lo:hi]
@@ -566,16 +542,12 @@ def evidence_segments(text: str, spans: list[dict[str, Any]]) -> list[dict[str, 
     return segments
 
 
-def validate_final_references(
-    references: Any, *, document_text: str
-) -> list[dict[str, str]]:
+def validate_final_references(references: Any, *, document_text: str) -> list[dict[str, str]]:
     validated = validate_reference_list(references)
     validated, _ = apply_reference_policy(validated)
     normalized = compact_references(validated)
     if len(normalized) != len(validated):
-        raise ContractError(
-            "final references contain duplicate or generic-shadowed rows"
-        )
+        raise ContractError("final references contain duplicate or generic-shadowed rows")
     if conflicting_law_identity(normalized):
         raise ContractError("final references contain conflicting law identity")
     for index, reference in enumerate(validated):
@@ -585,9 +557,7 @@ def validate_final_references(
             not reference["source_text"]
             or evidence_match_mode(reference["source_text"], document_text) is None
         ):
-            raise ContractError(
-                f"final reference[{index}] evidence is absent from document"
-            )
+            raise ContractError(f"final reference[{index}] evidence is absent from document")
     return validated
 
 
@@ -651,17 +621,16 @@ def create_hitl_app(
     secret = session_secret or os.environ.get("DQCHECK_SESSION_SECRET")
     token = access_token or os.environ.get("DQCHECK_ACCESS_TOKEN")
     if not secret or len(secret) < 32:
-        raise ConfigurationError(
-            "DQCHECK_SESSION_SECRET must contain at least 32 characters"
-        )
+        raise ConfigurationError("DQCHECK_SESSION_SECRET must contain at least 32 characters")
     if not token or len(token) < 32:
-        raise ConfigurationError(
-            "DQCHECK_ACCESS_TOKEN must contain at least 32 characters"
-        )
-    with review_backup_lock(config=config, batch_id=batch_id), Store(
-        config.database_path,
-        busy_timeout_ms=config.runtime.busy_timeout_ms,
-    ) as store:
+        raise ConfigurationError("DQCHECK_ACCESS_TOKEN must contain at least 32 characters")
+    with (
+        review_backup_lock(config=config, batch_id=batch_id),
+        Store(
+            config.database_path,
+            busy_timeout_ms=config.runtime.busy_timeout_ms,
+        ) as store,
+    ):
         batch = store.get_batch(batch_id)
         if batch is None or batch["status"] != "processed":
             raise GateBlocked("HITL requires a processed batch")
@@ -695,17 +664,13 @@ def create_hitl_app(
         if request.endpoint in {"healthz", "login"}:
             return None
         authorization = request.headers.get("Authorization", "")
-        if authorization.startswith("Bearer ") and _secure_equal(
-            authorization[7:], token
-        ):
+        if authorization.startswith("Bearer ") and _secure_equal(authorization[7:], token):
             session["authenticated"] = True
             session.setdefault("csrf_token", secrets.token_urlsafe(32))
         if not session.get("authenticated"):
             return jsonify({"error": "authentication_required"}), 401
         if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
-            submitted = request.headers.get("X-CSRF-Token") or request.form.get(
-                "csrf_token", ""
-            )
+            submitted = request.headers.get("X-CSRF-Token") or request.form.get("csrf_token", "")
             expected = str(session.get("csrf_token") or "")
             if not submitted or not expected or not _secure_equal(submitted, expected):
                 return jsonify({"error": "csrf_failed"}), 403
@@ -726,9 +691,7 @@ def create_hitl_app(
                 session["authenticated"] = True
                 session["csrf_token"] = secrets.token_urlsafe(32)
                 return redirect(url_for("next_review"))
-        return render_template_string(
-            LOGIN_TEMPLATE, csrf_token=session["login_csrf"], error=error
-        )
+        return render_template_string(LOGIN_TEMPLATE, csrf_token=session["login_csrf"], error=error)
 
     @app.get("/api/session")
     def api_session() -> Any:
@@ -736,12 +699,8 @@ def create_hitl_app(
 
     @app.get("/api/queue")
     def api_queue() -> Any:
-        with Store(
-            config.database_path, busy_timeout_ms=config.runtime.busy_timeout_ms
-        ) as store:
-            return jsonify(
-                {"queue": review_queue(config=config, store=store, batch_id=batch_id)}
-            )
+        with Store(config.database_path, busy_timeout_ms=config.runtime.busy_timeout_ms) as store:
+            return jsonify({"queue": review_queue(config=config, store=store, batch_id=batch_id)})
 
     @app.get("/")
     def index() -> Any:
@@ -749,21 +708,15 @@ def create_hitl_app(
 
     @app.get("/review/next")
     def next_review() -> Any:
-        with Store(
-            config.database_path, busy_timeout_ms=config.runtime.busy_timeout_ms
-        ) as store:
+        with Store(config.database_path, busy_timeout_ms=config.runtime.busy_timeout_ms) as store:
             queue = review_queue(config=config, store=store, batch_id=batch_id)
         if not queue:
             return jsonify({"status": "review_complete", "batch_id": batch_id})
-        return redirect(
-            url_for("review_document", internal_doc_id=queue[0]["internal_doc_id"])
-        )
+        return redirect(url_for("review_document", internal_doc_id=queue[0]["internal_doc_id"]))
 
     @app.get("/api/documents/<internal_doc_id>")
     def api_document(internal_doc_id: str) -> Any:
-        with Store(
-            config.database_path, busy_timeout_ms=config.runtime.busy_timeout_ms
-        ) as store:
+        with Store(config.database_path, busy_timeout_ms=config.runtime.busy_timeout_ms) as store:
             return jsonify(
                 _document_for_review(
                     config=config,
@@ -776,9 +729,10 @@ def create_hitl_app(
 
     @app.get("/review/<internal_doc_id>")
     def review_document(internal_doc_id: str) -> Any:
-        with review_backup_lock(config=config, batch_id=batch_id), Store(
-            config.database_path, busy_timeout_ms=config.runtime.busy_timeout_ms
-        ) as store:
+        with (
+            review_backup_lock(config=config, batch_id=batch_id),
+            Store(config.database_path, busy_timeout_ms=config.runtime.busy_timeout_ms) as store,
+        ):
             document = _document_for_review(
                 config=config,
                 store=store,
@@ -813,20 +767,19 @@ def create_hitl_app(
             requested_action = str(payload.get("action") or "")
             reason = str(payload.get("reason") or "").strip() or None
             reviewer = str(payload.get("reviewer") or "local_expert")
-            with review_backup_lock(config=config, batch_id=batch_id), Store(
-                config.database_path,
-                busy_timeout_ms=config.runtime.busy_timeout_ms,
-            ) as store:
+            with (
+                review_backup_lock(config=config, batch_id=batch_id),
+                Store(
+                    config.database_path,
+                    busy_timeout_ms=config.runtime.busy_timeout_ms,
+                ) as store,
+            ):
                 document = store.get_document(batch_id, internal_doc_id)
                 prediction = store.get_prediction(batch_id, internal_doc_id, "G0")
                 if document is None or prediction is None:
                     raise KeyError(internal_doc_id)
-                human, _ = apply_reference_policy(
-                    json.loads(document["human_references_json"])
-                )
-                model, _ = apply_reference_policy(
-                    json.loads(prediction["references_json"])
-                )
+                human, _ = apply_reference_policy(json.loads(document["human_references_json"]))
+                model, _ = apply_reference_policy(json.loads(prediction["references_json"]))
                 mapping = "A=human,B=model"
                 candidate_a, candidate_b = human, model
                 if requested_action in {"accept_candidate_a", "accept_candidate_b"}:
@@ -851,18 +804,12 @@ def create_hitl_app(
                     judge_model = _locked_judge(config, batch_id)
                     if not judge_model:
                         raise GateBlocked("no production judge is locked")
-                    judge = store.get_judge_result(
-                        batch_id, internal_doc_id, judge_model
-                    )
+                    judge = store.get_judge_result(batch_id, internal_doc_id, judge_model)
                     if judge is None or judge["status"] != "valid":
-                        raise GateBlocked(
-                            "locked judge has no valid result for this document"
-                        )
+                        raise GateBlocked("locked judge has no valid result for this document")
                     final = json.loads(judge["result_json"])["final_references"]
                 else:
-                    raise ContractError(
-                        f"unsupported expert action: {requested_action}"
-                    )
+                    raise ContractError(f"unsupported expert action: {requested_action}")
                 if action not in EXPERT_ACTIONS:
                     raise ContractError(f"unsupported canonical action: {action}")
                 if action == "defer":

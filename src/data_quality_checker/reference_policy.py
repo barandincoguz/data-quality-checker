@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any, Iterable
+from collections.abc import Iterable
+from typing import Any
 
 from .fingerprints import fingerprint_json
 from .normalization import normalize_reference
@@ -52,8 +53,7 @@ def _is_ignored(reference: dict[str, Any], *, policy_id: str) -> bool:
     normalized = normalize_reference(reference)
     ignored = reference_policy_spec(policy_id)["ignored_normalized_core_identities"]
     return any(
-        normalized["kanun_no"] == row["kanun_no"]
-        and normalized["madde"] == row["madde"]
+        normalized["kanun_no"] == row["kanun_no"] and normalized["madde"] == row["madde"]
         for row in ignored
     )
 

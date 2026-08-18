@@ -10,10 +10,11 @@ import json
 import os
 import random
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from .atomic import write_json_atomic
 from .checkpoints import (
@@ -24,13 +25,10 @@ from .checkpoints import (
 from .errors import ContractError, GateBlocked, IntegrityError
 from .fingerprints import fingerprint_json, sha256_file
 
-
 LOSS_REDUCTION = "target_token_mean_v1"
 
 
-def _completion_target_span(
-    *, completion_offset: int, total_tokens: int
-) -> tuple[int, int]:
+def _completion_target_span(*, completion_offset: int, total_tokens: int) -> tuple[int, int]:
     """Return the real completion's half-open token span."""
 
     if not 0 <= completion_offset < total_tokens:
@@ -317,9 +315,7 @@ class StatefulMlxTrainer:
         padded_length = min(candidates) if candidates else maximum_length
         array = np.zeros((1, padded_length), dtype=np.int32)
         array[0, : len(tokens)] = tokens
-        return self._mx.array(array), self._mx.array(
-            [[completion_start, completion_end]]
-        )
+        return self._mx.array(array), self._mx.array([[completion_start, completion_end]])
 
     def _save_checkpoint(self) -> Path:
         mx = self._mx
@@ -464,12 +460,9 @@ class StatefulMlxTrainer:
             accumulated = 0
             accumulated_tokens = 0
             self.global_update += 1
-            due_count = (
-                self.global_update % self.config.checkpoint_every_updates == 0
-            )
+            due_count = self.global_update % self.config.checkpoint_every_updates == 0
             due_time = (
-                time.monotonic() - self.last_checkpoint_time
-                >= self.config.checkpoint_max_seconds
+                time.monotonic() - self.last_checkpoint_time >= self.config.checkpoint_max_seconds
             )
             if due_count or due_time or self.global_update == target_updates:
                 latest_checkpoint = self._save_checkpoint()
@@ -486,11 +479,11 @@ class StatefulMlxTrainer:
             "mean_loss": total_loss / trained_tokens,
             "trained_tokens": trained_tokens,
             "checkpoint": str(latest_checkpoint),
-            "checkpoint_manifest_sha256": sha256_file(
-                latest_checkpoint / "manifest.json"
-            ),
+            "checkpoint_manifest_sha256": sha256_file(latest_checkpoint / "manifest.json"),
         }
 
     def adapter_finite(self, checkpoint: Path) -> bool:
         tensors = self._mx.load(str(checkpoint / "adapters.safetensors"))
-        return all(bool(self._mx.all(self._mx.isfinite(value)).item()) for value in tensors.values())
+        return all(
+            bool(self._mx.all(self._mx.isfinite(value)).item()) for value in tensors.values()
+        )

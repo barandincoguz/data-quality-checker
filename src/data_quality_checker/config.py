@@ -85,14 +85,17 @@ def load_config(path: Path | str | None = None) -> AppConfig:
         raise ConfigurationError("config root must be an object")
     if raw.get("schema_version") != SCHEMA_VERSION:
         raise ConfigurationError(
-            f"unsupported schema_version={raw.get('schema_version')!r}; "
-            f"expected {SCHEMA_VERSION}"
+            f"unsupported schema_version={raw.get('schema_version')!r}; expected {SCHEMA_VERSION}"
         )
 
     model = raw.get("model")
     security = raw.get("security")
     runtime = raw.get("runtime")
-    if not isinstance(model, dict) or not isinstance(security, dict) or not isinstance(runtime, dict):
+    if (
+        not isinstance(model, dict)
+        or not isinstance(security, dict)
+        or not isinstance(runtime, dict)
+    ):
         raise ConfigurationError("model, security, and runtime must be objects")
     if model.get("id") != MODEL_ID or model.get("revision") != MODEL_REVISION:
         raise ConfigurationError(

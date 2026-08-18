@@ -55,7 +55,7 @@ class RunLease:
     def __post_init__(self) -> None:
         self.lock = FileLock(self.lock_path, purpose=self.purpose)
 
-    def start(self, *, stage: str) -> "RunLease":
+    def start(self, *, stage: str) -> RunLease:
         self.lock.acquire()
         self.started_at_epoch = time.time()
         self.state = {
@@ -94,7 +94,7 @@ class RunLease:
         self.beat(status=status, last_error=error, finished_at_epoch=time.time())
         self.lock.release(status=status)
 
-    def __enter__(self) -> "RunLease":
+    def __enter__(self) -> RunLease:
         return self.start(stage="starting")
 
     def __exit__(self, exc_type: Any, exc: Any, traceback: Any) -> None:

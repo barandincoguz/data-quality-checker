@@ -98,9 +98,7 @@ def test_process_atomically_routes_every_document_and_resumes(tmp_path) -> None:
         "QUARANTINE": 0,
     }
     outputs = sorted(
-        (config.sensitive_root / "batches" / "batch" / "predictions" / "G0").glob(
-            "*.json"
-        )
+        (config.sensitive_root / "batches" / "batch" / "predictions" / "G0").glob("*.json")
     )
     assert len(outputs) == 2
 
@@ -250,10 +248,7 @@ def test_reroute_preflights_then_atomically_applies_without_touching_prediction(
     }
     with Store(config.database_path) as store:
         assert store.status_summary("legacy")["documents"] == {"GREEN": 1}
-        assert (
-            store.list_predictions("legacy", "G0")[0]["response_sha256"]
-            == prediction_sha
-        )
+        assert store.list_predictions("legacy", "G0")[0]["response_sha256"] == prediction_sha
 
     assert reroute_batch(config=config, batch_id="legacy", apply=True) == result
 
@@ -276,9 +271,7 @@ def test_reroute_refuses_to_change_queue_after_review_started(tmp_path) -> None:
         reroute_batch(config=config, batch_id="legacy", apply=True)
 
 
-def test_mlx_backend_accepts_an_explicit_isolated_registry_path(
-    monkeypatch, tmp_path
-) -> None:
+def test_mlx_backend_accepts_an_explicit_isolated_registry_path(monkeypatch, tmp_path) -> None:
     config = config_for(tmp_path)
     snapshot = tmp_path / "snapshot"
     adapter = tmp_path / "adapter"

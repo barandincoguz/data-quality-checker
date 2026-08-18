@@ -94,24 +94,29 @@ def test_cli_prepare_process_status_release_smoke(tmp_path) -> None:
 
     base = ["--config", str(config_path)]
 
-    assert main(
-        base
-        + [
-            "prepare",
-            "--annotation-zip",
-            str(annotation_zip),
-            "--document-pool-zip",
-            str(pool_zip),
-            "--batch-id",
-            "batch",
-            "--hmac-key-file",
-            str(key),
-        ]
-    ) == 0
-    assert main(
-        base
-        + ["process", "--prepared-batch", "batch", "--generation", "G0", "--fake-backend"]
-    ) == 0
+    assert (
+        main(
+            base
+            + [
+                "prepare",
+                "--annotation-zip",
+                str(annotation_zip),
+                "--document-pool-zip",
+                str(pool_zip),
+                "--batch-id",
+                "batch",
+                "--hmac-key-file",
+                str(key),
+            ]
+        )
+        == 0
+    )
+    assert (
+        main(
+            base + ["process", "--prepared-batch", "batch", "--generation", "G0", "--fake-backend"]
+        )
+        == 0
+    )
     assert main(base + ["status", "--batch-id", "batch"]) == 0
 
     _finalize_green_audit(config)

@@ -12,9 +12,7 @@ _BLOCK_END_RE = re.compile(r"(?i)<br\s*/?>|</p>|</div>|</tr>|</li>|</table>")
 _TAG_RE = re.compile(r"(?s)<[^>]+>")
 _SPACE_RE = re.compile(r"\s+")
 _LOOSE_RE = re.compile(r"[^0-9a-zçğıöşü]+")
-_PUNCT_TRANSLATION = str.maketrans(
-    {"“": '"', "”": '"', "’": "'", "‘": "'", "–": "-", "—": "-"}
-)
+_PUNCT_TRANSLATION = str.maketrans({"“": '"', "”": '"', "’": "'", "‘": "'", "–": "-", "—": "-"})
 
 
 def normalize_text(value: Any) -> str:

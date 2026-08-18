@@ -16,9 +16,7 @@ def _config(tmp_path):
         {
             "canonical_gt_dir": str(live.canonical_gt_dir),
             "example_bank_path": str(live.example_bank_path),
-            "reference_split_manifest_path": str(
-                live.reference_split_manifest_path
-            ),
+            "reference_split_manifest_path": str(live.reference_split_manifest_path),
             "sensitive_root": str(tmp_path / "sensitive"),
             "public_root": str(tmp_path / "public"),
             "training_runs_root": str(tmp_path / "runs"),
@@ -69,9 +67,5 @@ def test_sqlite_backup_leaves_no_temporary_or_journal_sidecars(tmp_path) -> None
         backup_database(source, target_path)
 
     assert target_path.is_file()
-    leftovers = [
-        path.name
-        for path in target_path.parent.iterdir()
-        if path != target_path
-    ]
+    leftovers = [path.name for path in target_path.parent.iterdir() if path != target_path]
     assert leftovers == []

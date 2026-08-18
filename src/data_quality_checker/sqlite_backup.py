@@ -32,13 +32,9 @@ def backup_database(source: sqlite3.Connection, target: Path) -> dict[str, Any]:
             with _readonly_connection(target) as check:
                 integrity = check.execute("PRAGMA integrity_check").fetchone()[0]
         except sqlite3.DatabaseError as exc:
-            raise IntegrityError(
-                f"existing SQLite backup cannot be opened: {target}"
-            ) from exc
+            raise IntegrityError(f"existing SQLite backup cannot be opened: {target}") from exc
         if integrity != "ok":
-            raise IntegrityError(
-                f"existing SQLite backup failed integrity check: {target}"
-            )
+            raise IntegrityError(f"existing SQLite backup failed integrity check: {target}")
         return {"path": str(target), "sha256": sha256_file(target), "reused": True}
 
     descriptor, temporary_name = tempfile.mkstemp(

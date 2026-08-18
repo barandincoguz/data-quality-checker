@@ -61,7 +61,7 @@ class FileLock:
         self.owner_token = uuid.uuid4().hex
         self.previous_metadata: dict[str, Any] | None = None
 
-    def acquire(self) -> "FileLock":
+    def acquire(self) -> FileLock:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         handle = self.path.open("a+", encoding="utf-8")
         self.previous_metadata = read_lock_metadata(self.path)
@@ -113,7 +113,7 @@ class FileLock:
             self._handle.close()
             self._handle = None
 
-    def __enter__(self) -> "FileLock":
+    def __enter__(self) -> FileLock:
         return self.acquire()
 
     def __exit__(self, exc_type: Any, exc: Any, traceback: Any) -> None:

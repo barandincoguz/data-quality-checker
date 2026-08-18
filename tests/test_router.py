@@ -50,9 +50,7 @@ def test_tuple_dedup_and_generic_law_compaction() -> None:
 def test_green_allows_aliases_and_evidence_format_or_length_only() -> None:
     decision = route_document(
         human_references=[ref(kanun_no="", kanun_ad="VUK")],
-        model_references=[
-            ref(source_text="Vergi Usul Kanununun mükerrer 20 inci maddesi")
-        ],
+        model_references=[ref(source_text="Vergi Usul Kanununun mükerrer 20 inci maddesi")],
     )
     assert decision.bucket == "GREEN"
     assert decision.similarity == 1.0

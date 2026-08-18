@@ -9,10 +9,11 @@ import re
 import subprocess
 import sys
 import tempfile
+from collections.abc import Callable
 from dataclasses import asdict
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from .atomic import fsync_directory, write_json_atomic, write_text_atomic
 from .checkpoints import CheckpointManager
@@ -79,7 +80,7 @@ CheckpointVerifier = Callable[[Path], dict[str, Any]]
 
 
 def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -237,9 +238,7 @@ def _candidate_contract(
         raise ValueError(f"unsupported candidate: {candidate_id}")
     run_config = context["run_config"]
     preflight = context["preflight"]
-    accepted_training_sequence_length = run_config.get(
-        "selected_training_sequence_length"
-    )
+    accepted_training_sequence_length = run_config.get("selected_training_sequence_length")
     if isinstance(accepted_training_sequence_length, int):
         sequence_length = accepted_training_sequence_length
     else:
@@ -254,9 +253,13 @@ def _candidate_contract(
         )
     snapshot = run_config.get("model_snapshot") or preflight.get("model_snapshot")
     training_rows = run_config.get("training_view", {}).get("row_count")
-    if sequence_length <= 0 or not isinstance(snapshot, dict) or not snapshot.get(
-        "fingerprint"
-    ) or not isinstance(training_rows, int) or training_rows <= 0:
+    if (
+        sequence_length <= 0
+        or not isinstance(snapshot, dict)
+        or not snapshot.get("fingerprint")
+        or not isinstance(training_rows, int)
+        or training_rows <= 0
+    ):
         raise GateBlocked("not enough verified compute metadata to render candidate contract")
     training = _candidate_training_config(
         peak_learning_rate=PILOT_LEARNING_RATES[candidate_id],
@@ -313,9 +316,7 @@ def _candidate_contract(
             "train_jsonl_path": str(context["train_path"]),
             "train_jsonl_sha256": sha256_file(context["train_path"]),
             "valid_jsonl_sha256": sha256_file(context["data_dir"] / "valid.jsonl"),
-            "valid_doc_ids_sha256": sha256_file(
-                context["data_dir"] / "valid_doc_ids.json"
-            ),
+            "valid_doc_ids_sha256": sha256_file(context["data_dir"] / "valid_doc_ids.json"),
             "training_view_row_count": training_rows,
             "one_training_view_epoch_updates": math.ceil(
                 training_rows / training.gradient_accumulation
@@ -325,9 +326,7 @@ def _candidate_contract(
             "id": run_config["model"]["model_id"],
             "revision": run_config["model"]["revision"],
             "snapshot_fingerprint": snapshot["fingerprint"],
-            "training_sequence_length_accepted": isinstance(
-                accepted_training_sequence_length, int
-            ),
+            "training_sequence_length_accepted": isinstance(accepted_training_sequence_length, int),
             "inference_sequence_length": run_config.get("selected_sequence_length"),
         },
         "implementation": {
@@ -390,12 +389,8 @@ def _training_request(
         "target_updates": target_updates,
         "input_fingerprint": sha256_file(context["train_path"]),
         "model_fingerprint": context["run_config"]["model_snapshot"]["fingerprint"],
-        "trainer_implementation_sha256": sha256_file(
-            Path(__file__).with_name("mlx_stateful.py")
-        ),
-        "worker_implementation_sha256": sha256_file(
-            Path(__file__).with_name("mlx_worker.py")
-        ),
+        "trainer_implementation_sha256": sha256_file(Path(__file__).with_name("mlx_stateful.py")),
+        "worker_implementation_sha256": sha256_file(Path(__file__).with_name("mlx_worker.py")),
     }
     if resume_checkpoint is not None:
         request["resume_checkpoint"] = str(resume_checkpoint)
@@ -424,13 +419,9 @@ def _validation_request(
         "window_fallback_enabled": True,
         "window_fallback_tokens": WINDOW_FALLBACK_TOKENS,
         "window_fallback_overlap_tokens": WINDOW_FALLBACK_OVERLAP_TOKENS,
-        "window_fallback_max_generation_tokens": (
-            WINDOW_FALLBACK_MAX_GENERATION_TOKENS
-        ),
+        "window_fallback_max_generation_tokens": (WINDOW_FALLBACK_MAX_GENERATION_TOKENS),
         "window_fallback_repetition_recovery_enabled": True,
-        "worker_implementation_sha256": sha256_file(
-            Path(__file__).with_name("mlx_worker.py")
-        ),
+        "worker_implementation_sha256": sha256_file(Path(__file__).with_name("mlx_worker.py")),
     }
 
 
@@ -479,9 +470,7 @@ def _canonical_evaluate(
         env={
             **os.environ,
             "PYTHONPATH": os.pathsep.join(
-                part
-                for part in (str(repo_root), os.environ.get("PYTHONPATH", ""))
-                if part
+                part for part in (str(repo_root), os.environ.get("PYTHONPATH", "")) if part
             ),
         },
         text=True,
@@ -518,9 +507,7 @@ def _parsed_zero_reference_output_count(payload: dict[str, Any]) -> int:
     explicit_count = payload.get("parsed_zero_reference_output_count")
     if explicit_count is not None:
         return int(explicit_count)
-    parse_failure_count = int(payload["coverage_count"]) - int(
-        payload["parse_count"]
-    )
+    parse_failure_count = int(payload["coverage_count"]) - int(payload["parse_count"])
     return max(
         0,
         int(payload["zero_reference_output_count"]) - parse_failure_count,
@@ -542,27 +529,19 @@ def _validation_summary(
     validation_loss = float(validation["validation_loss"])
     if not math.isfinite(validation_loss):
         raise IntegrityError("validation loss is not finite")
-    parsed_zero_reference_output_count = _parsed_zero_reference_output_count(
-        validation
-    )
+    parsed_zero_reference_output_count = _parsed_zero_reference_output_count(validation)
     summary = {
         "schema_version": 1,
         "generated_at": _utc_now(),
         "update": update,
         "checkpoint": str(checkpoint),
         "checkpoint_manifest_sha256": sha256_file(checkpoint / "manifest.json"),
-        "checkpoint_trainer_state_fingerprint": checkpoint_manifest[
-            "trainer_state_fingerprint"
-        ],
+        "checkpoint_trainer_state_fingerprint": checkpoint_manifest["trainer_state_fingerprint"],
         "coverage_count": int(validation["coverage_count"]),
         "parse_count": int(validation["parse_count"]),
         "empty_output_count": int(validation["empty_output_count"]),
-        "zero_reference_output_count": int(
-            validation["zero_reference_output_count"]
-        ),
-        "parsed_zero_reference_output_count": (
-            parsed_zero_reference_output_count
-        ),
+        "zero_reference_output_count": int(validation["zero_reference_output_count"]),
+        "parsed_zero_reference_output_count": (parsed_zero_reference_output_count),
         "predicted_reference_count": int(validation["predicted_reference_count"]),
         "runaway_output_count": int(validation["runaway_output_count"]),
         "fallback_attempt_count": int(validation.get("fallback_attempt_count", 0)),
@@ -747,20 +726,22 @@ def run_development(
     state_path = candidate_root / "state.json"
     _write_or_verify_contract(contract_path, contract)
     if state_path.exists() and not resume:
-        raise GateBlocked(
-            f"candidate state already exists at {state_path}; use --resume"
-        )
+        raise GateBlocked(f"candidate state already exists at {state_path}; use --resume")
 
-    state = _read_json(state_path) if state_path.exists() else {
-        "schema_version": 1,
-        "run_id": run_id,
-        "candidate_id": candidate_id,
-        "contract_fingerprint": contract["contract_fingerprint"],
-        "status": "planned",
-        "last_validated_update": 0,
-        "best_update": None,
-        "recovery_history": [],
-    }
+    state = (
+        _read_json(state_path)
+        if state_path.exists()
+        else {
+            "schema_version": 1,
+            "run_id": run_id,
+            "candidate_id": candidate_id,
+            "contract_fingerprint": contract["contract_fingerprint"],
+            "status": "planned",
+            "last_validated_update": 0,
+            "best_update": None,
+            "recovery_history": [],
+        }
+    )
     if state.get("contract_fingerprint") != contract["contract_fingerprint"]:
         raise FingerprintMismatch("candidate state contract fingerprint mismatch")
     previous_update = int(state.get("last_validated_update", 0))
@@ -852,9 +833,7 @@ def run_development(
                 resume_checkpoint = next(
                     (
                         verified_checkpoints[candidate_update]
-                        for candidate_update in sorted(
-                            verified_checkpoints, reverse=True
-                        )
+                        for candidate_update in sorted(verified_checkpoints, reverse=True)
                         if candidate_update < update
                     ),
                     None,
@@ -914,9 +893,7 @@ def run_development(
             )
             evaluation_path = validation_dir / "evaluation.json"
             if not evaluation_path.is_file():
-                raise IntegrityError(
-                    f"validation evaluator did not seal {evaluation_path}"
-                )
+                raise IntegrityError(f"validation evaluator did not seal {evaluation_path}")
             summary = _validation_summary(
                 update=update,
                 checkpoint=checkpoint,

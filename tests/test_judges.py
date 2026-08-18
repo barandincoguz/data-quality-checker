@@ -42,8 +42,7 @@ def config_for(tmp_path: Path):
 def prepared_processed_fixture(tmp_path: Path, *, count: int = 1):
     config = config_for(tmp_path)
     annotations = [
-        {"document_id": f"private-id-{index}", "current_references": []}
-        for index in range(count)
+        {"document_id": f"private-id-{index}", "current_references": []} for index in range(count)
     ]
     pool = [
         {"evrakOid": f"private-id-{index}", "pdfText": f"Güvenli belge metni {index}."}
@@ -76,13 +75,11 @@ def prepared_processed_fixture(tmp_path: Path, *, count: int = 1):
 
 
 def test_pilot_selection_transfers_missing_quota_deterministically() -> None:
-    documents = [
-        {"internal_doc_id": f"g{i}", "router_bucket": "GREEN"} for i in range(5)
-    ] + [
-        {"internal_doc_id": f"y{i}", "router_bucket": "YELLOW"} for i in range(30)
-    ] + [
-        {"internal_doc_id": f"r{i}", "router_bucket": "RED"} for i in range(40)
-    ]
+    documents = (
+        [{"internal_doc_id": f"g{i}", "router_bucket": "GREEN"} for i in range(5)]
+        + [{"internal_doc_id": f"y{i}", "router_bucket": "YELLOW"} for i in range(30)]
+        + [{"internal_doc_id": f"r{i}", "router_bucket": "RED"} for i in range(40)]
+    )
     first = select_pilot_documents(documents, batch_id="batch")
     second = select_pilot_documents(list(reversed(documents)), batch_id="batch")
     assert first == second

@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import sqlite3
 import time
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterator, Sequence
+from typing import Any
 
 from .constants import SCHEMA_VERSION
 from .errors import FingerprintMismatch, IntegrityError, VersionConflict
 from .fingerprints import canonical_json_bytes
-
 
 MIGRATIONS: dict[int, str] = {
     1: """
@@ -161,7 +161,7 @@ class Store:
     def close(self) -> None:
         self.connection.close()
 
-    def __enter__(self) -> "Store":
+    def __enter__(self) -> Store:
         return self
 
     def __exit__(self, exc_type: Any, exc: Any, traceback: Any) -> None:
@@ -482,9 +482,7 @@ class Store:
                 ),
             )
             if cursor.rowcount != 1:
-                raise VersionConflict(
-                    f"review {batch_id}/{internal_doc_id} changed concurrently"
-                )
+                raise VersionConflict(f"review {batch_id}/{internal_doc_id} changed concurrently")
         result = _row(
             self.connection.execute(
                 "SELECT * FROM reviews WHERE batch_id=? AND internal_doc_id=?",
@@ -531,9 +529,7 @@ class Store:
                 ),
             )
             if cursor.rowcount != 1:
-                raise VersionConflict(
-                    f"review {batch_id}/{internal_doc_id} changed concurrently"
-                )
+                raise VersionConflict(f"review {batch_id}/{internal_doc_id} changed concurrently")
             event = self.connection.execute(
                 """
                 INSERT INTO batch_events(

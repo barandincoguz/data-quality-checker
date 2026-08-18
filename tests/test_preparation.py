@@ -13,7 +13,6 @@ from data_quality_checker.preparation import (
 )
 from data_quality_checker.storage import Store
 
-
 FIELDS = {
     "kanun_no": "213",
     "kanun_ad": "Vergi Usul Kanunu",
@@ -68,9 +67,7 @@ def test_prepare_selects_highest_evidence_channel_and_never_uses_annotation_text
                     "edit_count": 1,
                     "unique_users_count": 1,
                 },
-                "current_references": [
-                    {**FIELDS, "source_text": "HTML evidence phrase"}
-                ],
+                "current_references": [{**FIELDS, "source_text": "HTML evidence phrase"}],
             },
             {
                 "evrakId": "secret-oid-tie",
@@ -134,13 +131,13 @@ def test_prepare_selects_highest_evidence_channel_and_never_uses_annotation_text
         "edit_count": 1,
         "unique_users_count": 1,
     }
-    assert {
-        warning["code"] for warning in by_raw_id["secret-oid-zero"]["warnings"]
-    } == {"current_references_missing_or_null"}
+    assert {warning["code"] for warning in by_raw_id["secret-oid-zero"]["warnings"]} == {
+        "current_references_missing_or_null"
+    }
 
-    public_text = (
-        config.public_root / "batches" / "fixture" / "manifest.json"
-    ).read_text(encoding="utf-8")
+    public_text = (config.public_root / "batches" / "fixture" / "manifest.json").read_text(
+        encoding="utf-8"
+    )
     assert "secret-oid-html" not in public_text
     assert "ANNOTATION ZIP TEXT" not in public_text
 
@@ -257,9 +254,9 @@ def test_missing_reference_fields_warn_while_invalid_types_and_duplicates_quaran
 
     ready_document = next(
         json.loads(path.read_text(encoding="utf-8"))
-        for path in (
-            config.sensitive_root / "batches" / "quarantine-fixture" / "documents"
-        ).glob("*.json")
+        for path in (config.sensitive_root / "batches" / "quarantine-fixture" / "documents").glob(
+            "*.json"
+        )
         if "missing-field-warning" in path.read_text(encoding="utf-8")
     )
     reference = ready_document["human_references"][0]
@@ -271,9 +268,7 @@ def test_missing_reference_fields_warn_while_invalid_types_and_duplicates_quaran
         "bent": "",
         "source_text": "",
     }
-    assert "reference_missing_field" in {
-        warning["code"] for warning in ready_document["warnings"]
-    }
+    assert "reference_missing_field" in {warning["code"] for warning in ready_document["warnings"]}
 
 
 def test_prepare_is_idempotent_for_same_fingerprints(tmp_path) -> None:

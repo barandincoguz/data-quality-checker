@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-
 import pytest
 
 from data_quality_checker.checkpoints import CheckpointManager
@@ -13,9 +12,7 @@ def test_uninterrupted_and_crash_resume_trajectories_are_identical(tmp_path) -> 
     direct = FakeStatefulTrainer(data=data, seed=42, checkpoint_root=tmp_path / "direct")
     direct.run(target_updates=10, checkpoint_every=5)
 
-    interrupted = FakeStatefulTrainer(
-        data=data, seed=42, checkpoint_root=tmp_path / "resumed"
-    )
+    interrupted = FakeStatefulTrainer(data=data, seed=42, checkpoint_root=tmp_path / "resumed")
     checkpoint = interrupted.run(target_updates=5, checkpoint_every=5)
     resumed = FakeStatefulTrainer(data=data, seed=42, checkpoint_root=tmp_path / "resumed")
     resumed.resume(checkpoint)

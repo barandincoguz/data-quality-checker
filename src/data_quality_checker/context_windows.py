@@ -11,7 +11,6 @@ from .atomic import write_json_atomic, write_jsonl_atomic
 from .errors import ContractError, FingerprintMismatch, IntegrityError
 from .fingerprints import fingerprint_json, sha256_file
 
-
 PRIMARY_RESERVED_TOKENS = 512
 MAX_PRIMARY_OVERLAP_TOKENS = 256
 FALLBACK_WINDOW_TOKENS = 128
@@ -26,9 +25,7 @@ DENSE_REPLAY_SAMPLE_THRESHOLD = 256
 def _include_dense_replay(doc_id: int) -> bool:
     """Select a stable, order-independent replay subset."""
 
-    digest = hashlib.sha256(
-        f"{DENSE_REPLAY_SAMPLE_NAMESPACE}:{doc_id}".encode("utf-8")
-    ).digest()
+    digest = hashlib.sha256(f"{DENSE_REPLAY_SAMPLE_NAMESPACE}:{doc_id}".encode()).digest()
     return digest[0] < DENSE_REPLAY_SAMPLE_THRESHOLD
 
 
@@ -126,9 +123,7 @@ def _window_row(
         {"role": "user", "content": text.rstrip()},
         {
             "role": "assistant",
-            "content": json.dumps(
-                visible, ensure_ascii=False, separators=(",", ":")
-            ),
+            "content": json.dumps(visible, ensure_ascii=False, separators=(",", ":")),
         },
     ]
     row = {"messages": messages}
@@ -177,9 +172,7 @@ def _dense_replay_rows(
     for reference_index, reference in enumerate(references):
         source_text = reference.get("source_text")
         if not isinstance(source_text, str) or not source_text.strip():
-            raise IntegrityError(
-                f"dense replay reference {reference_index} has no source_text"
-            )
+            raise IntegrityError(f"dense replay reference {reference_index} has no source_text")
         source_text = source_text.strip()
         if source_text not in body:
             raise IntegrityError(
@@ -194,9 +187,7 @@ def _dense_replay_rows(
         candidate_evidence = list(current_evidence)
         if source_text not in candidate_evidence:
             candidate_evidence.append(source_text)
-        candidate_row, candidate_tokens = render(
-            candidate_references, candidate_evidence
-        )
+        candidate_row, candidate_tokens = render(candidate_references, candidate_evidence)
         if candidate_tokens <= max_sequence_length:
             current_references = candidate_references
             current_evidence = candidate_evidence
@@ -255,9 +246,7 @@ def build_context_window_view(
 
     source_path = source_path.resolve()
     source_doc_ids_path = source_doc_ids_path.resolve()
-    primary_window_tokens, primary_overlap_tokens = _primary_window_geometry(
-        max_sequence_length
-    )
+    primary_window_tokens, primary_overlap_tokens = _primary_window_geometry(max_sequence_length)
     request = {
         "schema_version": 1,
         "source_jsonl_sha256": sha256_file(source_path),
@@ -323,8 +312,7 @@ def build_context_window_view(
         if (
             not isinstance(messages, list)
             or len(messages) != 3
-            or [message.get("role") for message in messages]
-            != ["system", "user", "assistant"]
+            or [message.get("role") for message in messages] != ["system", "user", "assistant"]
         ):
             raise ContractError(f"unexpected chat contract at source row {row_index}")
         doc_id = int(raw_doc_id)
@@ -354,13 +342,9 @@ def build_context_window_view(
         if not isinstance(user_content, str) or not user_content.strip():
             raise ContractError(f"user text missing at source row {row_index}")
         if user_content.rstrip().endswith("/no_think"):
-            raise ContractError(
-                f"unsupported literal /no_think suffix at source row {row_index}"
-            )
+            raise ContractError(f"unsupported literal /no_think suffix at source row {row_index}")
         body = user_content.rstrip()
-        encoded = offset_tokenizer(
-            body, add_special_tokens=False, return_offsets_mapping=True
-        )
+        encoded = offset_tokenizer(body, add_special_tokens=False, return_offsets_mapping=True)
         offsets = [tuple(pair) for pair in encoded["offset_mapping"]]
         if not offsets:
             raise ContractError(f"empty user body at source row {row_index}")
@@ -401,9 +385,7 @@ def build_context_window_view(
                         f"fallback chunk tokens={fallback_metadata['tokens']} exceed "
                         f"max_sequence_length={max_sequence_length} at row {row_index}"
                     )
-                accepted.append(
-                    (fallback_row, fallback_metadata, fallback_visible, "fallback")
-                )
+                accepted.append((fallback_row, fallback_metadata, fallback_visible, "fallback"))
 
         covered_tokens = [False] * len(offsets)
         visible_union: set[int] = set()
@@ -463,17 +445,13 @@ def build_context_window_view(
                 )
             char_start = body.find(source_text)
             if char_start < 0:
-                raise IntegrityError(
-                    f"reference rescue span is absent at source row {row_index}"
-                )
+                raise IntegrityError(f"reference rescue span is absent at source row {row_index}")
             rescue_messages = [
                 messages[0],
                 {"role": "user", "content": source_text},
                 {
                     "role": "assistant",
-                    "content": json.dumps(
-                        [reference], ensure_ascii=False, separators=(",", ":")
-                    ),
+                    "content": json.dumps([reference], ensure_ascii=False, separators=(",", ":")),
                 },
             ]
             rescue_tokens = _rendered_token_count(tokenizer, rescue_messages)
@@ -502,9 +480,7 @@ def build_context_window_view(
             visible_union.add(reference_index)
         if visible_union != set(range(len(references))):
             missing = sorted(set(range(len(references))) - visible_union)
-            raise IntegrityError(
-                f"reference coverage gap at source row {row_index}: {missing}"
-            )
+            raise IntegrityError(f"reference coverage gap at source row {row_index}: {missing}")
         dense_replay_eligible_document_count += 1
         if not _include_dense_replay(doc_id):
             dense_replay_skipped_document_count += 1
@@ -554,24 +530,16 @@ def build_context_window_view(
         "candidate_empty_chunk_count": candidate_empty_chunk_count,
         "dropped_empty_chunk_count": dropped_empty_chunk_count,
         "reference_rescue_count": reference_rescue_count,
-        "dense_replay_eligible_document_count": (
-            dense_replay_eligible_document_count
-        ),
+        "dense_replay_eligible_document_count": (dense_replay_eligible_document_count),
         "dense_replay_document_count": dense_replay_document_count,
-        "dense_replay_skipped_document_count": (
-            dense_replay_skipped_document_count
-        ),
+        "dense_replay_skipped_document_count": (dense_replay_skipped_document_count),
         "dense_replay_row_count": dense_replay_row_count,
         "dense_replay_reference_count": dense_replay_reference_count,
         "dense_replay_max_reference_count": dense_replay_max_reference_count,
-        "training_reference_count": (
-            chunk_reference_count + dense_replay_reference_count
-        ),
+        "training_reference_count": (chunk_reference_count + dense_replay_reference_count),
         "maximum_tokens": maximum_tokens,
         "candidate_text_coverage": "complete_before_negative_sampling",
-        "training_text_policy": (
-            "all_positive_plus_true_negative_only_plus_full_dense_replay"
-        ),
+        "training_text_policy": ("all_positive_plus_true_negative_only_plus_full_dense_replay"),
         "reference_coverage": "complete",
         "output_jsonl_path": str(output_path.resolve()),
         "output_jsonl_sha256": sha256_file(output_path),

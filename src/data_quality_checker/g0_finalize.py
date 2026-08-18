@@ -54,19 +54,13 @@ def finalize_selection(candidate_root: Path) -> dict[str, Any]:
         "core_f1": selected.core_f1,
         "recall": selected.recall,
         "refit_updates": final_refit_updates(selected.update),
-        "adapter_path": str(
-            candidate_root / "checkpoints" / f"update_{selected.update:07d}"
-        ),
+        "adapter_path": str(candidate_root / "checkpoints" / f"update_{selected.update:07d}"),
     }
 
 
 def _adapter_weight_file(adapter_path: Path) -> Path:
     """Resolve the adapters.safetensors the backend will checksum and load."""
-    return (
-        adapter_path / "adapters.safetensors"
-        if adapter_path.is_dir()
-        else adapter_path
-    )
+    return adapter_path / "adapters.safetensors" if adapter_path.is_dir() else adapter_path
 
 
 def build_g0_registry(

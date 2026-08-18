@@ -14,9 +14,9 @@ from .constants import MODEL_ID, MODEL_REVISION
 from .contracts import validate_reference_list
 from .errors import ContractError, FingerprintMismatch, GateBlocked, IntegrityError
 from .fingerprints import fingerprint_json, sha256_file, sha256_text
-from .performance import optional_float, optional_int
 from .g0 import SYSTEM_PROMPT
 from .heartbeat import RunLease
+from .performance import optional_float, optional_int
 from .preparation import validate_ready
 from .reference_policy import (
     DEFAULT_REFERENCE_POLICY_ID,
@@ -52,9 +52,7 @@ class EchoHumanBackend:
         return PredictionResult(
             status="success",
             references=references,
-            raw_output=json.dumps(
-                references, ensure_ascii=False, separators=(",", ":")
-            ),
+            raw_output=json.dumps(references, ensure_ascii=False, separators=(",", ":")),
             operational={
                 "backend": "echo-human-fixture-v1",
                 "input_tokens": None,
@@ -99,24 +97,15 @@ class MlxG0Backend:
         try:
             registry = json.loads(registry_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
-            raise GateBlocked(
-                f"no sealed G0 registry at {registry_path}: {exc}"
-            ) from exc
-        if (
-            registry.get("model_id") != MODEL_ID
-            or registry.get("model_revision") != MODEL_REVISION
-        ):
-            raise FingerprintMismatch(
-                "sealed G0 model id/revision differs from the v1 contract"
-            )
+            raise GateBlocked(f"no sealed G0 registry at {registry_path}: {exc}") from exc
+        if registry.get("model_id") != MODEL_ID or registry.get("model_revision") != MODEL_REVISION:
+            raise FingerprintMismatch("sealed G0 model id/revision differs from the v1 contract")
         adapter_path = Path(str(registry.get("adapter_path", ""))).resolve()
         model_path = Path(str(registry.get("model_snapshot_path", ""))).resolve()
         if not adapter_path.exists() or not model_path.is_dir():
             raise GateBlocked("sealed G0 model snapshot or adapter is unavailable")
         adapter_file = (
-            adapter_path / "adapters.safetensors"
-            if adapter_path.is_dir()
-            else adapter_path
+            adapter_path / "adapters.safetensors" if adapter_path.is_dir() else adapter_path
         )
         if not adapter_file.is_file() or sha256_file(adapter_file) != registry.get(
             "adapter_sha256"
@@ -134,9 +123,7 @@ class MlxG0Backend:
         )
         from mlx_lm import load
 
-        self.model, self.tokenizer = load(
-            str(model_path), adapter_path=str(adapter_path)
-        )
+        self.model, self.tokenizer = load(str(model_path), adapter_path=str(adapter_path))
 
     @property
     def model_fingerprint(self) -> str:
@@ -199,8 +186,12 @@ class MlxG0Backend:
             output_tokens = int(response.generation_tokens)
             finish_reason = str(response.finish_reason or finish_reason)
             prompt_tps = optional_float(getattr(response, "prompt_tps", None), prompt_tps)
-            generation_tps = optional_float(getattr(response, "generation_tps", None), generation_tps)
-            peak_memory_bytes = optional_int(getattr(response, "peak_memory", None), peak_memory_bytes)
+            generation_tps = optional_float(
+                getattr(response, "generation_tps", None), generation_tps
+            )
+            peak_memory_bytes = optional_int(
+                getattr(response, "peak_memory", None), peak_memory_bytes
+            )
         raw = "".join(pieces)
         truncated = finish_reason == "length"
         try:
@@ -330,9 +321,7 @@ def process_batch(
     sensitive_dir = config.sensitive_root / "batches" / batch_id
     output_dir = sensitive_dir / "predictions" / generation
     lease = RunLease(
-        lock_path=config.sensitive_root
-        / "locks"
-        / f"process_{batch_id}_{generation}.lock",
+        lock_path=config.sensitive_root / "locks" / f"process_{batch_id}_{generation}.lock",
         heartbeat_path=sensitive_dir / f"process_{generation}_heartbeat.json",
         purpose="process",
         run_id=f"process:{batch_id}:{generation}",
@@ -343,9 +332,7 @@ def process_batch(
         bucket: 0 for bucket in ("GREEN", "YELLOW", "RED", "QUARANTINE")
     }
     try:
-        with Store(
-            config.database_path, busy_timeout_ms=config.runtime.busy_timeout_ms
-        ) as store:
+        with Store(config.database_path, busy_timeout_ms=config.runtime.busy_timeout_ms) as store:
             batch = store.get_batch(batch_id)
             if batch is None or not batch["ready"]:
                 raise GateBlocked(f"batch {batch_id} is not READY in SQLite")
@@ -375,9 +362,7 @@ def process_batch(
                     }
                 )
                 target = output_dir / f"{row['internal_doc_id']}.json"
-                existing = store.get_prediction(
-                    batch_id, row["internal_doc_id"], generation
-                )
+                existing = store.get_prediction(batch_id, row["internal_doc_id"], generation)
                 if existing is not None:
                     if not resume:
                         raise GateBlocked(
@@ -401,9 +386,7 @@ def process_batch(
                         )
                     result = _prediction_from_payload(payload)
                     decision = _route(document, result)
-                    store.set_router_bucket(
-                        batch_id, row["internal_doc_id"], decision.bucket
-                    )
+                    store.set_router_bucket(batch_id, row["internal_doc_id"], decision.bucket)
                     bucket_counts[decision.bucket] += 1
                     lease.beat(
                         completed_units=index,
@@ -413,9 +396,7 @@ def process_batch(
 
                 if target.exists():
                     if not resume:
-                        raise GateBlocked(
-                            f"orphan prediction exists at {target}; pass --resume"
-                        )
+                        raise GateBlocked(f"orphan prediction exists at {target}; pass --resume")
                     _validate_result_file(target)
                     payload = json.loads(target.read_text(encoding="utf-8"))
                     if (
@@ -485,9 +466,7 @@ def process_batch(
                     error=result.error,
                     operational=result.operational,
                 )
-                store.set_router_bucket(
-                    batch_id, row["internal_doc_id"], decision.bucket
-                )
+                store.set_router_bucket(batch_id, row["internal_doc_id"], decision.bucket)
                 bucket_counts[decision.bucket] += 1
                 lease.beat(
                     completed_units=index,
@@ -522,10 +501,7 @@ def process_batch(
                 "completed": True,
             }
             write_json_atomic(
-                config.public_root
-                / "batches"
-                / batch_id
-                / f"process_{generation}_summary.json",
+                config.public_root / "batches" / batch_id / f"process_{generation}_summary.json",
                 summary,
                 mode=0o644,
             )

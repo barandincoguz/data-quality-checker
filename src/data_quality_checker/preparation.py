@@ -7,7 +7,7 @@ import hmac
 import json
 import os
 from collections import Counter, defaultdict
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -23,7 +23,7 @@ from .text import evidence_coverage, evidence_match_mode, html_to_text, normaliz
 
 
 def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _read_hmac_key(path: Path | None) -> bytes:
@@ -31,9 +31,7 @@ def _read_hmac_key(path: Path | None) -> bytes:
         try:
             key = path.read_bytes().strip()
         except OSError as exc:
-            raise ConfigurationError(
-                f"cannot read HMAC key file {path}: {exc}"
-            ) from exc
+            raise ConfigurationError(f"cannot read HMAC key file {path}: {exc}") from exc
     else:
         value = os.environ.get("DQCHECK_HMAC_KEY")
         if value is None:
@@ -116,10 +114,7 @@ def import_annotation_attribution(
     target = annotation_attribution_path(config, batch_id)
     if target.exists():
         existing = json.loads(target.read_text(encoding="utf-8"))
-        if (
-            existing.get("batch_id") == batch_id
-            and existing.get("source_sha256") == source_sha256
-        ):
+        if existing.get("batch_id") == batch_id and existing.get("source_sha256") == source_sha256:
             return existing
 
     _, records = read_json_records(annotation_zip, config.security)
@@ -129,9 +124,7 @@ def import_annotation_attribution(
         if raw_id:
             by_raw_id[raw_id].append(record.payload)
 
-    with Store(
-        config.database_path, busy_timeout_ms=config.runtime.busy_timeout_ms
-    ) as store:
+    with Store(config.database_path, busy_timeout_ms=config.runtime.busy_timeout_ms) as store:
         documents = store.list_documents(batch_id)
         if not documents:
             raise GateBlocked(f"batch has no documents: {batch_id}")
@@ -313,14 +306,10 @@ def prepare_batch(
     annotation_zip = annotation_zip.resolve()
     document_pool_zip = document_pool_zip.resolve()
     if not annotation_zip.is_file() or not document_pool_zip.is_file():
-        raise FileNotFoundError(
-            "both annotation and document-pool ZIP files must exist"
-        )
+        raise FileNotFoundError("both annotation and document-pool ZIP files must exist")
     key = _read_hmac_key(hmac_key_file)
 
-    annotation_audit, raw_annotation_records = read_json_records(
-        annotation_zip, config.security
-    )
+    annotation_audit, raw_annotation_records = read_json_records(annotation_zip, config.security)
     pool_audit, raw_pool_records = read_json_records(document_pool_zip, config.security)
     annotations = [
         record
@@ -335,13 +324,9 @@ def prepare_batch(
             )
         )
     ]
-    pool_records = [
-        record for record in raw_pool_records if "evrakOid" in record.payload
-    ]
+    pool_records = [record for record in raw_pool_records if "evrakOid" in record.payload]
     if not annotations:
-        raise ContractError(
-            "annotation ZIP contains no recognizable annotation records"
-        )
+        raise ContractError("annotation ZIP contains no recognizable annotation records")
     if not pool_records:
         raise ContractError("document-pool ZIP contains no evrakOid records")
 
@@ -364,9 +349,7 @@ def prepare_batch(
     ).start(stage="archive-audit")
 
     try:
-        with Store(
-            config.database_path, busy_timeout_ms=config.runtime.busy_timeout_ms
-        ) as store:
+        with Store(config.database_path, busy_timeout_ms=config.runtime.busy_timeout_ms) as store:
             batch = store.create_batch(
                 batch_id=effective_batch_id,
                 input_fingerprint=input_fingerprint,
@@ -375,8 +358,7 @@ def prepare_batch(
                     "input_contract": input_contract,
                     "annotation_zip_audit": annotation_audit.__dict__
                     | {"path": str(annotation_audit.path)},
-                    "pool_zip_audit": pool_audit.__dict__
-                    | {"path": str(pool_audit.path)},
+                    "pool_zip_audit": pool_audit.__dict__ | {"path": str(pool_audit.path)},
                     "started_at": _utc_now(),
                 },
             )
@@ -523,14 +505,10 @@ def prepare_batch(
                                 "text": text,
                                 "text_sha256": sha256_text(text),
                                 "human_references": references,
-                                "annotation_text_sha256": _annotation_text_digest(
-                                    annotation
-                                ),
+                                "annotation_text_sha256": _annotation_text_digest(annotation),
                                 "metadata": {
                                     "annotation_completed": completed,
-                                    "annotation_attribution": annotation_attribution(
-                                        annotation
-                                    ),
+                                    "annotation_attribution": annotation_attribution(annotation),
                                     "reference_count": len(references),
                                     "source_entry": records[0].entry_name,
                                     "pool_entry": pool_groups[raw_id][0].entry_name,
@@ -609,9 +587,7 @@ def prepare_batch(
                 "input_fingerprint": input_fingerprint,
                 "config_fingerprint": config.fingerprint,
                 "documents": prepared_checksums,
-                "private_mapping_sha256": sha256_file(
-                    sensitive_dir / "private_mapping.json"
-                ),
+                "private_mapping_sha256": sha256_file(sensitive_dir / "private_mapping.json"),
                 "quarantine_sha256": sha256_file(sensitive_dir / "quarantine.jsonl"),
             }
             write_json_atomic(sensitive_dir / "manifest.json", private_manifest)
@@ -625,9 +601,7 @@ def prepare_batch(
                 "counts": {
                     "annotations": len(annotations),
                     "unique_work_items": len(work_items),
-                    "ready": sum(
-                        row["preparation_status"] == "ready" for row in public_rows
-                    ),
+                    "ready": sum(row["preparation_status"] == "ready" for row in public_rows),
                     "quarantine": len(quarantine_rows),
                 },
                 "warning_counts": dict(sorted(warning_counts.items())),
@@ -654,9 +628,7 @@ def prepare_batch(
                 f"{sha256_file(sensitive_dir / 'manifest.json')}  sensitive-manifest.json",
             ]
             checksums_path = public_dir / "SHA256SUMS.txt"
-            write_text_atomic(
-                checksums_path, "\n".join(checksum_lines) + "\n", mode=0o644
-            )
+            write_text_atomic(checksums_path, "\n".join(checksum_lines) + "\n", mode=0o644)
             ready = {
                 "schema_version": 1,
                 "batch_id": effective_batch_id,
@@ -669,9 +641,7 @@ def prepare_batch(
                 "quarantine_count": public_manifest["counts"]["quarantine"],
                 "manifest_sha256": sha256_file(manifest_path),
                 "checksums_sha256": sha256_file(checksums_path),
-                "sensitive_manifest_sha256": sha256_file(
-                    sensitive_dir / "manifest.json"
-                ),
+                "sensitive_manifest_sha256": sha256_file(sensitive_dir / "manifest.json"),
             }
             write_json_atomic(public_dir / "READY.json", ready, mode=0o644)
             validate_ready(config, effective_batch_id)

@@ -81,6 +81,8 @@ dqcheck --config configs/presets/sample_data.json process \
 dqcheck --config configs/presets/sample_data.json status --batch-id demo_batch_001
 
 # 5. Launch the HITL review interface
+export DQCHECK_SESSION_SECRET="demo_session_secret_0123456789abcdef0123456789"
+export DQCHECK_ACCESS_TOKEN="demo_access_token_0123456789abcdef0123456789"
 dqcheck --config configs/presets/sample_data.json serve --batch-id demo_batch_001 --port 5055
 ```
 Open [http://127.0.0.1:5055](http://127.0.0.1:5055) in your browser.
@@ -98,6 +100,8 @@ Open [http://127.0.0.1:5055](http://127.0.0.1:5055) in your browser.
 | `dqcheck pilot-judges` | Runs blind automated LLM judge evaluations against human expert annotations. |
 | `dqcheck judge-lock` | Locks an approved judge model for production pipelines. |
 | `dqcheck serve` | Serves the local-only Human-in-the-Loop web review interface. |
+| `dqcheck predict-agent` | Streams G0 predictions to a remote annotation platform (outbound HTTPS only). |
+
 | `dqcheck review-backup` | Operates and verifies ACID SQLite snapshots and restore smoke tests. |
 | `dqcheck release` | Exports an atomic, versioned, cryptographic release manifest. |
 | `dqcheck status` | Inspects batch lifecycle state and bucket distributions. |

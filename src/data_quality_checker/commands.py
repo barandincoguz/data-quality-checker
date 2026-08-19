@@ -199,3 +199,33 @@ def status(args: Namespace, config: AppConfig) -> int:
         result: dict[str, Any] = store.status_summary(args.batch_id)
     print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
     return 0
+
+def predict_agent(args: Namespace, config: AppConfig) -> int:
+    import os
+
+    from .predict_agent import HttpTransport, build_backend, resolve_token, run_agent
+
+    token = resolve_token(args.token_env, os.environ)
+    transport = HttpTransport(base_url=args.space_url, token=token)
+    backend = build_backend(config, fake=args.fake_backend)
+    stats = run_agent(
+        transport=transport,
+        backend=backend,
+        batch_size=args.batch_size,
+        poll_seconds=args.poll_seconds,
+        once=args.once,
+    )
+    print(
+        json.dumps(
+            {
+                "pending": stats.pending,
+                "predicted": stats.predicted,
+                "upserted": stats.upserted,
+                "failed": stats.failed,
+            },
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+        )
+    )
+    return 0

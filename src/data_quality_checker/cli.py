@@ -155,6 +155,18 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--port", type=int, default=5055)
     serve.set_defaults(handler=commands.serve)
 
+    agent = subparsers.add_parser(
+        "predict-agent",
+        help="serve G0 predictions to a remote annotation platform",
+    )
+    agent.add_argument("--space-url", required=True)
+    agent.add_argument("--token-env", default="DQCHECK_INGEST_TOKEN")
+    agent.add_argument("--batch-size", type=int, default=4)
+    agent.add_argument("--poll-seconds", type=float, default=30.0)
+    agent.add_argument("--once", action="store_true")
+    agent.add_argument("--fake-backend", action="store_true", help=argparse.SUPPRESS)
+    agent.set_defaults(handler=commands.predict_agent)
+
     review_backup = subparsers.add_parser(
         "review-backup", help="inspect or operate verified HITL review backups"
     )

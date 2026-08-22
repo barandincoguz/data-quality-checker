@@ -36,6 +36,8 @@ class PredictionResult:
 
 
 class PredictionBackend(Protocol):
+    backend_id: str
+
     @property
     def model_fingerprint(self) -> str: ...
 
@@ -45,6 +47,7 @@ class PredictionBackend(Protocol):
 class EchoHumanBackend:
     """Test-only backend; never selected without the hidden CLI test flag."""
 
+    backend_id = "echo-human-fixture-v1"
     model_fingerprint = fingerprint_json({"backend": "echo-human-fixture-v1"})
 
     def predict(self, document: dict[str, Any]) -> PredictionResult:
@@ -88,6 +91,8 @@ def _parse_model_output(raw_output: str) -> list[dict[str, str]]:
 
 
 class MlxG0Backend:
+    backend_id = "mlx-g0"
+
     def __init__(self, config: AppConfig, *, registry_path: Path | None = None) -> None:
         registry_path = (
             config.public_root / "g0" / "G0.json"
@@ -202,7 +207,15 @@ class MlxG0Backend:
                 else ("success", None)
             )
         except ContractError as exc:
-            references, status, error = [], "error", str(exc)
+            references = []
+            status = "error"
+            error = f"model output reached generation limit; {exc}" if truncated else str(exc)
+        try:
+            import mlx.core as mx
+
+            mx.clear_cache()
+        except Exception:
+            pass
         return PredictionResult(
             status=status,
             references=references,

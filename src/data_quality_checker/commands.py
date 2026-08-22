@@ -7,7 +7,7 @@ from argparse import Namespace
 from typing import Any
 
 from .config import AppConfig
-from .errors import GateBlocked
+from .errors import ConfigurationError, GateBlocked
 from .storage import Store
 
 
@@ -200,14 +200,19 @@ def status(args: Namespace, config: AppConfig) -> int:
     print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
     return 0
 
+
 def predict_agent(args: Namespace, config: AppConfig) -> int:
     import os
 
     from .predict_agent import HttpTransport, build_backend, resolve_token, run_agent
 
+    if not 1 <= args.batch_size <= 16:
+        raise ConfigurationError("--batch-size must be between 1 and 16")
+    if args.poll_seconds <= 0:
+        raise ConfigurationError("--poll-seconds must be greater than zero")
     token = resolve_token(args.token_env, os.environ)
     transport = HttpTransport(base_url=args.space_url, token=token)
-    backend = build_backend(config, fake=args.fake_backend)
+    backend = build_backend(config)
     stats = run_agent(
         transport=transport,
         backend=backend,

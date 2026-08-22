@@ -164,7 +164,6 @@ def build_parser() -> argparse.ArgumentParser:
     agent.add_argument("--batch-size", type=int, default=4)
     agent.add_argument("--poll-seconds", type=float, default=30.0)
     agent.add_argument("--once", action="store_true")
-    agent.add_argument("--fake-backend", action="store_true", help=argparse.SUPPRESS)
     agent.set_defaults(handler=commands.predict_agent)
 
     review_backup = subparsers.add_parser(

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import zipfile
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -311,3 +312,41 @@ def test_mlx_backend_accepts_an_explicit_isolated_registry_path(monkeypatch, tmp
     backend = MlxG0Backend(config, registry_path=registry)
     assert backend.max_input_tokens == 12288
     assert backend.max_generation_tokens == 4096
+
+
+def test_mlx_backend_preserves_generation_limit_as_primary_parse_error(monkeypatch):
+    captured = {}
+
+    def fake_stream_generate(model, tokenizer, **kwargs):
+        captured.update(kwargs)
+        yield SimpleNamespace(
+            text="not-json",
+            generation_tokens=8,
+            finish_reason="length",
+            prompt_tps=10.0,
+            generation_tps=5.0,
+            peak_memory=1024,
+        )
+
+    class Tokenizer:
+        def apply_chat_template(self, *_args, **_kwargs):
+            return "prompt"
+
+        def encode(self, _prompt):
+            return [1, 2, 3]
+
+    import mlx_lm
+
+    monkeypatch.setattr(mlx_lm, "stream_generate", fake_stream_generate)
+    backend = object.__new__(MlxG0Backend)
+    backend.model = object()
+    backend.tokenizer = Tokenizer()
+    backend.max_input_tokens = 100
+    backend.max_generation_tokens = 8
+
+    result = backend.predict({"text": "body"})
+
+    assert result.status == "error"
+    assert result.operational["truncated"] is True
+    assert result.error.startswith("model output reached generation limit;")
+    assert captured == {"prompt": "prompt", "max_tokens": 8}

@@ -1,6 +1,6 @@
 .PHONY: help install install-dev test test-cov lint format sample-data serve-demo clean build
 
-PYTHON ?= python3
+PYTHON ?= ./.venv/bin/python
 
 help:
 	@echo "data-quality-checker development targets:"

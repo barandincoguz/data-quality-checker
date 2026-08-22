@@ -54,10 +54,12 @@ htmlcov/
 .ruff_cache/
 .mypy_cache/
 
-# Sensitive data & live databases
+# Sensitive data, training runs & live databases
 data/sensitive/
 data/sample_sensitive/
-artifacts/sample_artifacts/
+Fine-Tuning/runs/
+Fine-Tuning/data/
+artifacts/
 *.sqlite3
 *.sqlite3-wal
 *.sqlite3-shm

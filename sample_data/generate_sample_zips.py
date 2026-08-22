@@ -6,7 +6,6 @@ import json
 import zipfile
 from pathlib import Path
 
-
 SAMPLE_ANNOTATIONS = {
     "annotations": [
         {
@@ -120,11 +119,15 @@ def build_zips(output_dir: Path | str) -> tuple[Path, Path, Path]:
 
     annotations_zip_path = out / "mock_annotations.zip"
     with zipfile.ZipFile(annotations_zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr("annotations.json", json.dumps(SAMPLE_ANNOTATIONS, ensure_ascii=False, indent=2))
+        info = zipfile.ZipInfo("annotations.json", date_time=(1980, 1, 1, 0, 0, 0))
+        info.compress_type = zipfile.ZIP_DEFLATED
+        zf.writestr(info, json.dumps(SAMPLE_ANNOTATIONS, ensure_ascii=False, indent=2))
 
     documents_zip_path = out / "mock_documents.zip"
     with zipfile.ZipFile(documents_zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr("documents.json", json.dumps(SAMPLE_DOCUMENTS, ensure_ascii=False, indent=2))
+        info = zipfile.ZipInfo("documents.json", date_time=(1980, 1, 1, 0, 0, 0))
+        info.compress_type = zipfile.ZIP_DEFLATED
+        zf.writestr(info, json.dumps(SAMPLE_DOCUMENTS, ensure_ascii=False, indent=2))
 
     hmac_key_path = out / "sample_hmac.key"
     hmac_key_path.write_bytes(b"sample_secret_hmac_key_for_testing_0123456789\n")

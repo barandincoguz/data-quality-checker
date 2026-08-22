@@ -31,6 +31,19 @@ def test_app_factory_requires_session_secret_outside_tests() -> None:
         create_app(load_config(), session_secret=None)
 
 
+@pytest.mark.parametrize(
+    "secret",
+    [
+        "too-short",
+        "demo_session_secret_0123456789abcdef0123456789",
+        "demo_access_token_0123456789abcdef0123456789",
+    ],
+)
+def test_app_factory_rejects_weak_or_published_secrets(secret: str) -> None:
+    with pytest.raises(ConfigurationError):
+        create_app(load_config(), session_secret=secret)
+
+
 def test_health_route(tmp_path) -> None:
     app = create_app(load_config(), testing=True, batch_id="fixture")
     response = app.test_client().get("/healthz")

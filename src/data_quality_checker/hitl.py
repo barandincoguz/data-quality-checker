@@ -43,7 +43,7 @@ from .review_backup import (
 )
 from .storage import Store
 from .text import evidence_match_mode
-from .web import create_app
+from .web import create_app, validate_runtime_secret
 
 LOGIN_TEMPLATE = """
 <!doctype html><meta charset="utf-8"><title>DQCheck Giriş</title>
@@ -618,12 +618,14 @@ def create_hitl_app(
     session_secret: str | None = None,
     access_token: str | None = None,
 ) -> Flask:
-    secret = session_secret or os.environ.get("DQCHECK_SESSION_SECRET")
-    token = access_token or os.environ.get("DQCHECK_ACCESS_TOKEN")
-    if not secret or len(secret) < 32:
-        raise ConfigurationError("DQCHECK_SESSION_SECRET must contain at least 32 characters")
-    if not token or len(token) < 32:
-        raise ConfigurationError("DQCHECK_ACCESS_TOKEN must contain at least 32 characters")
+    secret = validate_runtime_secret(
+        session_secret or os.environ.get("DQCHECK_SESSION_SECRET"),
+        env_name="DQCHECK_SESSION_SECRET",
+    )
+    token = validate_runtime_secret(
+        access_token or os.environ.get("DQCHECK_ACCESS_TOKEN"),
+        env_name="DQCHECK_ACCESS_TOKEN",
+    )
     with (
         review_backup_lock(config=config, batch_id=batch_id),
         Store(

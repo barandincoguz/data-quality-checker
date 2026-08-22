@@ -11,6 +11,21 @@ from .config import AppConfig
 from .errors import ConfigurationError
 from .storage import Store
 
+PUBLISHED_DEMO_SECRETS = frozenset(
+    {
+        "demo_session_secret_0123456789abcdef0123456789",
+        "demo_access_token_0123456789abcdef0123456789",
+    }
+)
+
+
+def validate_runtime_secret(value: str | None, *, env_name: str) -> str:
+    if not value or len(value) < 32:
+        raise ConfigurationError(f"{env_name} must contain at least 32 characters")
+    if value in PUBLISHED_DEMO_SECRETS:
+        raise ConfigurationError(f"{env_name} must not use the published demo value")
+    return value
+
 
 def create_app(
     config: AppConfig,
@@ -21,8 +36,8 @@ def create_app(
     session_secret: str | None = None,
 ) -> Flask:
     secret = session_secret or os.environ.get("DQCHECK_SESSION_SECRET")
-    if not secret and not testing:
-        raise ConfigurationError("DQCHECK_SESSION_SECRET is required for the HITL server")
+    if secret is not None or not testing:
+        secret = validate_runtime_secret(secret, env_name="DQCHECK_SESSION_SECRET")
 
     app = Flask(__name__)
     app.config.update(

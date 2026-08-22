@@ -81,8 +81,8 @@ dqcheck --config configs/presets/sample_data.json process \
 dqcheck --config configs/presets/sample_data.json status --batch-id demo_batch_001
 
 # 5. Launch the HITL review interface
-export DQCHECK_SESSION_SECRET="demo_session_secret_0123456789abcdef0123456789"
-export DQCHECK_ACCESS_TOKEN="demo_access_token_0123456789abcdef0123456789"
+export DQCHECK_SESSION_SECRET="$(openssl rand -hex 32)"
+export DQCHECK_ACCESS_TOKEN="$(openssl rand -hex 32)"
 dqcheck --config configs/presets/sample_data.json serve --batch-id demo_batch_001 --port 5055
 ```
 Open [http://127.0.0.1:5055](http://127.0.0.1:5055) in your browser.

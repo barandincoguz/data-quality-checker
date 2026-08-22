@@ -43,9 +43,12 @@ def _evidence_compatible(left: str, right: str) -> bool:
     loose_left, loose_right = loose_text(left), loose_text(right)
     if not loose_left and not loose_right:
         return True
-    return bool(
-        loose_left and loose_right and (loose_left in loose_right or loose_right in loose_left)
-    )
+    if not loose_left or not loose_right:
+        return False
+    shorter, longer = sorted((loose_left, loose_right), key=len)
+    if shorter not in longer:
+        return False
+    return len(shorter) >= 16 and len(shorter) / len(longer) >= 0.25
 
 
 def _similarity(human: set[Any], model: set[Any]) -> float:

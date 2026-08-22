@@ -72,6 +72,15 @@ def test_yellow_for_extension_or_real_evidence_mismatch() -> None:
     assert evidence.reasons == ("evidence_mismatch",)
 
 
+def test_one_character_evidence_cannot_make_a_reference_green() -> None:
+    decision = route_document(
+        human_references=[ref(source_text="a")],
+        model_references=[ref()],
+    )
+    assert decision.bucket == "YELLOW"
+    assert decision.reasons == ("evidence_mismatch",)
+
+
 def test_red_for_missing_or_extra_core_and_conflicting_identity() -> None:
     missing = route_document(human_references=[ref()], model_references=[])
     assert missing.bucket == "RED"

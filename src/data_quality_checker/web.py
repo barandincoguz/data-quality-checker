@@ -20,11 +20,13 @@ PUBLISHED_DEMO_SECRETS = frozenset(
 
 
 def validate_runtime_secret(value: str | None, *, env_name: str) -> str:
-    if not value or len(value) < 32:
+    candidate = value.strip() if value else ""
+    if len(candidate) < 32:
         raise ConfigurationError(f"{env_name} must contain at least 32 characters")
-    if value in PUBLISHED_DEMO_SECRETS:
+    folded = candidate.casefold()
+    if any(folded.startswith(secret.casefold()) for secret in PUBLISHED_DEMO_SECRETS):
         raise ConfigurationError(f"{env_name} must not use the published demo value")
-    return value
+    return candidate
 
 
 def create_app(

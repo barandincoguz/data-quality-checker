@@ -24,7 +24,7 @@ def validate_runtime_secret(value: str | None, *, env_name: str) -> str:
     if len(candidate) < 32:
         raise ConfigurationError(f"{env_name} must contain at least 32 characters")
     folded = candidate.casefold()
-    if any(folded.startswith(secret.casefold()) for secret in PUBLISHED_DEMO_SECRETS):
+    if any(secret.casefold() in folded for secret in PUBLISHED_DEMO_SECRETS):
         raise ConfigurationError(f"{env_name} must not use the published demo value")
     return candidate
 

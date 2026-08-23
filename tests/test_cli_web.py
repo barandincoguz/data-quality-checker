@@ -39,6 +39,7 @@ def test_app_factory_requires_session_secret_outside_tests() -> None:
         "demo_access_token_0123456789abcdef0123456789",
         " DEMO_SESSION_SECRET_0123456789ABCDEF0123456789 ",
         "demo_access_token_0123456789abcdef0123456789-extra",
+        "x-demo_session_secret_0123456789abcdef0123456789",
     ],
 )
 def test_app_factory_rejects_weak_or_published_secrets(secret: str) -> None:

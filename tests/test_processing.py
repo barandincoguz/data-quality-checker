@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sys
 import zipfile
 from pathlib import Path
 from types import SimpleNamespace
@@ -335,9 +336,11 @@ def test_mlx_backend_preserves_generation_limit_as_primary_parse_error(monkeypat
         def encode(self, _prompt):
             return [1, 2, 3]
 
-    import mlx_lm
-
-    monkeypatch.setattr(mlx_lm, "stream_generate", fake_stream_generate)
+    monkeypatch.setitem(
+        sys.modules,
+        "mlx_lm",
+        SimpleNamespace(stream_generate=fake_stream_generate),
+    )
     backend = object.__new__(MlxG0Backend)
     backend.model = object()
     backend.tokenizer = Tokenizer()

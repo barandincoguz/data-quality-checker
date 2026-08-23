@@ -9,6 +9,8 @@ This guide explains how human experts and domain annotators interact with the `d
 Run the server bound to localhost:
 
 ```bash
+export DQCHECK_SESSION_SECRET="<en-az-32-karakter-gizli-anahtar>"
+export DQCHECK_ACCESS_TOKEN="<en-az-32-karakter-erisim-belirteci>"
 dqcheck serve --batch-id <batch-id> --port 5055
 ```
 

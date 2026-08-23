@@ -3,7 +3,7 @@
 import pytest
 
 from data_quality_checker.cli import build_parser
-from data_quality_checker.errors import ConfigurationError
+from data_quality_checker.errors import ConfigurationError, ContractError
 from data_quality_checker.fingerprints import sha256_text
 from data_quality_checker.predict_agent import (
     APPROVED_PRODUCTION_MODEL_FINGERPRINTS,
@@ -159,6 +159,29 @@ def test_post_failure_is_counted_and_does_not_crash_the_loop():
     assert stats.upserted == 0
 
 
+def test_partial_consumer_success_is_counted_without_livelock_backoff():
+    class PartialTransport(FakeTransport):
+        def post_predictions(self, items):
+            self.posted.append(items)
+            return len(items) - 1
+
+    second = {**DOCUMENT, "document_id": "d2"}
+    transport = PartialTransport([[DOCUMENT, second]])
+    logs = []
+
+    stats = run_agent(
+        transport=transport,
+        backend=FakeBackend(),
+        once=True,
+        sleep=lambda _s: None,
+        log=logs.append,
+    )
+
+    assert stats.upserted == 1
+    assert stats.failed == 0
+    assert any("skipped=1" in line for line in logs)
+
+
 def test_loop_backs_off_after_a_failed_batch():
     delays = []
     transport = FakeTransport([[DOCUMENT], []])
@@ -278,34 +301,80 @@ def test_fixture_backend_is_never_available_to_remote_agent():
         )
 
 
-def test_remote_agent_rejects_unapproved_model_fingerprint():
+def test_remote_agent_fails_loudly_for_unapproved_model_fingerprint():
     class UnknownModel(FakeBackend):
         model_fingerprint = "f" * 64
 
     transport = FakeTransport([[DOCUMENT]])
-    stats = run_agent(
-        transport=transport,
-        backend=UnknownModel(),
-        once=True,
-        sleep=lambda _s: None,
-        log=lambda _m: None,
-    )
+    with pytest.raises(ConfigurationError, match="unapproved"):
+        run_agent(
+            transport=transport,
+            backend=UnknownModel(),
+            once=True,
+            sleep=lambda _s: None,
+            log=lambda _m: None,
+        )
 
     assert transport.posted == []
-    assert stats.failed == 1
 
 
-def test_predict_agent_cli_has_no_fake_backend_escape_hatch():
+@pytest.mark.parametrize("forbidden_flag", ["--fake-backend", "--allow-fixture-ingest"])
+def test_predict_agent_cli_has_no_fake_backend_escape_hatch(forbidden_flag):
     with pytest.raises(SystemExit):
         build_parser().parse_args(
             [
                 "predict-agent",
                 "--space-url",
                 "https://example.test",
-                "--fake-backend",
-                "--allow-fixture-ingest",
+                forbidden_flag,
             ]
         )
+
+
+def test_schema_overflow_is_cached_as_error_not_generation_truncation():
+    oversized = {**REFERENCE, "source_text": "x" * 4_001}
+    result = PredictionResult(
+        status="success",
+        references=[oversized],
+        raw_output="[]",
+        operational={"truncated": False, "finish_reason": "stop"},
+    )
+    transport = FakeTransport([[DOCUMENT]])
+
+    run_agent(
+        transport=transport,
+        backend=FakeBackend(result=result),
+        once=True,
+        sleep=lambda _s: None,
+    )
+
+    (item,) = transport.posted[0]
+    assert item["status"] == "error"
+    assert item["references"] == []
+    assert item["truncated"] is False
+    assert item["operational"]["truncated"] is False
+    assert "schema limits" in item["error"]
+
+
+def test_http_transport_accepts_valid_partial_upsert_response(monkeypatch):
+    transport = HttpTransport(base_url="https://example.test", token="secret")
+    monkeypatch.setattr(
+        transport,
+        "_request",
+        lambda *_args, **_kwargs: {"upserted": 1, "rejected": 0},
+    )
+    assert transport.post_predictions([{}, {}]) == 1
+
+
+def test_http_transport_still_fails_closed_on_rejected_item(monkeypatch):
+    transport = HttpTransport(base_url="https://example.test", token="secret")
+    monkeypatch.setattr(
+        transport,
+        "_request",
+        lambda *_args, **_kwargs: {"upserted": 1, "rejected": 1},
+    )
+    with pytest.raises(ContractError, match="rejected 1"):
+        transport.post_predictions([{}, {}])
 
 
 def test_backoff_exponent_cannot_overflow_after_long_outage():

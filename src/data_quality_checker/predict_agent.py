@@ -143,8 +143,10 @@ class HttpTransport:
         rejected = int(payload.get("rejected", 0))
         if rejected:
             raise ContractError(f"platform rejected {rejected} prediction item(s)")
-        if upserted != len(items):
-            raise ContractError(f"platform upserted {upserted} of {len(items)} prediction item(s)")
+        if not 0 <= upserted <= len(items):
+            raise ContractError(
+                f"platform returned invalid upsert count {upserted} for {len(items)} item(s)"
+            )
         return upserted
 
 
@@ -238,7 +240,23 @@ def _predict_one(backend: PredictionBackend, document: Mapping[str, Any]) -> dic
     operational = _safe_operational(result.operational)
     operational["backend"] = PRODUCTION_BACKEND_ID
     if clipped:
-        operational["truncated"] = True
+        # Contract clipping is not model generation truncation. Comparing a
+        # silently shortened reference set would be misleading, while marking
+        # it `truncated` would falsely claim the model hit its token ceiling.
+        # Cache a bounded model error instead so the UI fails closed and the
+        # document does not livelock in the pending queue.
+        return {
+            "document_id": document_id,
+            "generation": DEFAULT_GENERATION,
+            "status": "error",
+            "references": [],
+            "truncated": bool(operational.get("truncated")),
+            "model_fingerprint": backend.model_fingerprint,
+            "text_sha256": computed_hash,
+            "source": "dqcheck_agent",
+            "error": "model output exceeded production prediction schema limits",
+            "operational": operational,
+        }
     return {
         "document_id": document_id,
         "generation": DEFAULT_GENERATION,
@@ -296,6 +314,11 @@ def run_agent(
                 continue
             try:
                 items.append(_predict_one(backend, document))
+            except ConfigurationError:
+                # Backend identity/fingerprint drift is process-wide and will
+                # never heal by retrying individual documents. Exit loudly so
+                # the supervisor/operator sees a failed deployment.
+                raise
             except Exception as exc:  # environment-level failure
                 stats.failed += 1
                 batch_failed = True
@@ -305,10 +328,10 @@ def run_agent(
         if items:
             try:
                 upserted = transport.post_predictions(items)
-                if upserted != len(items):
-                    raise ContractError(f"platform upserted {upserted} of {len(items)} item(s)")
                 stats.upserted += upserted
-                log(f"pending={len(pending)} predicted={len(items)} upserted={upserted}")
+                skipped = len(items) - upserted
+                suffix = f" skipped={skipped}" if skipped else ""
+                log(f"pending={len(pending)} predicted={len(items)} upserted={upserted}{suffix}")
             except Exception as exc:
                 stats.failed += 1
                 batch_failed = True

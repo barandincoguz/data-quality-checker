@@ -511,7 +511,7 @@ Expected: PASS — 21 passed.
 - [ ] **Step 5: Run the full suite**
 
 Run: `.venv/bin/python -m pytest -q`
-Expected: PASS — 265 before this plan, plus 21 = **286**.
+Expected: PASS — **289**. That is 265 before this plan plus 24: 8 from Task 1, 3 from the hardening commit that closed Task 1's review findings, 9 from Task 2, and 4 from Task 3.
 
 - [ ] **Step 6: Lint, type-check, commit**
 
@@ -527,7 +527,7 @@ git commit -m "feat(loop): resume a crashed round and report the measured curve"
 ## Done When
 
 - `loop_rounds.py` exists with stages, state, ordered transitions, resume, and the curve.
-- `.venv/bin/python -m pytest -q` passes at **286**.
+- `.venv/bin/python -m pytest -q` passes at **289** (265 + 24; the extra three come from the hardening commit that closed Task 1's review findings).
 - `ruff check` passes; `mypy src` still reports 37 errors in 9 files.
 - `g0.py` is byte-identical to `main`.
 - No new runtime dependency.

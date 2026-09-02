@@ -133,7 +133,7 @@ def pilot_judges(args: Namespace, config: AppConfig) -> int:
 
     raw_judge_models = getattr(args, "judge_models", None)
     judge_models: tuple[str, ...] | None = None
-    if raw_judge_models:
+    if raw_judge_models is not None:
         parsed = [part.strip() for part in raw_judge_models.split(",") if part.strip()]
         if not parsed:
             raise ContractError(

@@ -19,7 +19,7 @@ from .atomic import write_json_atomic
 from .config import AppConfig
 from .constants import MODEL_ID
 from .contracts import validate_reference_list
-from .errors import ContractError, GateBlocked, IntegrityError
+from .errors import ContractError, DQCheckError, GateBlocked, IntegrityError
 from .fingerprints import fingerprint_json, sha256_file
 from .heartbeat import RunLease
 from .normalization import compact_references, core_identity, full_identity
@@ -43,8 +43,16 @@ PILOT_TARGET_PER_BUCKET = 20
 PILOT_MAX_DOCS = 60
 
 
-class JudgeProviderUnavailable(RuntimeError):
-    pass
+class JudgeProviderUnavailable(DQCheckError):
+    """A judge provider could not be resolved or reached (e.g. missing credential).
+
+    Deliberately based on `DQCheckError` (not `ContractError`, `ValueError`, or
+    `TypeError`) so it is caught by the CLI's top-level handler as a clean
+    `dqcheck: error: ...` exit, while still NOT matching the pilot's own
+    `except (ContractError, ValueError, TypeError)` per-document clause, which
+    would otherwise silently turn a missing credential into per-document
+    "error" rows instead of aborting the run.
+    """
 
 
 class JudgeProvider(Protocol):

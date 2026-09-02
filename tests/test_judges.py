@@ -9,7 +9,7 @@ import pytest
 
 from data_quality_checker.commands import pilot_judges
 from data_quality_checker.config import default_config_path, load_config
-from data_quality_checker.errors import ContractError, GateBlocked
+from data_quality_checker.errors import ContractError, DQCheckError, GateBlocked
 from data_quality_checker.judges import (
     FakeJudgeProvider,
     JudgeProviderUnavailable,
@@ -350,3 +350,66 @@ def test_cli_rejects_an_explicitly_supplied_empty_judge_models_flag() -> None:
     )
     with pytest.raises(ContractError):
         pilot_judges(args, config=None)
+
+
+_OLLAMA_ENV_NAMES = ("OLLAMA_API_KEY", *[f"OLLAMA_API_KEY_V{i}" for i in range(2, 8)])
+
+
+def test_missing_credential_aborts_the_pilot_instead_of_recording_error_rows(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Pins the FIX 1 contract at the library boundary.
+
+    A missing OLLAMA_API_KEY makes `resolve_judge_provider` raise
+    `JudgeProviderUnavailable` from *outside* the per-document retry loop in
+    `_run_pilot_impl`, so it must abort the whole pilot rather than being
+    caught by the loop's `except (ContractError, ValueError, TypeError)` and
+    recorded as a per-document "error" row. `JudgeProviderUnavailable` is also
+    a `DQCheckError` so the CLI's top-level handler renders it cleanly.
+    """
+    config = prepared_processed_fixture(tmp_path)
+    for name in _OLLAMA_ENV_NAMES:
+        monkeypatch.delenv(name, raising=False)
+
+    with pytest.raises(JudgeProviderUnavailable) as exc_info:
+        run_judge_pilot(
+            config=config,
+            batch_id="batch",
+            allow_external_judge=True,
+        )
+    assert isinstance(exc_info.value, DQCheckError)
+    assert "OLLAMA_API_KEY" in str(exc_info.value)
+
+    with Store(config.database_path) as store:
+        assert store.list_judge_results("batch") == []
+
+
+def test_missing_credential_surfaces_as_a_clean_cli_error(
+    tmp_path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Pins the FIX 1 contract at the CLI boundary: no raw traceback, exit 2."""
+    from data_quality_checker.cli import main
+
+    prepared_processed_fixture(tmp_path)
+    config_path = tmp_path / "config.json"
+    for name in _OLLAMA_ENV_NAMES:
+        monkeypatch.delenv(name, raising=False)
+
+    exit_code = main(
+        [
+            "--config",
+            str(config_path),
+            "pilot-judges",
+            "--batch-id",
+            "batch",
+            "--allow-external-judge",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert captured.err.startswith("dqcheck: error:")
+    assert "OLLAMA_API_KEY" in captured.err
+
+    with Store(load_config(config_path).database_path) as store:
+        assert store.list_judge_results("batch") == []

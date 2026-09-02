@@ -53,6 +53,7 @@ def test_record_names_the_winner_and_every_candidate(tmp_path: Path) -> None:
     rows = candidates()
     result = write_selection_record(tmp_path, 3, rows[1], rows, validation_documents=50)
     payload = json.loads((tmp_path / "round_003_checkpoint.json").read_text(encoding="utf-8"))
+    assert payload["schema_version"] == 2
     assert payload["round"] == 3
     assert payload["selected"]["update"] == 100
     assert [row["update"] for row in payload["candidates"]] == [50, 100, 150]

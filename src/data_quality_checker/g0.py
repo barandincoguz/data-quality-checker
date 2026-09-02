@@ -347,17 +347,25 @@ def select_sequence_length(
     )
 
 
-def select_checkpoint(candidates: list[CheckpointCandidate]) -> CheckpointCandidate:
+def select_checkpoint(
+    candidates: list[CheckpointCandidate],
+    *,
+    validation_documents: int = 50,
+    minimum_parse_count: int = 49,
+) -> CheckpointCandidate:
     eligible = [
         candidate
         for candidate in candidates
-        if candidate.coverage_count == 50
-        and candidate.parse_count >= 49
+        if candidate.coverage_count == validation_documents
+        and candidate.parse_count >= minimum_parse_count
         and candidate.empty_output_count == 0
         and candidate.runaway_output_count == 0
     ]
     if not eligible:
-        raise GateBlocked("no checkpoint passes coverage/parse/collapse eligibility gates")
+        raise GateBlocked(
+            "no checkpoint passes coverage/parse/collapse eligibility gates "
+            f"(need coverage=={validation_documents}, parse>={minimum_parse_count})"
+        )
     return max(
         eligible,
         key=lambda item: (

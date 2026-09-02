@@ -158,15 +158,20 @@ def resume_round(output_dir: Path, round_index: int) -> RoundState:
 def learning_curve_rows(output_dir: Path, rounds: list[int]) -> list[dict[str, Any]]:
     """The curve so far: one row per round that has actually been measured.
 
-    A round that stopped earlier is omitted rather than reported with a blank
-    score, so a partially-run loop cannot be read as a complete curve.
+    A round that stopped earlier -- or was never written at all -- is omitted
+    rather than reported with a blank score, so a partially-run loop cannot be
+    read as a complete curve. A round whose state file exists but is corrupt
+    is a different failure: that round may have already been measured, and
+    silently dropping the point would let a published curve go quietly
+    incomplete. So only `RoundStateMissing` (never started) is swallowed here;
+    any other `ContractError` (corrupt or malformed) propagates to the caller.
     """
     measured_index = ROUND_STAGES.index("measured")
     rows: list[dict[str, Any]] = []
     for round_index in sorted(set(rounds)):
         try:
             state = read_round_state(output_dir, round_index)
-        except ContractError:
+        except RoundStateMissing:
             continue
         if ROUND_STAGES.index(state.stage) < measured_index:
             continue

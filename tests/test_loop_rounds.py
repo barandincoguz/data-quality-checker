@@ -250,3 +250,39 @@ def test_the_curve_deduplicates_repeated_round_numbers(tmp_path: Path) -> None:
 
     rows = learning_curve_rows(tmp_path, rounds=[1, 1])
     assert [row["round"] for row in rows] == [1]
+
+
+def test_the_curve_skips_a_round_with_no_state_file_at_all(tmp_path: Path) -> None:
+    """A round that has simply never run yet is correctly absent from the
+
+    curve -- this is the "never started" case, distinct from a corrupt file,
+    and must still be silently skipped so the other rounds still appear.
+    """
+    measured = new_round(1)
+    for stage in ROUND_STAGES[1 : ROUND_STAGES.index("measured") + 1]:
+        measured = advance_round(measured, to=stage, artifact_sha256="sha")
+    write_round_state(tmp_path, measured)
+    # Round 2 is never written at all.
+
+    rows = learning_curve_rows(tmp_path, rounds=[1, 2])
+    assert [row["round"] for row in rows] == [1]
+
+
+def test_the_curve_raises_on_a_corrupt_round_instead_of_omitting_it(tmp_path: Path) -> None:
+    """A published learning curve must never go quietly incomplete.
+
+    A round whose state file exists but is corrupt may have already been
+    measured; silently omitting it would report a curve that looks complete
+    but is missing a point. Unlike a round that never started, this must
+    raise rather than be swallowed.
+    """
+    measured = new_round(1)
+    for stage in ROUND_STAGES[1 : ROUND_STAGES.index("measured") + 1]:
+        measured = advance_round(measured, to=stage, artifact_sha256="sha")
+    write_round_state(tmp_path, measured)
+
+    # Round 2's state file exists but is corrupt: valid JSON, missing "round".
+    _write_raw_state(tmp_path, 2, {"stage": "measured", "artifacts": {}})
+
+    with pytest.raises(ContractError):
+        learning_curve_rows(tmp_path, rounds=[1, 2])

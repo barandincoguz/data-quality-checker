@@ -87,7 +87,10 @@ def advance_round(state: RoundState, *, to: str, artifact_sha256: str) -> RoundS
     """
     state.validate()
     if to not in ROUND_STAGES:
-        raise ContractError(f"unknown stage {to!r}; expected one of {list(ROUND_STAGES)}")
+        raise ContractError(
+            f"round {state.round_index} cannot advance to unknown stage {to!r}; "
+            f"expected one of {list(ROUND_STAGES)}"
+        )
     if not artifact_sha256:
         raise ContractError(
             f"advancing round {state.round_index} to {to!r} requires an artifact sha256"

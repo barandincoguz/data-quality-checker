@@ -59,7 +59,7 @@ def write_round_training_manifest(
         raise ContractError("round_index must be non-negative")
     output_dir.mkdir(parents=True, exist_ok=True)
     payload = {
-        "schema_version": 1,
+        "schema_version": 2,
         "round": round_index,
         "split_manifest_sha256": split_manifest_sha256,
         "batch_manifest_sha256": batch_manifest_sha256,

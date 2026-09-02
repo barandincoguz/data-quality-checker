@@ -272,6 +272,30 @@ def test_manifest_seals_itself_and_records_the_seed(tmp_path: Path) -> None:
     assert result["manifest_sha256"]
 
 
+def test_pool_doc_ids_disjoint_from_the_dealt_batches_is_rejected(tmp_path: Path) -> None:
+    """FIX 3 regression: `pool_doc_ids` must actually contain the dealt ids.
+
+    Requiring the argument did not make it truthful: a pool sharing zero ids
+    with the dealt set used to be accepted, with `pool_fingerprint` attesting
+    to documents that were never dealt. `set(dealt) <= set(pool)` must hold.
+    """
+    documents = make_documents()
+    batches = build_round_batches(documents, rounds=12, size=100, seed=LOOP_BATCH_SEED)
+    unrelated_pool = [f"unrelated{index:05d}" for index in range(1200)]
+    with pytest.raises(ContractError):
+        write_batch_manifest(tmp_path, batches, seed=LOOP_BATCH_SEED, pool_doc_ids=unrelated_pool)
+
+
+def test_pool_doc_ids_missing_some_dealt_ids_is_rejected(tmp_path: Path) -> None:
+    """FIX 3 regression, negative-count case: a too-small `pool_doc_ids`
+    (e.g. only 2 ids alongside 4 dealt ids) used to be accepted and reported
+    a nonsensical negative `dropped_count`.
+    """
+    batches = [["a", "b"], ["c", "d"]]
+    with pytest.raises(ContractError):
+        write_batch_manifest(tmp_path, batches, seed=LOOP_BATCH_SEED, pool_doc_ids=["a", "b"])
+
+
 def test_pool_doc_ids_is_required(tmp_path: Path) -> None:
     """`pool_doc_ids` must not be assemblable without the true pool.
 

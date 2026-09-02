@@ -170,12 +170,27 @@ def write_batch_manifest(
     -- the seed is enough to reproduce that if ever needed. Callers whose
     pool is exactly `rounds * size` (nothing was ever dropped) pass the same
     document IDs they gave `build_round_batches`.
+
+    Being required did not make `pool_doc_ids` truthful on its own: a caller
+    could still pass a `pool_doc_ids` that does not actually contain the
+    dealt batches (e.g. a stale or unrelated list), which both understates
+    `pool_size` relative to what was truly available (yielding a nonsensical
+    negative `dropped_count`) and lets `pool_fingerprint` attest to documents
+    that were never dealt. So every dealt id must appear in `pool_doc_ids`;
+    anything less means the manifest cannot honestly claim the batches were
+    dealt from this pool.
     """
     output_dir.mkdir(parents=True, exist_ok=True)
     dealt_ids = sorted(doc_id for batch in batches for doc_id in batch)
     selected_count = len(dealt_ids)
     pool_ids = sorted(pool_doc_ids)
     pool_size = len(pool_ids)
+    if not set(dealt_ids) <= set(pool_ids):
+        missing = sorted(set(dealt_ids) - set(pool_ids))
+        raise ContractError(
+            "pool_doc_ids does not contain every dealt document id "
+            f"(missing {len(missing)}, e.g. {missing[:5]!r})"
+        )
     payload = {
         "schema_version": 2,
         "seed": seed,

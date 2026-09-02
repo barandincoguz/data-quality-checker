@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import http.client
 import json
 import math
 import os
@@ -18,7 +19,7 @@ from .atomic import write_json_atomic
 from .config import AppConfig
 from .constants import MODEL_ID
 from .contracts import validate_reference_list
-from .errors import ContractError, GateBlocked, IntegrityError
+from .errors import ContractError, DQCheckError, GateBlocked, IntegrityError
 from .fingerprints import fingerprint_json, sha256_file
 from .heartbeat import RunLease
 from .normalization import compact_references, core_identity, full_identity
@@ -28,12 +29,30 @@ from .storage import Store
 from .text import evidence_match_mode
 
 JUDGE_MODELS = ("qwen3.5:397b", "deepseek-v3.2")
+_STATIC_JUDGE_MODEL_PROVIDERS: dict[str, str] = {
+    "qwen3.5:397b": "ollama",
+    "deepseek-v3.2": "ollama",
+}
+JUDGE_PROMPT = (
+    "Act as a blind legal-reference adjudicator. Compare candidate A and B "
+    "only against the Turkish document. Return JSON with verdict (A, B, TIE, "
+    "or NEITHER), candidate_errors {A:[],B:[]}, final_references, evidence, "
+    "and reason_codes. Every evidence span must occur in the document.\n\n"
+)
 PILOT_TARGET_PER_BUCKET = 20
 PILOT_MAX_DOCS = 60
 
 
-class JudgeProviderUnavailable(RuntimeError):
-    pass
+class JudgeProviderUnavailable(DQCheckError):
+    """A judge provider could not be resolved or reached (e.g. missing credential).
+
+    Deliberately based on `DQCheckError` (not `ContractError`, `ValueError`, or
+    `TypeError`) so it is caught by the CLI's top-level handler as a clean
+    `dqcheck: error: ...` exit, while still NOT matching the pilot's own
+    `except (ContractError, ValueError, TypeError)` per-document clause, which
+    would otherwise silently turn a missing credential into per-document
+    "error" rows instead of aborting the run.
+    """
 
 
 class JudgeProvider(Protocol):
@@ -203,13 +222,7 @@ class OllamaJudgeProvider:
         self._key_index = 0
 
     def judge(self, *, model: str, payload: dict[str, Any]) -> tuple[Any, dict[str, Any]]:
-        prompt = (
-            "Act as a blind legal-reference adjudicator. Compare candidate A and B "
-            "only against the Turkish document. Return JSON with verdict (A, B, TIE, "
-            "or NEITHER), candidate_errors {A:[],B:[]}, final_references, evidence, "
-            "and reason_codes. Every evidence span must occur in the document.\n\n"
-            + json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
-        )
+        prompt = JUDGE_PROMPT + json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
         request_payload = json.dumps(
             {
                 "model": model,
@@ -241,6 +254,128 @@ class OllamaJudgeProvider:
             "cost": body.get("cost"),
             "provider": "ollama",
         }
+
+
+def gemini_judge_model() -> str | None:
+    """Resolve the configured Gemini judge model id, or None if unconfigured.
+
+    There is deliberately no default. A wrong default routes silently to a
+    model that cannot answer, so an unset GEMINI_JUDGE_MODEL simply leaves
+    Gemini out of the registry and the Ollama judges keep working.
+    """
+    return os.environ.get("GEMINI_JUDGE_MODEL", "").strip() or None
+
+
+class GeminiJudgeProvider:
+    """Google Generative AI adjudicator, stdlib HTTP only.
+
+    Mirrors OllamaJudgeProvider: same prompt, same return shape, same
+    fail-closed behaviour. The response is handed back as raw text so
+    _validate_judge_result applies the identical contract to every provider.
+    """
+
+    def __init__(self) -> None:
+        self.base_url = os.environ.get(
+            "GEMINI_BASE_URL",
+            "https://aiplatform.googleapis.com/v1/publishers/google/models",
+        ).rstrip("/")
+        self.timeout = float(os.environ.get("GEMINI_TIMEOUT", "500"))
+        key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+        if not key:
+            raise JudgeProviderUnavailable("GEMINI_API_KEY is unavailable")
+        self.api_key = key
+
+    def judge(self, *, model: str, payload: dict[str, Any]) -> tuple[Any, dict[str, Any]]:
+        prompt = JUDGE_PROMPT + json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+        request_payload = json.dumps(
+            {
+                "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+                "generationConfig": {
+                    "temperature": 0,
+                    "responseMimeType": "application/json",
+                },
+            }
+        ).encode("utf-8")
+        request = urllib.request.Request(
+            f"{self.base_url}/{model}:generateContent",
+            data=request_payload,
+            method="POST",
+            headers={
+                "Content-Type": "application/json",
+                "x-goog-api-key": self.api_key,
+            },
+        )
+        started = time.perf_counter()
+        try:
+            with urllib.request.urlopen(request, timeout=self.timeout) as response:
+                body = json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            try:
+                detail = exc.read().decode("utf-8", errors="replace")[:2000]
+            except Exception:  # noqa: BLE001 - the body is best-effort diagnostic only
+                detail = ""
+            raise JudgeProviderUnavailable(f"HTTP {exc.code}: {detail or exc.reason}") from exc
+        except (
+            urllib.error.URLError,
+            TimeoutError,
+            json.JSONDecodeError,
+            http.client.HTTPException,
+        ) as exc:
+            raise JudgeProviderUnavailable(str(exc)) from exc
+        candidates = body.get("candidates") or []
+        if not candidates:
+            raise JudgeProviderUnavailable("gemini returned no candidates")
+        parts = ((candidates[0].get("content") or {}).get("parts")) or []
+        content = "".join(str(part.get("text", "")) for part in parts)
+        if not content:
+            raise JudgeProviderUnavailable("gemini returned an empty candidate")
+        usage = body.get("usageMetadata") or {}
+        return content, {
+            "latency_seconds": time.perf_counter() - started,
+            "cost": None,
+            "provider": "gemini",
+            "input_tokens": usage.get("promptTokenCount"),
+            "output_tokens": usage.get("candidatesTokenCount"),
+        }
+
+
+def judge_model_providers() -> dict[str, str]:
+    """Model id to provider kind, resolved at call time.
+
+    The Gemini entry is keyed on gemini_judge_model(), which reads the
+    environment on every call, so the registry follows configuration rather
+    than whatever the environment held at import. When GEMINI_JUDGE_MODEL is
+    unset or blank, the Gemini entry is omitted entirely rather than falling
+    back to a guessed id, so the Ollama judges keep working untouched.
+    """
+    providers = dict(_STATIC_JUDGE_MODEL_PROVIDERS)
+    model = gemini_judge_model()
+    if model is None:
+        return providers
+    if model in providers:
+        raise ContractError(
+            f"GEMINI_JUDGE_MODEL={model!r} collides with a built-in judge model; "
+            f"choose an id outside {sorted(_STATIC_JUDGE_MODEL_PROVIDERS)}"
+        )
+    providers[model] = "gemini"
+    return providers
+
+
+def resolve_judge_provider(model: str, *, fake_backend: bool = False) -> JudgeProvider:
+    """Return the provider that serves `model`.
+
+    `fake_backend` short-circuits before any credential is read, so tests and
+    dry runs never touch the network or require a key.
+    """
+    providers = judge_model_providers()
+    kind = providers.get(model)
+    if kind is None:
+        raise ContractError(f"unknown judge model {model!r}; expected one of {sorted(providers)}")
+    if fake_backend:
+        return FakeJudgeProvider()
+    if kind == "gemini":
+        return GeminiJudgeProvider()
+    return OllamaJudgeProvider()
 
 
 def _validate_judge_result(payload: Any, document_text: str) -> dict[str, Any]:
@@ -299,12 +434,16 @@ def _run_pilot_impl(
     fake_backend: bool = False,
     provider: JudgeProvider | None = None,
     lease: RunLease | None = None,
+    judge_models: tuple[str, ...] | None = None,
 ) -> dict[str, Any]:
     if not fake_backend and not allow_external_judge:
         raise GateBlocked("--allow-external-judge is required before any external call")
-    selected_provider: JudgeProvider = provider or (
-        FakeJudgeProvider() if fake_backend else OllamaJudgeProvider()
-    )
+    models = tuple(judge_models) if judge_models else JUDGE_MODELS
+    unknown = [model for model in models if model not in judge_model_providers()]
+    if unknown:
+        raise ContractError(
+            f"unknown judge models {unknown}; expected from {sorted(judge_model_providers())}"
+        )
     with Store(config.database_path, busy_timeout_ms=config.runtime.busy_timeout_ms) as store:
         batch = store.get_batch(batch_id)
         if batch is None or batch["status"] != "processed":
@@ -323,7 +462,7 @@ def _run_pilot_impl(
                 next(row["public_doc_id"] for row in documents if row["internal_doc_id"] == doc_id)
                 for doc_id in selection.internal_doc_ids
             ],
-            "models": list(JUDGE_MODELS),
+            "models": list(models),
             "local_generator_role": {
                 "model": MODEL_ID,
                 "role": "G0 candidate generator, never a remote judge",
@@ -332,11 +471,12 @@ def _run_pilot_impl(
         public_dir = config.public_root / "batches" / batch_id
         write_json_atomic(public_dir / "judge_pilot_selection.json", selection_manifest, mode=0o644)
         counts_by_model: dict[str, dict[str, int]] = {
-            model: {"valid": 0, "unavailable": 0, "error": 0} for model in JUDGE_MODELS
+            model: {"valid": 0, "unavailable": 0, "error": 0} for model in models
         }
-        total_latency: dict[str, float] = {model: 0.0 for model in JUDGE_MODELS}
-        total_cost: dict[str, float] = {model: 0.0 for model in JUDGE_MODELS}
+        total_latency: dict[str, float] = {model: 0.0 for model in models}
+        total_cost: dict[str, float] = {model: 0.0 for model in models}
         document_by_id = {row["internal_doc_id"]: row for row in documents}
+        providers_by_model: dict[str, JudgeProvider] = {}
 
         for selection_index, internal_doc_id in enumerate(selection.internal_doc_ids, 1):
             document = document_by_id[internal_doc_id]
@@ -345,7 +485,7 @@ def _run_pilot_impl(
             if prediction is None:
                 raise IntegrityError(f"missing G0 prediction for pilot doc {internal_doc_id}")
             model_references, _ = apply_reference_policy(json.loads(prediction["references_json"]))
-            for model in JUDGE_MODELS:
+            for model in models:
                 existing = store.get_judge_result(batch_id, internal_doc_id, model)
                 if existing is not None and existing["status"] == "valid":
                     response_path = Path(existing["response_path"])
@@ -376,9 +516,14 @@ def _run_pilot_impl(
                 operational: dict[str, Any] = {}
                 last_error = ""
                 unavailable = False
+                if model not in providers_by_model:
+                    providers_by_model[model] = provider or resolve_judge_provider(
+                        model, fake_backend=fake_backend
+                    )
+                model_provider = providers_by_model[model]
                 for attempt in range(1, 4):
                     try:
-                        raw, operational = selected_provider.judge(
+                        raw, operational = model_provider.judge(
                             model=model, payload=external_payload
                         )
                         validated = _validate_judge_result(raw, document["text"])
@@ -475,7 +620,7 @@ def _run_pilot_impl(
                     "reported_cost": total_cost[model],
                     "expert_metrics": "pending",
                 }
-                for model in JUDGE_MODELS
+                for model in models
             },
             "external_consent": bool(allow_external_judge),
             "fake_backend": fake_backend,
@@ -633,13 +778,11 @@ def run_judge_pilot(
     allow_external_judge: bool,
     fake_backend: bool = False,
     provider: JudgeProvider | None = None,
+    judge_models: tuple[str, ...] | None = None,
 ) -> dict[str, Any]:
     if not fake_backend and not allow_external_judge:
         raise GateBlocked("--allow-external-judge is required before any external call")
     ready = validate_ready(config, batch_id)
-    selected_provider: JudgeProvider = provider or (
-        FakeJudgeProvider() if fake_backend else OllamaJudgeProvider()
-    )
     lease = RunLease(
         lock_path=config.sensitive_root / "locks" / f"judge_{batch_id}.lock",
         heartbeat_path=config.sensitive_root / "batches" / batch_id / "judge_heartbeat.json",
@@ -652,11 +795,13 @@ def run_judge_pilot(
         lock_path = config.public_root / "batches" / batch_id / "judge_lock.json"
         if lock_path.exists():
             lock_payload = json.loads(lock_path.read_text(encoding="utf-8"))
+            locked_model = str(lock_payload["model"])
             result = _run_locked_judge_coverage(
                 config=config,
                 batch_id=batch_id,
-                model=str(lock_payload["model"]),
-                provider=selected_provider,
+                model=locked_model,
+                provider=provider
+                or resolve_judge_provider(locked_model, fake_backend=fake_backend),
                 fake_backend=fake_backend,
                 allow_external_judge=allow_external_judge,
                 lease=lease,
@@ -667,8 +812,9 @@ def run_judge_pilot(
                 batch_id=batch_id,
                 allow_external_judge=allow_external_judge,
                 fake_backend=fake_backend,
-                provider=selected_provider,
+                provider=provider,
                 lease=lease,
+                judge_models=judge_models,
             )
         lease.finish(status="completed")
         return result
@@ -739,8 +885,8 @@ def judge_expert_metrics(
 
 
 def lock_judge(*, config: AppConfig, batch_id: str, model: str, reason: str) -> dict[str, Any]:
-    if model not in JUDGE_MODELS:
-        raise ContractError(f"model must be one of {JUDGE_MODELS}")
+    if model not in judge_model_providers():
+        raise ContractError(f"model must be one of {sorted(judge_model_providers())}")
     if not reason.strip():
         raise ContractError("judge lock requires a non-empty reason")
     selection_path = config.public_root / "batches" / batch_id / "judge_pilot_selection.json"
@@ -749,10 +895,17 @@ def lock_judge(*, config: AppConfig, batch_id: str, model: str, reason: str) -> 
     except (OSError, json.JSONDecodeError) as exc:
         raise GateBlocked(f"judge pilot selection is unavailable: {exc}") from exc
     ids = [str(value) for value in selection.get("internal_doc_ids", [])]
+    summary_path = config.public_root / "batches" / batch_id / "judge_pilot_summary.json"
+    try:
+        pilot_models = tuple(json.loads(summary_path.read_text(encoding="utf-8"))["models"])
+    except (OSError, json.JSONDecodeError, KeyError, TypeError):
+        pilot_models = JUDGE_MODELS
+    if model not in pilot_models:
+        raise GateBlocked(f"judge {model} did not run in this batch's pilot")
     with Store(config.database_path, busy_timeout_ms=config.runtime.busy_timeout_ms) as store:
         all_metrics = {
             candidate: judge_expert_metrics(store, batch_id=batch_id, model=candidate, ids=ids)
-            for candidate in JUDGE_MODELS
+            for candidate in pilot_models
         }
         metrics = all_metrics[model]
         if metrics.get("status") != "complete":
@@ -789,7 +942,6 @@ def lock_judge(*, config: AppConfig, batch_id: str, model: str, reason: str) -> 
                 raise GateBlocked("a different production judge is already locked")
             return existing
         write_json_atomic(path, payload, mode=0o644)
-        summary_path = config.public_root / "batches" / batch_id / "judge_pilot_summary.json"
         if summary_path.exists():
             summary = json.loads(summary_path.read_text(encoding="utf-8"))
             for candidate, candidate_metrics in all_metrics.items():

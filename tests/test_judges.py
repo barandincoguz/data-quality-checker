@@ -3,11 +3,13 @@ from __future__ import annotations
 import json
 import zipfile
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
+from data_quality_checker.commands import pilot_judges
 from data_quality_checker.config import default_config_path, load_config
-from data_quality_checker.errors import GateBlocked
+from data_quality_checker.errors import ContractError, DQCheckError, GateBlocked
 from data_quality_checker.judges import (
     FakeJudgeProvider,
     JudgeProviderUnavailable,
@@ -135,6 +137,34 @@ def test_blind_pilot_sends_only_text_and_candidates_and_persists_both_models(tmp
     assert {row["status"] for row in results} == {"valid"}
 
 
+def test_run_judge_pilot_resolves_each_model_once_via_the_registry(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from data_quality_checker import judges as judges_module
+
+    config = prepared_processed_fixture(tmp_path, count=3)
+    calls: list[str] = []
+
+    def recording_resolve(model: str, *, fake_backend: bool = False) -> FakeJudgeProvider:
+        calls.append(model)
+        return FakeJudgeProvider()
+
+    monkeypatch.setattr(judges_module, "resolve_judge_provider", recording_resolve)
+
+    summary = run_judge_pilot(
+        config=config,
+        batch_id="batch",
+        allow_external_judge=True,
+        fake_backend=True,
+    )
+
+    assert set(calls) == set(judges_module.JUDGE_MODELS)
+    # One resolution per model, not once per document: with three documents
+    # and two models a per-document rebuild would show six calls here.
+    assert len(calls) == len(judges_module.JUDGE_MODELS)
+    assert summary["selected_document_count"] == 3
+
+
 class RetryThenValid:
     def __init__(self):
         self.calls = 0
@@ -228,3 +258,158 @@ def test_second_run_after_explicit_lock_executes_production_coverage(tmp_path) -
     assert production["locked_model"] == "qwen3.5:397b"
     assert production["required_document_count"] == 1
     assert production["coverage_complete"] is True
+
+
+def test_pilot_honours_a_model_set_override(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from data_quality_checker.judges import gemini_judge_model
+
+    monkeypatch.setenv("GEMINI_JUDGE_MODEL", "gemini-test-model")
+    config = prepared_processed_fixture(tmp_path)
+    summary = run_judge_pilot(
+        config=config,
+        batch_id="batch",
+        allow_external_judge=True,
+        provider=FakeJudgeProvider(),
+        judge_models=("qwen3.5:397b", gemini_judge_model()),
+    )
+    assert set(summary["models"]) == {"qwen3.5:397b", gemini_judge_model()}
+
+
+def test_pilot_rejects_an_unregistered_model_in_the_override(tmp_path) -> None:
+    config = prepared_processed_fixture(tmp_path)
+    with pytest.raises(ContractError):
+        run_judge_pilot(
+            config=config,
+            batch_id="batch",
+            allow_external_judge=True,
+            provider=FakeJudgeProvider(),
+            judge_models=("made-up-model",),
+        )
+
+
+def test_lock_judge_accepts_a_gemini_model_that_ran_in_the_pilot(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from data_quality_checker.judges import gemini_judge_model
+
+    monkeypatch.setenv("GEMINI_JUDGE_MODEL", "gemini-test-model")
+    config = prepared_processed_fixture(tmp_path)
+    with Store(config.database_path) as store:
+        document = store.list_documents("batch")[0]
+        store.set_router_bucket("batch", document["internal_doc_id"], "RED")
+
+    run_judge_pilot(
+        config=config,
+        batch_id="batch",
+        allow_external_judge=True,
+        provider=FakeJudgeProvider(),
+        judge_models=("qwen3.5:397b", gemini_judge_model()),
+    )
+    with Store(config.database_path) as store:
+        review = store.get_review("batch", document["internal_doc_id"])
+        assert review is not None
+        store.update_review(
+            batch_id="batch",
+            internal_doc_id=document["internal_doc_id"],
+            expected_version=review["row_version"],
+            status="finalized",
+            action="accept_human",
+            final_references=[],
+            reason=None,
+            reviewer="fixture",
+        )
+
+    payload = lock_judge(
+        config=config,
+        batch_id="batch",
+        model=gemini_judge_model(),
+        reason="dq-loop production judge",
+    )
+    assert payload["model"] == gemini_judge_model()
+    assert set(payload["pilot_model_metrics"]) == {"qwen3.5:397b", gemini_judge_model()}
+    written = json.loads(
+        (config.public_root / "batches" / "batch" / "judge_lock.json").read_text(encoding="utf-8")
+    )
+    assert written["model"] == gemini_judge_model()
+
+
+def test_lock_judge_rejects_an_unregistered_model(tmp_path) -> None:
+    config = prepared_processed_fixture(tmp_path)
+    with pytest.raises(ContractError):
+        lock_judge(config=config, batch_id="batch", model="made-up-model", reason="test")
+
+
+def test_cli_rejects_an_explicitly_supplied_empty_judge_models_flag() -> None:
+    # "" is falsy, unlike ",, " (already rejected), so a truthiness check
+    # would silently fall back to the default pair instead of raising.
+    args = SimpleNamespace(
+        batch_id="batch",
+        allow_external_judge=False,
+        fake_backend=False,
+        judge_models="",
+    )
+    with pytest.raises(ContractError):
+        pilot_judges(args, config=None)
+
+
+_OLLAMA_ENV_NAMES = ("OLLAMA_API_KEY", *[f"OLLAMA_API_KEY_V{i}" for i in range(2, 8)])
+
+
+def test_missing_credential_aborts_the_pilot_instead_of_recording_error_rows(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Pins the FIX 1 contract at the library boundary.
+
+    A missing OLLAMA_API_KEY makes `resolve_judge_provider` raise
+    `JudgeProviderUnavailable` from *outside* the per-document retry loop in
+    `_run_pilot_impl`, so it must abort the whole pilot rather than being
+    caught by the loop's `except (ContractError, ValueError, TypeError)` and
+    recorded as a per-document "error" row. `JudgeProviderUnavailable` is also
+    a `DQCheckError` so the CLI's top-level handler renders it cleanly.
+    """
+    config = prepared_processed_fixture(tmp_path)
+    for name in _OLLAMA_ENV_NAMES:
+        monkeypatch.delenv(name, raising=False)
+
+    with pytest.raises(JudgeProviderUnavailable) as exc_info:
+        run_judge_pilot(
+            config=config,
+            batch_id="batch",
+            allow_external_judge=True,
+        )
+    assert isinstance(exc_info.value, DQCheckError)
+    assert "OLLAMA_API_KEY" in str(exc_info.value)
+
+    with Store(config.database_path) as store:
+        assert store.list_judge_results("batch") == []
+
+
+def test_missing_credential_surfaces_as_a_clean_cli_error(
+    tmp_path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Pins the FIX 1 contract at the CLI boundary: no raw traceback, exit 2."""
+    from data_quality_checker.cli import main
+
+    prepared_processed_fixture(tmp_path)
+    config_path = tmp_path / "config.json"
+    for name in _OLLAMA_ENV_NAMES:
+        monkeypatch.delenv(name, raising=False)
+
+    exit_code = main(
+        [
+            "--config",
+            str(config_path),
+            "pilot-judges",
+            "--batch-id",
+            "batch",
+            "--allow-external-judge",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert captured.err.startswith("dqcheck: error:")
+    assert "OLLAMA_API_KEY" in captured.err
+
+    with Store(load_config(config_path).database_path) as store:
+        assert store.list_judge_results("batch") == []

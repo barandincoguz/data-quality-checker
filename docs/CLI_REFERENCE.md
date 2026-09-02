@@ -63,8 +63,20 @@ Runs candidate blind automated judges on a batch subset.
 ```bash
 dqcheck pilot-judges \
   --batch-id <batch-id> \
-  [--allow-external-judge]
+  [--allow-external-judge] \
+  [--judge-models <model-id,model-id,...>]
 ```
+
+- `--judge-models`: Comma-separated judge model ids. Defaults to the two-model pilot pair. Every id must be registered in `judge_model_providers()`.
+
+**Gemini judge environment:**
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `GEMINI_API_KEY` (or `GOOGLE_API_KEY`) | — | Required for the Gemini judge. An absent key raises `JudgeProviderUnavailable`. |
+| `GEMINI_JUDGE_MODEL` | — | Required for the Gemini judge; no default. Leaving it unset or blank does not break anything — it simply omits Gemini from `judge_model_providers()`, so the Ollama judges keep working and requesting a Gemini model id raises `ContractError` ("unknown judge model"). |
+| `GEMINI_BASE_URL` | `https://aiplatform.googleapis.com/v1/publishers/google/models` | Endpoint prefix. |
+| `GEMINI_TIMEOUT` | `500` | Per-request timeout in seconds. |
 
 ### 6. `judge-lock`
 Locks an approved automated judge model for production routing.

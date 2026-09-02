@@ -526,11 +526,10 @@ python sample_data/generate_sample_zips.py
 Expected: exit 0. Then confirm the model set landed in the artifact:
 
 ```bash
-.venv/bin/python -c "import json,pathlib; print(sorted(json.loads(pathlib.Path('$(ls -d */batches/judge_demo 2>/dev/null || echo .)/judge_pilot_summary.json').read_text())['models']))"
+SUMMARY=$(find . -name judge_pilot_summary.json -newermt '-5 minutes' | head -1)
+.venv/bin/python -c "import json,sys;print(sorted(json.load(open(sys.argv[1]))['models']))" "$SUMMARY"
 ```
 
-If the path differs in your config preset, locate it with
-`find . -name judge_pilot_summary.json -newermt '-5 minutes'`.
 Expected output: `['gemini-3.1-pro', 'qwen3.5:397b']`
 
 - [ ] **Step 7: Document the flag**

@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from data_quality_checker.config import default_config_path, load_config
-from data_quality_checker.errors import GateBlocked
+from data_quality_checker.errors import ContractError, GateBlocked
 from data_quality_checker.judges import (
     FakeJudgeProvider,
     JudgeProviderUnavailable,
@@ -228,3 +228,29 @@ def test_second_run_after_explicit_lock_executes_production_coverage(tmp_path) -
     assert production["locked_model"] == "qwen3.5:397b"
     assert production["required_document_count"] == 1
     assert production["coverage_complete"] is True
+
+
+def test_pilot_honours_a_model_set_override(tmp_path) -> None:
+    from data_quality_checker.judges import gemini_judge_model
+
+    config = prepared_processed_fixture(tmp_path)
+    summary = run_judge_pilot(
+        config=config,
+        batch_id="batch",
+        allow_external_judge=True,
+        provider=FakeJudgeProvider(),
+        judge_models=("qwen3.5:397b", gemini_judge_model()),
+    )
+    assert set(summary["models"]) == {"qwen3.5:397b", gemini_judge_model()}
+
+
+def test_pilot_rejects_an_unregistered_model_in_the_override(tmp_path) -> None:
+    config = prepared_processed_fixture(tmp_path)
+    with pytest.raises(ContractError):
+        run_judge_pilot(
+            config=config,
+            batch_id="batch",
+            allow_external_judge=True,
+            provider=FakeJudgeProvider(),
+            judge_models=("made-up-model",),
+        )

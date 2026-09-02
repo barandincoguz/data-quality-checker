@@ -66,6 +66,17 @@ dqcheck pilot-judges \
   [--allow-external-judge]
 ```
 
+| `--judge-models` | Comma-separated judge model ids. Defaults to the two-model pilot pair. Every id must be registered in `judge_model_providers()`. |
+
+**Gemini judge environment:**
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `GEMINI_API_KEY` (or `GOOGLE_API_KEY`) | — | Required. An absent key raises `JudgeProviderUnavailable`. |
+| `GEMINI_JUDGE_MODEL` | `gemini-3.1-pro` | Model id used as the Gemini judge. |
+| `GEMINI_BASE_URL` | `https://aiplatform.googleapis.com/v1/publishers/google/models` | Endpoint prefix. |
+| `GEMINI_TIMEOUT` | `500` | Per-request timeout in seconds. |
+
 ### 6. `judge-lock`
 Locks an approved automated judge model for production routing.
 

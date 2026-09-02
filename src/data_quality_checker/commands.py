@@ -131,11 +131,17 @@ def reroute(args: Namespace, config: AppConfig) -> int:
 def pilot_judges(args: Namespace, config: AppConfig) -> int:
     from .judges import run_judge_pilot
 
+    judge_models = (
+        tuple(part.strip() for part in args.judge_models.split(",") if part.strip())
+        if getattr(args, "judge_models", None)
+        else None
+    )
     result = run_judge_pilot(
         config=config,
         batch_id=args.batch_id,
         allow_external_judge=args.allow_external_judge,
         fake_backend=args.fake_backend,
+        judge_models=judge_models,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
     return 0

@@ -404,9 +404,16 @@ def _run_pilot_impl(
     fake_backend: bool = False,
     provider: JudgeProvider | None = None,
     lease: RunLease | None = None,
+    judge_models: tuple[str, ...] | None = None,
 ) -> dict[str, Any]:
     if not fake_backend and not allow_external_judge:
         raise GateBlocked("--allow-external-judge is required before any external call")
+    models = tuple(judge_models) if judge_models else JUDGE_MODELS
+    unknown = [model for model in models if model not in judge_model_providers()]
+    if unknown:
+        raise ContractError(
+            f"unknown judge models {unknown}; expected from {sorted(judge_model_providers())}"
+        )
     selected_provider: JudgeProvider = provider or (
         FakeJudgeProvider() if fake_backend else OllamaJudgeProvider()
     )
@@ -428,7 +435,7 @@ def _run_pilot_impl(
                 next(row["public_doc_id"] for row in documents if row["internal_doc_id"] == doc_id)
                 for doc_id in selection.internal_doc_ids
             ],
-            "models": list(JUDGE_MODELS),
+            "models": list(models),
             "local_generator_role": {
                 "model": MODEL_ID,
                 "role": "G0 candidate generator, never a remote judge",
@@ -437,10 +444,10 @@ def _run_pilot_impl(
         public_dir = config.public_root / "batches" / batch_id
         write_json_atomic(public_dir / "judge_pilot_selection.json", selection_manifest, mode=0o644)
         counts_by_model: dict[str, dict[str, int]] = {
-            model: {"valid": 0, "unavailable": 0, "error": 0} for model in JUDGE_MODELS
+            model: {"valid": 0, "unavailable": 0, "error": 0} for model in models
         }
-        total_latency: dict[str, float] = {model: 0.0 for model in JUDGE_MODELS}
-        total_cost: dict[str, float] = {model: 0.0 for model in JUDGE_MODELS}
+        total_latency: dict[str, float] = {model: 0.0 for model in models}
+        total_cost: dict[str, float] = {model: 0.0 for model in models}
         document_by_id = {row["internal_doc_id"]: row for row in documents}
 
         for selection_index, internal_doc_id in enumerate(selection.internal_doc_ids, 1):
@@ -450,7 +457,7 @@ def _run_pilot_impl(
             if prediction is None:
                 raise IntegrityError(f"missing G0 prediction for pilot doc {internal_doc_id}")
             model_references, _ = apply_reference_policy(json.loads(prediction["references_json"]))
-            for model in JUDGE_MODELS:
+            for model in models:
                 existing = store.get_judge_result(batch_id, internal_doc_id, model)
                 if existing is not None and existing["status"] == "valid":
                     response_path = Path(existing["response_path"])
@@ -580,7 +587,7 @@ def _run_pilot_impl(
                     "reported_cost": total_cost[model],
                     "expert_metrics": "pending",
                 }
-                for model in JUDGE_MODELS
+                for model in models
             },
             "external_consent": bool(allow_external_judge),
             "fake_backend": fake_backend,
@@ -738,6 +745,7 @@ def run_judge_pilot(
     allow_external_judge: bool,
     fake_backend: bool = False,
     provider: JudgeProvider | None = None,
+    judge_models: tuple[str, ...] | None = None,
 ) -> dict[str, Any]:
     if not fake_backend and not allow_external_judge:
         raise GateBlocked("--allow-external-judge is required before any external call")
@@ -774,6 +782,7 @@ def run_judge_pilot(
                 fake_backend=fake_backend,
                 provider=selected_provider,
                 lease=lease,
+                judge_models=judge_models,
             )
         lease.finish(status="completed")
         return result

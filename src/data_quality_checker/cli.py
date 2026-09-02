@@ -141,6 +141,11 @@ def build_parser() -> argparse.ArgumentParser:
     pilot = subparsers.add_parser("pilot-judges", help="run the bounded blind judge pilot")
     pilot.add_argument("--batch-id", required=True)
     pilot.add_argument("--allow-external-judge", action="store_true")
+    pilot.add_argument(
+        "--judge-models",
+        default=None,
+        help="comma-separated judge model ids; defaults to the two-model pilot pair",
+    )
     pilot.add_argument("--fake-backend", action="store_true", help=argparse.SUPPRESS)
     pilot.set_defaults(handler=commands.pilot_judges)
 

@@ -58,7 +58,7 @@ from .fingerprints import sha256_file
 from .g0 import (
     CHECKPOINT_TIE_BREAK_ORDER,
     CheckpointCandidate,
-    _checkpoint_tie_break_key,
+    checkpoint_tie_break_key,
     select_checkpoint,
 )
 
@@ -106,7 +106,7 @@ def write_selection_record(
             f"selected checkpoint (update {selected.update}) does not pass the "
             f"eligibility gates: {exc}"
         ) from exc
-    if _checkpoint_tie_break_key(selected) != _checkpoint_tie_break_key(recomputed):
+    if checkpoint_tie_break_key(selected) != checkpoint_tie_break_key(recomputed):
         raise ContractError(
             f"selected checkpoint (update {selected.update}) is not what "
             f"select_checkpoint chooses (update {recomputed.update}) for these candidates"

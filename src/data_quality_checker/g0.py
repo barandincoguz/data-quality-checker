@@ -355,7 +355,7 @@ def select_sequence_length(
 CHECKPOINT_TIE_BREAK_ORDER = ("core_f1", "docwise_accuracy", "recall", "-validation_loss")
 
 
-def _checkpoint_tie_break_key(candidate: CheckpointCandidate) -> tuple[float, ...]:
+def checkpoint_tie_break_key(candidate: CheckpointCandidate) -> tuple[float, ...]:
     key: list[float] = []
     for field in CHECKPOINT_TIE_BREAK_ORDER:
         descending, name = (True, field[1:]) if field.startswith("-") else (False, field)
@@ -383,7 +383,7 @@ def select_checkpoint(
             "no checkpoint passes coverage/parse/collapse eligibility gates "
             f"(need coverage=={validation_documents}, parse>={minimum_parse_count})"
         )
-    return max(eligible, key=_checkpoint_tie_break_key)
+    return max(eligible, key=checkpoint_tie_break_key)
 
 
 def final_refit_updates(selected_updates: int) -> int:

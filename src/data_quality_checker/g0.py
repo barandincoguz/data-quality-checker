@@ -347,6 +347,23 @@ def select_sequence_length(
     )
 
 
+# The order checkpoints are ranked by once they pass the eligibility gates.
+# A leading "-" means lower is better. `loop_selection.py` imports this
+# constant rather than declaring its own copy, so the per-round selection
+# record's declared ordering can never drift from what `select_checkpoint`
+# actually does.
+CHECKPOINT_TIE_BREAK_ORDER = ("core_f1", "docwise_accuracy", "recall", "-validation_loss")
+
+
+def _checkpoint_tie_break_key(candidate: CheckpointCandidate) -> tuple[float, ...]:
+    key: list[float] = []
+    for field in CHECKPOINT_TIE_BREAK_ORDER:
+        descending, name = (True, field[1:]) if field.startswith("-") else (False, field)
+        value = float(getattr(candidate, name))
+        key.append(-value if descending else value)
+    return tuple(key)
+
+
 def select_checkpoint(
     candidates: list[CheckpointCandidate],
     *,
@@ -366,15 +383,7 @@ def select_checkpoint(
             "no checkpoint passes coverage/parse/collapse eligibility gates "
             f"(need coverage=={validation_documents}, parse>={minimum_parse_count})"
         )
-    return max(
-        eligible,
-        key=lambda item: (
-            item.core_f1,
-            item.docwise_accuracy,
-            item.recall,
-            -item.validation_loss,
-        ),
-    )
+    return max(eligible, key=_checkpoint_tie_break_key)
 
 
 def final_refit_updates(selected_updates: int) -> int:

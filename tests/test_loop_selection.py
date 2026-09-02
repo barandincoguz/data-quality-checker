@@ -179,6 +179,82 @@ def test_write_selection_record_lets_gate_blocked_propagate(tmp_path: Path) -> N
         )
 
 
+def _tied_pair(**selected_overrides: object) -> tuple[CheckpointCandidate, CheckpointCandidate]:
+    """An eligible `update=100` candidate and an `update=200` candidate tied
+    with it on every ranked metric but overridden on one eligibility gate.
+    """
+    eligible = CheckpointCandidate(
+        update=100,
+        coverage_count=50,
+        parse_count=50,
+        empty_output_count=0,
+        runaway_output_count=0,
+        core_f1=0.80,
+        docwise_accuracy=0.30,
+        recall=0.70,
+        validation_loss=0.06,
+    )
+    ineligible_fields: dict[str, object] = {
+        "update": 200,
+        "coverage_count": 50,
+        "parse_count": 50,
+        "empty_output_count": 0,
+        "runaway_output_count": 0,
+        "core_f1": 0.80,
+        "docwise_accuracy": 0.30,
+        "recall": 0.70,
+        "validation_loss": 0.06,
+    }
+    ineligible_fields.update(selected_overrides)
+    ineligible = CheckpointCandidate(**ineligible_fields)  # type: ignore[arg-type]
+    return eligible, ineligible
+
+
+def test_write_selection_record_rejects_a_selected_with_runaway_output(
+    tmp_path: Path,
+) -> None:
+    """FIX 1 regression: a tie on ranked metrics must not paper over a collapsed model.
+
+    `runaway_output_count > 0` is one of the four eligibility gates
+    `select_checkpoint` filters on before it ever looks at the ranked
+    metrics. `update=200` here ties `update=100` on every ranked metric, so
+    the old tie-key-only comparison accepted it -- writing a sealed record
+    claiming a collapsed checkpoint (`runaway_output_count: 12`) was the
+    round's chosen one.
+    """
+    eligible, ineligible = _tied_pair(runaway_output_count=12)
+    with pytest.raises(ContractError):
+        write_selection_record(
+            tmp_path, 8, ineligible, [eligible, ineligible], validation_documents=50
+        )
+
+
+def test_write_selection_record_rejects_a_selected_below_minimum_parse_count(
+    tmp_path: Path,
+) -> None:
+    """FIX 1 regression, parse_count gate: tied on ranked metrics, but
+    `parse_count` below the minimum makes `update=200` ineligible.
+    """
+    eligible, ineligible = _tied_pair(parse_count=10)
+    with pytest.raises(ContractError):
+        write_selection_record(
+            tmp_path, 9, ineligible, [eligible, ineligible], validation_documents=50
+        )
+
+
+def test_write_selection_record_rejects_a_selected_with_empty_output(
+    tmp_path: Path,
+) -> None:
+    """FIX 1 regression, empty_output_count gate: tied on ranked metrics, but
+    `empty_output_count > 0` (total collapse) makes `update=200` ineligible.
+    """
+    eligible, ineligible = _tied_pair(empty_output_count=50)
+    with pytest.raises(ContractError):
+        write_selection_record(
+            tmp_path, 10, ineligible, [eligible, ineligible], validation_documents=50
+        )
+
+
 def test_write_selection_record_accepts_a_tied_selected(tmp_path: Path) -> None:
     """FIX D: a tie on the declared ranking key must not be rejected by identity.
 

@@ -7,7 +7,7 @@ from argparse import Namespace
 from typing import Any
 
 from .config import AppConfig
-from .errors import ConfigurationError, GateBlocked
+from .errors import ConfigurationError, ContractError, GateBlocked
 from .storage import Store
 
 
@@ -131,11 +131,18 @@ def reroute(args: Namespace, config: AppConfig) -> int:
 def pilot_judges(args: Namespace, config: AppConfig) -> int:
     from .judges import run_judge_pilot
 
-    judge_models = (
-        tuple(part.strip() for part in args.judge_models.split(",") if part.strip())
-        if getattr(args, "judge_models", None)
-        else None
-    )
+    raw_judge_models = getattr(args, "judge_models", None)
+    judge_models: tuple[str, ...] | None = None
+    if raw_judge_models:
+        parsed = [part.strip() for part in raw_judge_models.split(",") if part.strip()]
+        if not parsed:
+            raise ContractError(
+                f"--judge-models {raw_judge_models!r} did not contain any model ids"
+            )
+        duplicates = sorted({model for model in parsed if parsed.count(model) > 1})
+        if duplicates:
+            raise ContractError(f"--judge-models contains duplicate model ids: {duplicates}")
+        judge_models = tuple(parsed)
     result = run_judge_pilot(
         config=config,
         batch_id=args.batch_id,

@@ -123,3 +123,41 @@ def read_round_state(output_dir: Path, round_index: int) -> RoundState:
         ).validate()
     except (KeyError, TypeError, ValueError) as exc:
         raise ContractError(f"malformed state for round {round_index} in {path}: {exc}") from exc
+
+
+def resume_round(output_dir: Path, round_index: int) -> RoundState:
+    """Return where a round stopped, or a fresh pending round if it never started.
+
+    This is what a crashed loop calls on restart. Returning `pending` for an
+    unwritten round rather than raising is deliberate: starting round k for
+    the first time and resuming it after a crash are the same call.
+    """
+    try:
+        return read_round_state(output_dir, round_index)
+    except ContractError:
+        return new_round(round_index)
+
+
+def learning_curve_rows(output_dir: Path, rounds: list[int]) -> list[dict[str, Any]]:
+    """The curve so far: one row per round that has actually been measured.
+
+    A round that stopped earlier is omitted rather than reported with a blank
+    score, so a partially-run loop cannot be read as a complete curve.
+    """
+    measured_index = ROUND_STAGES.index("measured")
+    rows: list[dict[str, Any]] = []
+    for round_index in sorted(rounds):
+        try:
+            state = read_round_state(output_dir, round_index)
+        except ContractError:
+            continue
+        if ROUND_STAGES.index(state.stage) < measured_index:
+            continue
+        rows.append(
+            {
+                "round": state.round_index,
+                "stage": state.stage,
+                "artifacts": dict(state.artifacts),
+            }
+        )
+    return rows

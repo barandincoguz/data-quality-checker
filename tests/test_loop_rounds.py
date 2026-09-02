@@ -10,8 +10,10 @@ from data_quality_checker.loop_rounds import (
     ROUND_STAGES,
     RoundState,
     advance_round,
+    learning_curve_rows,
     new_round,
     read_round_state,
+    resume_round,
     write_round_state,
 )
 
@@ -163,3 +165,30 @@ def test_a_sealed_round_cannot_advance() -> None:
         state = advance_round(state, to=stage, artifact_sha256="sha")
     with pytest.raises(ContractError, match="already sealed"):
         advance_round(state, to="sealed", artifact_sha256="sha")
+
+
+def test_resuming_an_unwritten_round_starts_it_pending(tmp_path: Path) -> None:
+    assert resume_round(tmp_path, 2) == new_round(2)
+
+
+def test_resuming_a_written_round_returns_where_it_stopped(tmp_path: Path) -> None:
+    state = advance_round(new_round(2), to="predicted", artifact_sha256="aaa")
+    write_round_state(tmp_path, state)
+    assert resume_round(tmp_path, 2) == state
+
+
+def test_the_curve_reports_only_rounds_that_reached_measured(tmp_path: Path) -> None:
+    measured = new_round(1)
+    for stage in ROUND_STAGES[1 : ROUND_STAGES.index("measured") + 1]:
+        measured = advance_round(measured, to=stage, artifact_sha256="sha")
+    write_round_state(tmp_path, measured)
+    write_round_state(tmp_path, advance_round(new_round(2), to="predicted", artifact_sha256="b"))
+
+    rows = learning_curve_rows(tmp_path, rounds=[1, 2])
+    assert [row["round"] for row in rows] == [1]
+    assert rows[0]["stage"] == "measured"
+
+
+def test_the_curve_is_empty_when_no_round_has_been_measured(tmp_path: Path) -> None:
+    write_round_state(tmp_path, advance_round(new_round(1), to="predicted", artifact_sha256="a"))
+    assert learning_curve_rows(tmp_path, rounds=[1]) == []

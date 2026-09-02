@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import random
 from pathlib import Path
 
 import pytest
@@ -12,20 +13,87 @@ from data_quality_checker.loop_batches import (
     write_batch_manifest,
 )
 
+FIXTURE_SEED = 20260902
+QUARTILES = ("q1", "q2", "q3", "q4")
+ANNOTATORS = tuple(f"annotator_{index:02d}" for index in range(14))
+# A few annotators carry far more documents than others, mirroring the real
+# corpus rather than an even 1/14 split.
+ANNOTATOR_WEIGHTS = (30, 26, 22, 18, 15, 12, 10, 8, 6, 5, 4, 3, 2, 1)
+REFERENCE_BAND_RANGES = ((1, 2), (3, 5), (6, 10), (11, 25))
+REFERENCE_BAND_WEIGHTS = (50, 30, 15, 5)
+ZERO_REFERENCE_COUNT = 9
+
 
 def make_documents(count: int = 1200) -> list[dict[str, object]]:
-    quartiles = ("q1", "q2", "q3", "q4")
-    channels = ("pdfText", "htmlText")
-    return [
-        {
-            "doc_id": f"d{index:05d}",
-            "length_quartile": quartiles[index % 4],
-            "text_channel": channels[index % 2],
-            "annotator": f"annotator_{index % 14:02d}",
-            "reference_count": 0 if index % 300 == 0 else (index % 9) + 1,
-        }
-        for index in range(count)
+    """Build a fixture that mirrors the measured real pool.
+
+    An earlier fixture derived every attribute from `index % n`, which is so
+    rigidly periodic that a naive contiguous slice of the sorted doc_ids
+    balances every stratum by accident (see
+    test_the_fixture_would_catch_a_naive_contiguous_slice below). This one is
+    built from a seeded `random.Random` instead: `text_channel` is skewed
+    ~64/36 rather than 50/50, the 14 annotators are unevenly loaded,
+    `reference_count` is banded non-uniformly with exactly
+    `ZERO_REFERENCE_COUNT` zero-reference documents at positions chosen by
+    the RNG (not periodic), and `length_quartile` is correlated with
+    position (the first quarter of the list is mostly `q1`, and so on) so a
+    contiguous slice produces visibly skewed quartiles too.
+    """
+    rng = random.Random(FIXTURE_SEED)
+    quarter_size = max(count // 4, 1)
+    zero_reference_positions = set(rng.sample(range(count), ZERO_REFERENCE_COUNT))
+
+    documents: list[dict[str, object]] = []
+    for index in range(count):
+        position_quartile = min(index // quarter_size, 3)
+        length_quartile = (
+            QUARTILES[position_quartile] if rng.random() < 0.70 else rng.choice(QUARTILES)
+        )
+        text_channel = "pdfText" if rng.random() < 0.64 else "htmlText"
+        annotator = rng.choices(ANNOTATORS, weights=ANNOTATOR_WEIGHTS, k=1)[0]
+
+        if index in zero_reference_positions:
+            reference_count = 0
+        else:
+            low, high = rng.choices(REFERENCE_BAND_RANGES, weights=REFERENCE_BAND_WEIGHTS, k=1)[0]
+            reference_count = rng.randint(low, high)
+
+        documents.append(
+            {
+                "doc_id": f"d{index:05d}",
+                "length_quartile": length_quartile,
+                "text_channel": text_channel,
+                "annotator": annotator,
+                "reference_count": reference_count,
+            }
+        )
+    return documents
+
+
+def test_the_fixture_would_catch_a_naive_contiguous_slice() -> None:
+    """Guard against vacuous guards.
+
+    An earlier fixture was so regular that chopping the sorted ids into runs
+    of 100 passed every balance assertion. If that ever becomes true again,
+    the balance tests below stop certifying anything, so assert here that a
+    naive slice genuinely violates them.
+    """
+    documents = make_documents()
+    by_id = {str(doc["doc_id"]): doc for doc in documents}
+    ordered = sorted(by_id)
+    naive = [ordered[index * 100 : (index + 1) * 100] for index in range(12)]
+
+    shares = [
+        sum(1 for doc_id in batch if by_id[doc_id]["text_channel"] == "pdfText") / len(batch)
+        for batch in naive
     ]
+    quartile_shares = [
+        sum(1 for doc_id in batch if by_id[doc_id]["length_quartile"] == "q1") / len(batch)
+        for batch in naive
+    ]
+    assert (max(shares) - min(shares) > 0.10) or (
+        max(quartile_shares) - min(quartile_shares) > 0.10
+    ), "fixture is too regular: a naive contiguous slice balances it by accident"
 
 
 def test_produces_the_requested_shape() -> None:
@@ -66,6 +134,18 @@ def test_text_channel_is_balanced_across_batches() -> None:
     assert max(shares) - min(shares) <= 0.10
 
 
+def test_length_quartile_is_balanced_across_batches() -> None:
+    documents = make_documents()
+    by_id = {str(doc["doc_id"]): doc for doc in documents}
+    batches = build_round_batches(documents, rounds=12, size=100, seed=LOOP_BATCH_SEED)
+    for quartile in QUARTILES:
+        shares = [
+            sum(1 for doc_id in batch if by_id[doc_id]["length_quartile"] == quartile) / len(batch)
+            for batch in batches
+        ]
+        assert max(shares) - min(shares) <= 0.10, f"{quartile} spread too high: {shares}"
+
+
 def test_zero_reference_documents_are_spread_not_clumped() -> None:
     documents = make_documents()
     by_id = {str(doc["doc_id"]): doc for doc in documents}
@@ -73,7 +153,10 @@ def test_zero_reference_documents_are_spread_not_clumped() -> None:
     per_batch = [
         sum(1 for doc_id in batch if by_id[doc_id]["reference_count"] == 0) for batch in batches
     ]
-    assert max(per_batch) <= 1
+    # 9 zero-reference documents into 12 batches permits at most 1 per batch,
+    # so the correct invariant is "as even as possible", not "at most 1":
+    # max(per_batch) - min(per_batch) <= 1 is what's actually satisfiable.
+    assert max(per_batch) - min(per_batch) <= 1
 
 
 def test_too_few_documents_is_rejected() -> None:

@@ -55,10 +55,24 @@ def build_round_batches(
 ) -> list[list[str]]:
     """Deal documents into `rounds` batches of exactly `size`, stratified.
 
-    Documents are grouped by stratum, each group is shuffled deterministically,
-    then the groups are dealt round-robin across batches. Dealing rather than
-    slicing is what spreads a rare stratum -- a group of three zero-reference
-    documents lands in three different batches instead of one.
+    Documents are grouped by stratum and each group is shuffled
+    deterministically, as before. But the groups are no longer dealt from a
+    single shared round-robin cursor and then trimmed to size: crossing
+    `reference_band` with `quartile x channel x annotator` shatters rare
+    strata (a handful of zero-reference documents) into near-singleton
+    groups, and an uncoordinated cursor can land several of them in the same
+    batch; the trim-and-top-up surplus shuffle that used to follow had no
+    stratum awareness at all and could scramble that placement further.
+
+    Instead this is a single capacity-aware greedy pass. Strata are ordered
+    rarest first (ties broken by the stratum tuple), so a rare stratum is
+    placed while every batch still has room -- precisely what the rare
+    stratum needs. Each document then goes to whichever batch that still has
+    room (`len(batch) < size`) already holds the fewest documents matching,
+    in order, this document's `reference_band`, `text_channel`, `annotator`,
+    `length_quartile`, then the batch's current length, then the batch index
+    as a final deterministic tie-break. No batch can ever exceed `size`, so
+    no trim or top-up step is needed.
     """
     if rounds <= 0 or size <= 0:
         raise ContractError("rounds and size must both be positive")
@@ -75,31 +89,42 @@ def build_round_batches(
 
     rng = random.Random(seed)
     batches: list[list[str]] = [[] for _ in range(rounds)]
-    cursor = 0
-    # Sorting the strata makes the deal independent of input order; shuffling
-    # within a stratum keeps it independent of the corpus's own ordering.
-    for stratum in sorted(groups):
+    band_counts: list[dict[str, int]] = [{} for _ in range(rounds)]
+    channel_counts: list[dict[str, int]] = [{} for _ in range(rounds)]
+    annotator_counts: list[dict[str, int]] = [{} for _ in range(rounds)]
+    quartile_counts: list[dict[str, int]] = [{} for _ in range(rounds)]
+
+    # Sorting the strata (by size, then by the stratum tuple) makes the deal
+    # independent of input order; shuffling within a stratum keeps it
+    # independent of the corpus's own ordering.
+    for stratum in sorted(groups, key=lambda item: (len(groups[item]), item)):
+        quartile, channel, annotator, band = stratum
         members = sorted(groups[stratum])
         rng.shuffle(members)
         for doc_id in members:
-            batches[cursor % rounds].append(doc_id)
-            cursor += 1
-
-    # The deal fills batches evenly but not to an exact `size`; trim the
-    # overfull ones and top up the underfull ones from the surplus, keeping
-    # every batch's stratum mix as dealt.
-    surplus: list[str] = []
-    for batch in batches:
-        rng.shuffle(batch)
-        if len(batch) > size:
-            surplus.extend(batch[size:])
-            del batch[size:]
-    rng.shuffle(surplus)
-    for batch in batches:
-        while len(batch) < size:
-            if not surplus:
-                raise ContractError("ran out of documents while balancing batches")
-            batch.append(surplus.pop())
+            candidates = [index for index in range(rounds) if len(batches[index]) < size]
+            if not candidates:
+                # Every batch is already full. This only happens when the
+                # pool has more than `needed` documents; the remainder is
+                # simply not used, matching the "at least `needed`" contract
+                # checked above.
+                continue
+            chosen = min(
+                candidates,
+                key=lambda index: (
+                    band_counts[index].get(band, 0),
+                    channel_counts[index].get(channel, 0),
+                    annotator_counts[index].get(annotator, 0),
+                    quartile_counts[index].get(quartile, 0),
+                    len(batches[index]),
+                    index,
+                ),
+            )
+            batches[chosen].append(doc_id)
+            band_counts[chosen][band] = band_counts[chosen].get(band, 0) + 1
+            channel_counts[chosen][channel] = channel_counts[chosen].get(channel, 0) + 1
+            annotator_counts[chosen][annotator] = annotator_counts[chosen].get(annotator, 0) + 1
+            quartile_counts[chosen][quartile] = quartile_counts[chosen].get(quartile, 0) + 1
     return [sorted(batch) for batch in batches]
 
 

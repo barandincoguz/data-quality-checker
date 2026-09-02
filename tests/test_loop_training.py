@@ -61,6 +61,16 @@ def test_manifest_records_the_round_and_the_split_seal(tmp_path: Path) -> None:
     assert result["manifest_sha256"]
 
 
+def test_manifest_schema_version_is_2(tmp_path: Path) -> None:
+    """The payload gained `batch_manifest_sha256` without a version bump once;
+    pin the corrected version so a future shape change is caught the same way.
+    """
+    composition = compose_round_training_ids(SPLIT, [["dA", "dB"]])
+    write_round_training_manifest(tmp_path, 1, composition, split_manifest_sha256="abc123")
+    payload = json.loads((tmp_path / "round_001_training.json").read_text(encoding="utf-8"))
+    assert payload["schema_version"] == 2
+
+
 def test_manifest_records_the_batch_manifest_seal_when_given(tmp_path: Path) -> None:
     composition = compose_round_training_ids(SPLIT, [["dA", "dB"]])
     write_round_training_manifest(

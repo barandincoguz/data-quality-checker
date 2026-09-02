@@ -9,6 +9,7 @@ from data_quality_checker.errors import ContractError
 from data_quality_checker.loop_rounds import (
     ROUND_STAGES,
     RoundState,
+    RoundStateMissing,
     advance_round,
     learning_curve_rows,
     new_round,
@@ -177,6 +178,53 @@ def test_resuming_a_written_round_returns_where_it_stopped(tmp_path: Path) -> No
     assert resume_round(tmp_path, 2) == state
 
 
+def test_reading_a_round_that_was_never_written_raises_round_state_missing(
+    tmp_path: Path,
+) -> None:
+    # RoundStateMissing subclasses ContractError, so this also satisfies every
+    # existing caller/test that only expects ContractError from this path.
+    with pytest.raises(RoundStateMissing):
+        read_round_state(tmp_path, 4)
+
+
+def test_resuming_a_round_with_a_corrupt_state_file_raises_instead_of_restarting(
+    tmp_path: Path,
+) -> None:
+    """A crashed round that had genuinely progressed must never be silently
+
+    reset to pending just because its state file is corrupt, hand-edited, or
+    drifted from a future schema. Missing and malformed are not the same
+    thing: only "missing" is a legitimate "never started" signal.
+    """
+    state = new_round(1)
+    for stage in ("predicted", "routed", "judged", "adjudicated"):
+        state = advance_round(state, to=stage, artifact_sha256="sha")
+    write_round_state(tmp_path, state)
+
+    # Corrupt the state file: valid JSON, but missing the required "round" key.
+    _write_raw_state(tmp_path, 1, {"stage": "adjudicated", "artifacts": state.artifacts})
+
+    with pytest.raises(ContractError):
+        resume_round(tmp_path, 1)
+
+
+def test_resuming_a_round_with_invalid_json_raises_instead_of_restarting(
+    tmp_path: Path,
+) -> None:
+    """A truncated or garbled state file is corruption, not absence.
+
+    Only `OSError` (the file genuinely does not exist, or cannot be read at
+    all) means "this round never started". A file that exists but contains
+    invalid JSON must be treated the same as any other malformed state: it
+    propagates rather than being mistaken for a fresh round.
+    """
+    path = tmp_path / "round_001_state.json"
+    path.write_text("{not valid json", encoding="utf-8")
+
+    with pytest.raises(ContractError):
+        resume_round(tmp_path, 1)
+
+
 def test_the_curve_reports_only_rounds_that_reached_measured(tmp_path: Path) -> None:
     measured = new_round(1)
     for stage in ROUND_STAGES[1 : ROUND_STAGES.index("measured") + 1]:
@@ -192,3 +240,4 @@ def test_the_curve_reports_only_rounds_that_reached_measured(tmp_path: Path) -> 
 def test_the_curve_is_empty_when_no_round_has_been_measured(tmp_path: Path) -> None:
     write_round_state(tmp_path, advance_round(new_round(1), to="predicted", artifact_sha256="a"))
     assert learning_curve_rows(tmp_path, rounds=[1]) == []
+

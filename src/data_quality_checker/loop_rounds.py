@@ -54,6 +54,16 @@ class RoundState:
         return self
 
 
+class RoundStateMissing(ContractError):
+    """No state file exists for this round -- it has never been written.
+
+    Distinct from a state file that exists but cannot be parsed. `resume_round`
+    treats "missing" as "this round has not started yet" and returns a fresh
+    pending round; a *corrupt* file must never take that path, because doing so
+    would silently discard a round that had really progressed.
+    """
+
+
 def new_round(round_index: int) -> RoundState:
     return RoundState(round_index=round_index, stage="pending", artifacts={}).validate()
 
@@ -112,9 +122,16 @@ def advance_round(state: RoundState, *, to: str, artifact_sha256: str) -> RoundS
 def read_round_state(output_dir: Path, round_index: int) -> RoundState:
     path = _state_path(output_dir, round_index)
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise ContractError(f"no readable state for round {round_index}: {exc}") from exc
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise RoundStateMissing(f"no state file for round {round_index}: {exc}") from exc
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError as exc:
+        # The file exists but its content is not valid JSON -- truncated or
+        # garbled, not absent. That is corruption, not "never started", so it
+        # must not be mistaken by `resume_round` for a fresh round.
+        raise ContractError(f"corrupt state for round {round_index} in {path}: {exc}") from exc
     try:
         return RoundState(
             round_index=int(payload["round"]),
@@ -134,7 +151,7 @@ def resume_round(output_dir: Path, round_index: int) -> RoundState:
     """
     try:
         return read_round_state(output_dir, round_index)
-    except ContractError:
+    except RoundStateMissing:
         return new_round(round_index)
 
 

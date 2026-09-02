@@ -177,6 +177,81 @@ def test_too_few_documents_is_rejected() -> None:
         build_round_batches(make_documents(50), rounds=12, size=100, seed=LOOP_BATCH_SEED)
 
 
+def test_a_duplicate_doc_id_in_the_pool_is_rejected() -> None:
+    documents = make_documents()
+    duplicate = dict(documents[0])
+    duplicate["doc_id"] = documents[1]["doc_id"]
+    with pytest.raises(ContractError):
+        build_round_batches(documents + [duplicate], rounds=12, size=100, seed=LOOP_BATCH_SEED)
+
+
+def make_skewed_pool(count: int = 2400, q1_count: int = 1300) -> list[dict[str, object]]:
+    """A 2400-document pool skewed 1300 `q1` / 1100 `q2`, mirroring exactly
+    the pool the reviewer measured. Every other balance field is held
+    constant, so the stratum keys reduce to just the two quartiles -- this
+    is what let rarest-first place the whole (smaller) `q2` stratum before
+    `q1` got any room at all. A fixture that also varies `text_channel`,
+    `annotator` and `reference_band` splits both quartiles into many small,
+    similarly-sized strata and happens to balance fine even under the old
+    bug, so it would not have caught this.
+    """
+    documents: list[dict[str, object]] = []
+    for index in range(count):
+        documents.append(
+            {
+                "doc_id": f"p{index:05d}",
+                "length_quartile": "q1" if index < q1_count else "q2",
+                "text_channel": "pdfText",
+                "annotator": "annotator_00",
+                "reference_count": 1,
+            }
+        )
+    return documents
+
+
+def test_oversized_pool_is_sampled_before_dealing_not_distorted() -> None:
+    """Guard against the pool-distortion bug FIX 2 closed.
+
+    A 2400-document pool skewed 1300 `q1` / 1100 `q2` used to have
+    rarest-first place the entire smaller `q2` stratum before `q1` got any
+    room, so the dealt batches came out at roughly 8% `q1` against a pool
+    that is ~54% `q1`, with 1200 documents silently dropped. Selection is now
+    separated from dealing: the pool is reduced to exactly `rounds * size`
+    documents by a seeded uniform sample first, so the deal sees an unbiased
+    subset and cannot skew it further.
+    """
+    documents = make_skewed_pool()
+    pool_q1_share = sum(1 for doc in documents if doc["length_quartile"] == "q1") / len(documents)
+    by_id = {str(doc["doc_id"]): doc for doc in documents}
+    batches = build_round_batches(documents, rounds=12, size=100, seed=LOOP_BATCH_SEED)
+    shares = [
+        sum(1 for doc_id in batch if by_id[doc_id]["length_quartile"] == "q1") / len(batch)
+        for batch in batches
+    ]
+    assert max(shares) - min(shares) <= 0.10, f"q1 spread too high across batches: {shares}"
+    for share in shares:
+        assert abs(share - pool_q1_share) <= 0.10, (
+            f"batch q1 share {share} strays too far from the pool's own {pool_q1_share:.3f}"
+        )
+
+
+def test_manifest_records_pool_provenance_when_the_pool_is_oversized(tmp_path: Path) -> None:
+    from data_quality_checker.fingerprints import fingerprint_json
+
+    documents = make_skewed_pool()
+    batches = build_round_batches(documents, rounds=12, size=100, seed=LOOP_BATCH_SEED)
+    pool_doc_ids = [str(doc["doc_id"]) for doc in documents]
+    result = write_batch_manifest(
+        tmp_path, batches, seed=LOOP_BATCH_SEED, pool_doc_ids=pool_doc_ids
+    )
+    payload = json.loads((tmp_path / "round_batches_manifest.json").read_text(encoding="utf-8"))
+    assert payload["pool_size"] == 2400
+    assert payload["selected_count"] == 1200
+    assert payload["dropped_count"] == 1200
+    assert payload["pool_fingerprint"] == fingerprint_json(sorted(pool_doc_ids))
+    assert result["manifest_sha256"]
+
+
 def test_manifest_seals_itself_and_records_the_seed(tmp_path: Path) -> None:
     batches = build_round_batches(make_documents(), rounds=12, size=100, seed=LOOP_BATCH_SEED)
     result = write_batch_manifest(tmp_path, batches, seed=LOOP_BATCH_SEED)
@@ -185,4 +260,8 @@ def test_manifest_seals_itself_and_records_the_seed(tmp_path: Path) -> None:
     assert payload["rounds"] == 12
     assert payload["size"] == 100
     assert [len(batch) for batch in payload["batches"]] == [100] * 12
+    assert payload["pool_size"] == 1200
+    assert payload["selected_count"] == 1200
+    assert payload["dropped_count"] == 0
+    assert payload["pool_fingerprint"]
     assert result["manifest_sha256"]

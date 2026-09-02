@@ -19,7 +19,7 @@ from typing import Any
 
 from .atomic import write_json_atomic
 from .errors import ContractError
-from .fingerprints import sha256_file
+from .fingerprints import fingerprint_json, sha256_file
 
 LOOP_BATCH_SEED = 20260902
 BALANCE_FIELDS = ("length_quartile", "text_channel", "annotator", "reference_band")
@@ -73,6 +73,17 @@ def build_round_batches(
     `length_quartile`, then the batch's current length, then the batch index
     as a final deterministic tie-break. No batch can ever exceed `size`, so
     no trim or top-up step is needed.
+
+    A pool larger than `rounds * size` is not dealt as-is: stratifying it
+    directly would let a stratum's relative size in the pool distort its
+    relative size in the batches (rarest-first can place an entire small
+    stratum before a large one gets any room at all, silently re-weighting
+    the population the experiment measures). Selection is kept separate from
+    dealing instead -- the pool is first reduced to exactly `rounds * size`
+    documents via a seeded uniform random sample (over the pool sorted by
+    `doc_id`, so the sample does not depend on input order), and only that
+    subset is stratified and dealt. The sample is unbiased, so the deal then
+    sees exactly the documents it will place and cannot skew anything.
     """
     if rounds <= 0 or size <= 0:
         raise ContractError("rounds and size must both be positive")
@@ -80,12 +91,22 @@ def build_round_batches(
     if len(documents) < needed:
         raise ContractError(f"need at least {needed} documents, got {len(documents)}")
 
-    groups: dict[tuple[str, ...], list[str]] = {}
+    seen_doc_ids: set[str] = set()
     for document in documents:
         doc_id = document.get("doc_id")
         if not isinstance(doc_id, str) or not doc_id:
             raise ContractError("every document needs a non-empty string doc_id")
-        groups.setdefault(_stratum(document), []).append(doc_id)
+        if doc_id in seen_doc_ids:
+            raise ContractError(f"duplicate doc_id in the pool: {doc_id!r}")
+        seen_doc_ids.add(doc_id)
+
+    pool = sorted(documents, key=lambda document: str(document["doc_id"]))
+    if len(pool) > needed:
+        pool = random.Random(seed).sample(pool, needed)
+
+    groups: dict[tuple[str, ...], list[str]] = {}
+    for document in pool:
+        groups.setdefault(_stratum(document), []).append(str(document["doc_id"]))
 
     rng = random.Random(seed)
     batches: list[list[str]] = [[] for _ in range(rounds)]
@@ -104,11 +125,12 @@ def build_round_batches(
         for doc_id in members:
             candidates = [index for index in range(rounds) if len(batches[index]) < size]
             if not candidates:
-                # Every batch is already full. This only happens when the
-                # pool has more than `needed` documents; the remainder is
-                # simply not used, matching the "at least `needed`" contract
-                # checked above.
-                continue
+                # Unreachable: `pool` is exactly `rounds * size` documents by
+                # this point (an oversized pool was sampled down to that
+                # count above), so total capacity and the number of
+                # documents left to place always match -- capacity cannot
+                # run out before the pool does.
+                raise ContractError("internal error: ran out of batch capacity before the pool")
             chosen = min(
                 candidates,
                 key=lambda index: (
@@ -129,9 +151,28 @@ def build_round_batches(
 
 
 def write_batch_manifest(
-    output_dir: Path, batches: list[list[str]], *, seed: int
+    output_dir: Path,
+    batches: list[list[str]],
+    *,
+    seed: int,
+    pool_doc_ids: Sequence[str] | None = None,
 ) -> dict[str, Any]:
+    """Seal the dealt batches, plus enough to prove where they came from.
+
+    `pool_doc_ids` is the full pool `build_round_batches` was given for this
+    round, before any oversized-pool sampling. When it is omitted (the
+    exact-`rounds * size` case, where nothing was ever dropped) the dealt
+    batches are themselves the whole pool. Passing the true pool lets a
+    later audit recompute `pool_fingerprint` and confirm the batches were
+    dealt from the declared pool, and `dropped_count` records how many
+    documents the seeded sample left out without listing which ones -- the
+    seed is enough to reproduce that if ever needed.
+    """
     output_dir.mkdir(parents=True, exist_ok=True)
+    dealt_ids = sorted(doc_id for batch in batches for doc_id in batch)
+    selected_count = len(dealt_ids)
+    pool_ids = sorted(pool_doc_ids) if pool_doc_ids is not None else dealt_ids
+    pool_size = len(pool_ids)
     payload = {
         "schema_version": 1,
         "seed": seed,
@@ -139,6 +180,10 @@ def write_batch_manifest(
         "size": len(batches[0]) if batches else 0,
         "balance_fields": list(BALANCE_FIELDS),
         "difficulty_balanced": False,
+        "pool_size": pool_size,
+        "selected_count": selected_count,
+        "dropped_count": pool_size - selected_count,
+        "pool_fingerprint": fingerprint_json(pool_ids),
         "batches": batches,
     }
     path = output_dir / "round_batches_manifest.json"

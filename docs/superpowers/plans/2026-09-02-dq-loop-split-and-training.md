@@ -560,6 +560,33 @@ git commit -m "feat(loop): deal fixed, balanced round batches for the DQ-Loop"
 
 ---
 
+> **CORRECTION (post-review).** Task 2 as specified above was wrong in two
+> ways, both caught by review before Task 3 began.
+>
+> **The tests were vacuous.** The fixture built attributes from `index % 2` and
+> `index % 300`, which is so regular that a naive contiguous slice — sort the
+> ids, chop into runs of 100, no stratification at all — passed all eight
+> assertions. The guards certified nothing. The fixture is now built from a
+> seeded RNG with a skewed channel (~64/36, matching the real pool), unevenly
+> distributed annotators, non-periodic zero-reference placement, and a
+> `length_quartile` deliberately correlated with position, plus an explicit
+> `test_the_fixture_would_catch_a_naive_contiguous_slice` guard so the vacuity
+> cannot silently return.
+>
+> **The deal could not hold the zero-reference invariant.** Round-robin dealing
+> followed by trim-and-top-up put 2-3 zero-reference documents in a batch where
+> at most 1 was required, on every seed, because crossing `reference_band` with
+> `quartile × channel × annotator` shatters those documents into singleton
+> strata dealt from one shared cursor, and the surplus reshuffle then scrambles
+> placement with no stratum awareness. Replaced by a capacity-aware,
+> rarest-first greedy assignment: strata are placed smallest-group-first, each
+> document goes to the roomiest batch that is currently poorest in its own
+> band/channel/annotator/quartile, and no batch is ever overfilled — so there
+> is no surplus step at all. The invariant is also corrected from `max <= 1`
+> to `max - min <= 1`, which is the generally satisfiable form.
+
+---
+
 ### Task 3: Round-aware training-set composition
 
 **Files:**

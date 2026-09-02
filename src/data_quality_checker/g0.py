@@ -347,26 +347,43 @@ def select_sequence_length(
     )
 
 
-def select_checkpoint(candidates: list[CheckpointCandidate]) -> CheckpointCandidate:
+# The order checkpoints are ranked by once they pass the eligibility gates.
+# A leading "-" means lower is better. `loop_selection.py` imports this
+# constant rather than declaring its own copy, so the per-round selection
+# record's declared ordering can never drift from what `select_checkpoint`
+# actually does.
+CHECKPOINT_TIE_BREAK_ORDER = ("core_f1", "docwise_accuracy", "recall", "-validation_loss")
+
+
+def checkpoint_tie_break_key(candidate: CheckpointCandidate) -> tuple[float, ...]:
+    key: list[float] = []
+    for field in CHECKPOINT_TIE_BREAK_ORDER:
+        descending, name = (True, field[1:]) if field.startswith("-") else (False, field)
+        value = float(getattr(candidate, name))
+        key.append(-value if descending else value)
+    return tuple(key)
+
+
+def select_checkpoint(
+    candidates: list[CheckpointCandidate],
+    *,
+    validation_documents: int = 50,
+    minimum_parse_count: int = 49,
+) -> CheckpointCandidate:
     eligible = [
         candidate
         for candidate in candidates
-        if candidate.coverage_count == 50
-        and candidate.parse_count >= 49
+        if candidate.coverage_count == validation_documents
+        and candidate.parse_count >= minimum_parse_count
         and candidate.empty_output_count == 0
         and candidate.runaway_output_count == 0
     ]
     if not eligible:
-        raise GateBlocked("no checkpoint passes coverage/parse/collapse eligibility gates")
-    return max(
-        eligible,
-        key=lambda item: (
-            item.core_f1,
-            item.docwise_accuracy,
-            item.recall,
-            -item.validation_loss,
-        ),
-    )
+        raise GateBlocked(
+            "no checkpoint passes coverage/parse/collapse eligibility gates "
+            f"(need coverage=={validation_documents}, parse>={minimum_parse_count})"
+        )
+    return max(eligible, key=checkpoint_tie_break_key)
 
 
 def final_refit_updates(selected_updates: int) -> int:

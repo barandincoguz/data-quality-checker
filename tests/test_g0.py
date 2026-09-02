@@ -132,3 +132,42 @@ def test_refit_split_keeps_every_document_in_train() -> None:
 
     split = {"train": [1, 2], "valid": [3], "test": [4]}
     assert refit_split(split) == {"train": [1, 2, 3, 4], "valid": [3], "test": [4]}
+
+
+def test_select_checkpoint_honours_a_custom_validation_size() -> None:
+    from data_quality_checker.g0 import CheckpointCandidate, select_checkpoint
+
+    candidate = CheckpointCandidate(
+        update=100,
+        coverage_count=150,
+        parse_count=150,
+        empty_output_count=0,
+        runaway_output_count=0,
+        core_f1=0.80,
+        docwise_accuracy=0.40,
+        recall=0.75,
+        validation_loss=0.05,
+    )
+    assert (
+        select_checkpoint([candidate], validation_documents=150, minimum_parse_count=149).update
+        == 100
+    )
+
+
+def test_select_checkpoint_rejects_a_candidate_that_misses_the_declared_coverage() -> None:
+    from data_quality_checker.errors import GateBlocked
+    from data_quality_checker.g0 import CheckpointCandidate, select_checkpoint
+
+    candidate = CheckpointCandidate(
+        update=100,
+        coverage_count=149,
+        parse_count=149,
+        empty_output_count=0,
+        runaway_output_count=0,
+        core_f1=0.80,
+        docwise_accuracy=0.40,
+        recall=0.75,
+        validation_loss=0.05,
+    )
+    with pytest.raises(GateBlocked):
+        select_checkpoint([candidate], validation_documents=150, minimum_parse_count=149)

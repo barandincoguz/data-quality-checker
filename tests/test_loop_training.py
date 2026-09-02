@@ -56,5 +56,19 @@ def test_manifest_records_the_round_and_the_split_seal(tmp_path: Path) -> None:
     payload = json.loads((tmp_path / "round_001_training.json").read_text(encoding="utf-8"))
     assert payload["round"] == 1
     assert payload["split_manifest_sha256"] == "abc123"
+    assert payload["batch_manifest_sha256"] is None
     assert payload["counts"] == {"train": 5, "valid": 2, "test": 3}
     assert result["manifest_sha256"]
+
+
+def test_manifest_records_the_batch_manifest_seal_when_given(tmp_path: Path) -> None:
+    composition = compose_round_training_ids(SPLIT, [["dA", "dB"]])
+    write_round_training_manifest(
+        tmp_path,
+        1,
+        composition,
+        split_manifest_sha256="abc123",
+        batch_manifest_sha256="def456",
+    )
+    payload = json.loads((tmp_path / "round_001_training.json").read_text(encoding="utf-8"))
+    assert payload["batch_manifest_sha256"] == "def456"

@@ -53,6 +53,7 @@ def write_round_training_manifest(
     composition: dict[str, list[str]],
     *,
     split_manifest_sha256: str,
+    batch_manifest_sha256: str | None = None,
 ) -> dict[str, Any]:
     if round_index < 0:
         raise ContractError("round_index must be non-negative")
@@ -61,6 +62,7 @@ def write_round_training_manifest(
         "schema_version": 1,
         "round": round_index,
         "split_manifest_sha256": split_manifest_sha256,
+        "batch_manifest_sha256": batch_manifest_sha256,
         "counts": {name: len(ids) for name, ids in composition.items()},
         "ids": composition,
     }

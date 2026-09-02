@@ -75,6 +75,25 @@ def test_a_train_size_that_does_not_add_up_is_rejected() -> None:
         )
 
 
+def test_the_held_out_sets_are_not_contiguous_runs() -> None:
+    """Guard against vacuous guards.
+
+    Every other test here is satisfied by any order-preserving permutation --
+    a rotation instead of a shuffle passes all of them. A real shuffle
+    interleaves the held-out sets with train across the whole id range; a
+    contiguous run does not. This split is sealed for the life of the
+    experiment, so a biased draw would be undetectable afterwards.
+    """
+    split = build_loop_split(ALL_CANONICAL, sizes=LoopSplitSizes(), seed=LOOP_SPLIT_SEED)
+    for name in ("valid", "test"):
+        ids = sorted(split[name])
+        span = ids[-1] - ids[0] + 1
+        assert span > len(ids) * 2, (
+            f"{name} occupies a near-contiguous id range ({ids[0]}..{ids[-1]} "
+            f"for {len(ids)} documents); the draw is not interleaved"
+        )
+
+
 def test_manifest_records_the_exemplars_and_seals_itself(tmp_path: Path) -> None:
     sizes = LoopSplitSizes()
     split = build_loop_split(ALL_CANONICAL, sizes=sizes, seed=LOOP_SPLIT_SEED)

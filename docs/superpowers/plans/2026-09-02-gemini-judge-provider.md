@@ -726,8 +726,8 @@ them the same way, resolving per model at the point of use.
 - [ ] **Step 7: Run the full suite**
 
 Run: `.venv/bin/python -m pytest -q`
-Expected: PASS. The total is the pre-plan count plus 14 (4 from Task 1, 6 from
-Task 2, 2 from Task 3, 2 from Task 4).
+Expected: PASS — 206 total. That is 191 on `main` plus 15: 4 from Task 1, 1 from
+Task 1's review fix, 6 from Task 2, 2 from Task 3, 2 from Task 4.
 
 - [ ] **Step 8: Lint, type-check, commit**
 
@@ -743,7 +743,7 @@ git commit -m "feat(judges): resolve providers per model and allow a Gemini lock
 ## Done When
 
 - `GeminiJudgeProvider` exists, is registered, and is reachable from `pilot-judges` and `judge-lock`.
-- `.venv/bin/python -m pytest -q` passes with 14 new tests.
+- `.venv/bin/python -m pytest -q` passes with 15 new tests: 191 on `main` -> 206. (4 from Task 1, 1 from Task 1's review fix, 6 from Task 2, 2 from Task 3, 2 from Task 4.)
 - `ruff check` passes. `mypy src` reports **no new** errors: the tree already has 37 pre-existing errors on `main`; the count and file list must be unchanged.
 - The real model id is confirmed against the live API and recorded in `Journal/experiments/dq_loop/RUNBOOK.md`.
 - `requirements.txt` is unchanged.

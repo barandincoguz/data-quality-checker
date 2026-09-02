@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import http.client
 import json
 import math
 import os
@@ -294,15 +295,26 @@ class GeminiJudgeProvider:
             data=request_payload,
             method="POST",
             headers={
-                "Authorization": f"Bearer {self.api_key}",
                 "Content-Type": "application/json",
+                "x-goog-api-key": self.api_key,
             },
         )
         started = time.perf_counter()
         try:
             with urllib.request.urlopen(request, timeout=self.timeout) as response:
                 body = json.loads(response.read().decode("utf-8"))
-        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+        except urllib.error.HTTPError as exc:
+            try:
+                detail = exc.read().decode("utf-8", errors="replace")[:2000]
+            except Exception:  # noqa: BLE001 - the body is best-effort diagnostic only
+                detail = ""
+            raise JudgeProviderUnavailable(f"HTTP {exc.code}: {detail or exc.reason}") from exc
+        except (
+            urllib.error.URLError,
+            TimeoutError,
+            json.JSONDecodeError,
+            http.client.HTTPException,
+        ) as exc:
             raise JudgeProviderUnavailable(str(exc)) from exc
         candidates = body.get("candidates") or []
         if not candidates:

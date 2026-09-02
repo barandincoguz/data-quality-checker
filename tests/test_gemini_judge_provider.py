@@ -43,6 +43,11 @@ def test_judge_returns_model_text_and_metadata(monkeypatch: pytest.MonkeyPatch) 
     assert captured["body"]["generationConfig"]["temperature"] == 0
     assert captured["body"]["generationConfig"]["responseMimeType"] == "application/json"
     assert "metin" in captured["body"]["contents"][0]["parts"][0]["text"]
+    # urllib.request.Request normalises header names to capitalised form
+    # (e.g. "x-goog-api-key" -> "X-goog-api-key"), so check what the object
+    # actually holds rather than the case we sent.
+    assert captured["headers"]["X-goog-api-key"] == "test-key"
+    assert "Authorization" not in captured["headers"]
 
 
 def test_missing_api_key_is_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:

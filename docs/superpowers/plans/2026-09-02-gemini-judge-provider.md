@@ -17,7 +17,7 @@
 - **External calls stay behind consent.** `run_judge_pilot` and the green-audit path already refuse to run without `allow_external_judge=True`; Gemini inherits this.
 - **Reference policy default is `ignore_vuk_213_article_413_v1`** (`reference_policy.py:12`) and is applied inside the validator. Do not add a second filter.
 - **Model id is configuration, not a constant in code paths.** `GEMINI_JUDGE_MODEL` env var, default `"gemini-3.1-pro"`. The default string is unverified against the live API — Task 1 Step 7 verifies it before the model is locked for production use.
-- Formatting: `ruff format` and `ruff check` must pass. Type checking: `mypy src`.
+- Formatting: `ruff format` and `ruff check` must pass. Type checking: `mypy src` must introduce **no new** errors — the tree carries 37 pre-existing ones on `main`; compare counts, do not require a clean run.
 
 ---
 
@@ -25,7 +25,7 @@
 
 | File | Responsibility |
 | --- | --- |
-| `src/data_quality_checker/judges.py` (modify) | Add `GeminiJudgeProvider`, `JUDGE_MODEL_PROVIDERS`, `resolve_judge_provider`; replace two hardcoded `OllamaJudgeProvider()` sites; widen `lock_judge` validation |
+| `src/data_quality_checker/judges.py` (modify) | Add `GeminiJudgeProvider`, `judge_model_providers()`, `resolve_judge_provider`; replace two hardcoded `OllamaJudgeProvider()` sites; widen `lock_judge` validation |
 | `src/data_quality_checker/cli.py` (modify) | Add `--judge-models` to `pilot-judges` |
 | `src/data_quality_checker/commands.py` (modify) | Pass `judge_models` through to `run_judge_pilot` |
 | `tests/test_gemini_judge_provider.py` (create) | Unit tests for the provider: request shape, response parsing, failure modes |
@@ -43,7 +43,7 @@
 
 **Interfaces:**
 - Consumes: `JudgeProvider` protocol (`judges.py:39`), `JudgeProviderUnavailable` (`judges.py:33`).
-- Produces: `GeminiJudgeProvider` class with `__init__(self) -> None` and `judge(self, *, model: str, payload: dict[str, Any]) -> tuple[Any, dict[str, Any]]`; module constants `GEMINI_JUDGE_MODEL: str`, `JUDGE_PROMPT: str`.
+- Produces: `GeminiJudgeProvider` class with `__init__(self) -> None` and `judge(self, *, model: str, payload: dict[str, Any]) -> tuple[Any, dict[str, Any]]`; module constants `DEFAULT_GEMINI_JUDGE_MODEL: str`, `JUDGE_PROMPT: str`, and the accessor `gemini_judge_model() -> str` (the accessor shape lands via Task 1's review fix).
 
 - [ ] **Step 1: Write the failing test file**
 
@@ -166,7 +166,16 @@ Expected: PASS, same count as before the edit.
 Add after `OllamaJudgeProvider` in `judges.py`:
 
 ```python
-GEMINI_JUDGE_MODEL = os.environ.get("GEMINI_JUDGE_MODEL", "gemini-3.1-pro")
+DEFAULT_GEMINI_JUDGE_MODEL = "gemini-3.1-pro"
+
+
+def gemini_judge_model() -> str:
+    """Resolve the Gemini judge model id at call time.
+
+    Read on every call rather than bound at import, so a process that sets
+    GEMINI_JUDGE_MODEL after this module loads still gets the configured id.
+    """
+    return os.environ.get("GEMINI_JUDGE_MODEL", DEFAULT_GEMINI_JUDGE_MODEL)
 
 
 class GeminiJudgeProvider:
@@ -267,7 +276,7 @@ git commit -m "feat(judges): add Gemini judge provider behind the shared prompt"
 
 **Interfaces:**
 - Consumes: `FakeJudgeProvider`, `OllamaJudgeProvider`, `GeminiJudgeProvider` from Task 1.
-- Produces: `JUDGE_MODEL_PROVIDERS: dict[str, str]` mapping model id to `"ollama"` or `"gemini"`; `resolve_judge_provider(model: str, *, fake_backend: bool = False) -> JudgeProvider`; `ContractError` for an unknown model.
+- Produces: `_STATIC_JUDGE_MODEL_PROVIDERS: dict[str, str]`; `judge_model_providers() -> dict[str, str]` resolved at call time; `resolve_judge_provider(model: str, *, fake_backend: bool = False) -> JudgeProvider`; `ContractError` for an unknown model.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -280,8 +289,8 @@ import pytest
 
 from data_quality_checker.errors import ContractError
 from data_quality_checker.judges import (
-    GEMINI_JUDGE_MODEL,
-    JUDGE_MODEL_PROVIDERS,
+    gemini_judge_model,
+    judge_model_providers,
     FakeJudgeProvider,
     GeminiJudgeProvider,
     OllamaJudgeProvider,
@@ -293,17 +302,17 @@ def test_registry_covers_every_pilot_model() -> None:
     from data_quality_checker.judges import JUDGE_MODELS
 
     for model in JUDGE_MODELS:
-        assert model in JUDGE_MODEL_PROVIDERS
+        assert model in judge_model_providers()
 
 
 def test_gemini_model_is_registered() -> None:
-    assert JUDGE_MODEL_PROVIDERS[GEMINI_JUDGE_MODEL] == "gemini"
+    assert judge_model_providers()[gemini_judge_model()] == "gemini"
 
 
 def test_fake_backend_short_circuits_every_model(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("OLLAMA_API_KEY", raising=False)
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-    provider = resolve_judge_provider(GEMINI_JUDGE_MODEL, fake_backend=True)
+    provider = resolve_judge_provider(gemini_judge_model(), fake_backend=True)
     assert isinstance(provider, FakeJudgeProvider)
 
 
@@ -315,7 +324,7 @@ def test_resolves_ollama_model(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_resolves_gemini_model(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GEMINI_API_KEY", "test-key")
-    provider = resolve_judge_provider(GEMINI_JUDGE_MODEL)
+    provider = resolve_judge_provider(gemini_judge_model())
     assert isinstance(provider, GeminiJudgeProvider)
 
 
@@ -331,33 +340,39 @@ Expected: FAIL — `ImportError: cannot import name 'JUDGE_MODEL_PROVIDERS'`
 
 - [ ] **Step 3: Implement the registry and factory**
 
-In `judges.py`, immediately after the `JUDGE_MODELS` line (currently line 30), add:
+In `judges.py`, immediately after the `JUDGE_MODELS` line (currently line 30), add the static half of the registry:
 
 ```python
-JUDGE_MODEL_PROVIDERS: dict[str, str] = {
+_STATIC_JUDGE_MODEL_PROVIDERS: dict[str, str] = {
     "qwen3.5:397b": "ollama",
     "deepseek-v3.2": "ollama",
 }
 ```
 
-`GEMINI_JUDGE_MODEL` is defined later in the module (Task 1, Step 5), so register it right after that constant:
+Then, after `gemini_judge_model()` (added in Task 1's fix), add the accessor and
+the factory:
 
 ```python
-JUDGE_MODEL_PROVIDERS[GEMINI_JUDGE_MODEL] = "gemini"
-```
+def judge_model_providers() -> dict[str, str]:
+    """Model id to provider kind, resolved at call time.
 
-Then add the factory after `GeminiJudgeProvider`:
+    The Gemini entry is keyed on gemini_judge_model(), which reads the
+    environment on every call, so the registry follows configuration rather
+    than whatever the environment held at import.
+    """
+    return {**_STATIC_JUDGE_MODEL_PROVIDERS, gemini_judge_model(): "gemini"}
 
-```python
+
 def resolve_judge_provider(model: str, *, fake_backend: bool = False) -> JudgeProvider:
     """Return the provider that serves `model`.
 
     `fake_backend` short-circuits before any credential is read, so tests and
     dry runs never touch the network or require a key.
     """
-    kind = JUDGE_MODEL_PROVIDERS.get(model)
+    providers = judge_model_providers()
+    kind = providers.get(model)
     if kind is None:
-        raise ContractError(f"unknown judge model {model!r}; expected one of {sorted(JUDGE_MODEL_PROVIDERS)}")
+        raise ContractError(f"unknown judge model {model!r}; expected one of {sorted(providers)}")
     if fake_backend:
         return FakeJudgeProvider()
     if kind == "gemini":
@@ -390,7 +405,7 @@ git commit -m "feat(judges): resolve judge provider per model via a registry"
 - Test: `tests/test_judges.py`
 
 **Interfaces:**
-- Consumes: `JUDGE_MODEL_PROVIDERS` from Task 2.
+- Consumes: `judge_model_providers()` from Task 2.
 - Produces: `run_judge_pilot(..., judge_models: tuple[str, ...] | None = None)` and the same keyword on `_run_pilot_impl`. `None` means `JUDGE_MODELS`, so existing callers are unchanged. The pilot summary's `models` mapping is keyed by whatever set actually ran — Task 4 depends on this.
 
 > **Why this comes before provider routing:** `lock_judge` can only lock a model
@@ -403,7 +418,7 @@ Append to `tests/test_judges.py`:
 
 ```python
 def test_pilot_honours_a_model_set_override(tmp_path) -> None:
-    from data_quality_checker.judges import GEMINI_JUDGE_MODEL
+    from data_quality_checker.judges import gemini_judge_model
 
     config = prepared_processed_fixture(tmp_path)
     summary = run_judge_pilot(
@@ -411,9 +426,9 @@ def test_pilot_honours_a_model_set_override(tmp_path) -> None:
         batch_id="batch",
         allow_external_judge=True,
         provider=FakeJudgeProvider(),
-        judge_models=("qwen3.5:397b", GEMINI_JUDGE_MODEL),
+        judge_models=("qwen3.5:397b", gemini_judge_model()),
     )
-    assert set(summary["models"]) == {"qwen3.5:397b", GEMINI_JUDGE_MODEL}
+    assert set(summary["models"]) == {"qwen3.5:397b", gemini_judge_model()}
 
 
 def test_pilot_rejects_an_unregistered_model_in_the_override(tmp_path) -> None:
@@ -447,10 +462,10 @@ At the top of `_run_pilot_impl`, immediately after the `allow_external_judge` co
 
 ```python
     models = tuple(judge_models) if judge_models else JUDGE_MODELS
-    unknown = [model for model in models if model not in JUDGE_MODEL_PROVIDERS]
+    unknown = [model for model in models if model not in judge_model_providers()]
     if unknown:
         raise ContractError(
-            f"unknown judge models {unknown}; expected from {sorted(JUDGE_MODEL_PROVIDERS)}"
+            f"unknown judge models {unknown}; expected from {sorted(judge_model_providers())}"
         )
 ```
 
@@ -537,7 +552,7 @@ Expected output: `['gemini-3.1-pro', 'qwen3.5:397b']`
 In `docs/CLI_REFERENCE.md`, under the `pilot-judges` section, add:
 
 ```markdown
-| `--judge-models` | Comma-separated judge model ids. Defaults to the two-model pilot pair. Every id must be registered in `JUDGE_MODEL_PROVIDERS`. |
+| `--judge-models` | Comma-separated judge model ids. Defaults to the two-model pilot pair. Every id must be registered in `judge_model_providers()`. |
 
 **Gemini judge environment:**
 
@@ -568,7 +583,7 @@ git commit -m "feat(cli): choose the judge model set for the pilot"
 
 **Interfaces:**
 - Consumes: `resolve_judge_provider` (Task 2), `judge_models` (Task 3).
-- Produces: no new public names. `lock_judge` accepts any key of `JUDGE_MODEL_PROVIDERS` and computes `pilot_model_metrics` over the models that actually ran in the pilot.
+- Produces: no new public names. `lock_judge` accepts any key returned by `judge_model_providers()` and computes `pilot_model_metrics` over the models that actually ran in the pilot.
 
 > **The bug this task must avoid.** `lock_judge` currently builds
 > `all_metrics = {candidate: ... for candidate in JUDGE_MODELS}` and then reads
@@ -584,7 +599,7 @@ Append to `tests/test_judges.py`. This mirrors the existing
 
 ```python
 def test_lock_judge_accepts_a_gemini_model_that_ran_in_the_pilot(tmp_path) -> None:
-    from data_quality_checker.judges import GEMINI_JUDGE_MODEL
+    from data_quality_checker.judges import gemini_judge_model
 
     config = prepared_processed_fixture(tmp_path)
     with Store(config.database_path) as store:
@@ -596,7 +611,7 @@ def test_lock_judge_accepts_a_gemini_model_that_ran_in_the_pilot(tmp_path) -> No
         batch_id="batch",
         allow_external_judge=True,
         provider=FakeJudgeProvider(),
-        judge_models=("qwen3.5:397b", GEMINI_JUDGE_MODEL),
+        judge_models=("qwen3.5:397b", gemini_judge_model()),
     )
     with Store(config.database_path) as store:
         review = store.get_review("batch", document["internal_doc_id"])
@@ -615,15 +630,15 @@ def test_lock_judge_accepts_a_gemini_model_that_ran_in_the_pilot(tmp_path) -> No
     payload = lock_judge(
         config=config,
         batch_id="batch",
-        model=GEMINI_JUDGE_MODEL,
+        model=gemini_judge_model(),
         reason="dq-loop production judge",
     )
-    assert payload["model"] == GEMINI_JUDGE_MODEL
-    assert set(payload["pilot_model_metrics"]) == {"qwen3.5:397b", GEMINI_JUDGE_MODEL}
+    assert payload["model"] == gemini_judge_model()
+    assert set(payload["pilot_model_metrics"]) == {"qwen3.5:397b", gemini_judge_model()}
     written = json.loads(
         (config.public_root / "batches" / "batch" / "judge_lock.json").read_text(encoding="utf-8")
     )
-    assert written["model"] == GEMINI_JUDGE_MODEL
+    assert written["model"] == gemini_judge_model()
 
 
 def test_lock_judge_rejects_an_unregistered_model(tmp_path) -> None:
@@ -649,8 +664,8 @@ In `lock_judge`, replace:
 with:
 
 ```python
-    if model not in JUDGE_MODEL_PROVIDERS:
-        raise ContractError(f"model must be one of {sorted(JUDGE_MODEL_PROVIDERS)}")
+    if model not in judge_model_providers():
+        raise ContractError(f"model must be one of {sorted(judge_model_providers())}")
 ```
 
 Then, after the `selection` file is loaded and before the `Store` block, derive the
@@ -729,7 +744,7 @@ git commit -m "feat(judges): resolve providers per model and allow a Gemini lock
 
 - `GeminiJudgeProvider` exists, is registered, and is reachable from `pilot-judges` and `judge-lock`.
 - `.venv/bin/python -m pytest -q` passes with 14 new tests.
-- `ruff check` and `mypy src` pass.
+- `ruff check` passes. `mypy src` reports **no new** errors: the tree already has 37 pre-existing errors on `main`; the count and file list must be unchanged.
 - The real model id is confirmed against the live API and recorded in `Journal/experiments/dq_loop/RUNBOOK.md`.
 - `requirements.txt` is unchanged.
 

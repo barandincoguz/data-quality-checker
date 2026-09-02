@@ -253,9 +253,14 @@ def test_manifest_records_pool_provenance_when_the_pool_is_oversized(tmp_path: P
 
 
 def test_manifest_seals_itself_and_records_the_seed(tmp_path: Path) -> None:
-    batches = build_round_batches(make_documents(), rounds=12, size=100, seed=LOOP_BATCH_SEED)
-    result = write_batch_manifest(tmp_path, batches, seed=LOOP_BATCH_SEED)
+    documents = make_documents()
+    batches = build_round_batches(documents, rounds=12, size=100, seed=LOOP_BATCH_SEED)
+    pool_doc_ids = [str(doc["doc_id"]) for doc in documents]
+    result = write_batch_manifest(
+        tmp_path, batches, seed=LOOP_BATCH_SEED, pool_doc_ids=pool_doc_ids
+    )
     payload = json.loads((tmp_path / "round_batches_manifest.json").read_text(encoding="utf-8"))
+    assert payload["schema_version"] == 2
     assert payload["seed"] == LOOP_BATCH_SEED
     assert payload["rounds"] == 12
     assert payload["size"] == 100
@@ -265,3 +270,21 @@ def test_manifest_seals_itself_and_records_the_seed(tmp_path: Path) -> None:
     assert payload["dropped_count"] == 0
     assert payload["pool_fingerprint"]
     assert result["manifest_sha256"]
+
+
+def test_pool_doc_ids_is_required(tmp_path: Path) -> None:
+    """`pool_doc_ids` must not be assemblable without the true pool.
+
+    Before this fix, omitting `pool_doc_ids` silently defaulted `pool_size`
+    and `selected_count` to the dealt batches' own size and computed
+    `pool_fingerprint` over the dealt subset -- for an oversized pool this
+    reports `pool_size` far below the truth and `dropped_count: 0` when
+    documents were in fact dropped, and attests to the wrong fingerprint. A
+    manifest that cannot see the pool must not be assemblable at all: the
+    oversized-pool reproduction (true `pool_size`/`selected_count`/
+    `dropped_count`) is `test_manifest_records_pool_provenance_when_the_pool_is_oversized`
+    above, which already exercises the honest, required-argument path.
+    """
+    batches = build_round_batches(make_documents(), rounds=12, size=100, seed=LOOP_BATCH_SEED)
+    with pytest.raises(TypeError):
+        write_batch_manifest(tmp_path, batches, seed=LOOP_BATCH_SEED)  # type: ignore[call-arg]

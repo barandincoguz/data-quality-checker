@@ -155,26 +155,29 @@ def write_batch_manifest(
     batches: list[list[str]],
     *,
     seed: int,
-    pool_doc_ids: Sequence[str] | None = None,
+    pool_doc_ids: Sequence[str],
 ) -> dict[str, Any]:
     """Seal the dealt batches, plus enough to prove where they came from.
 
     `pool_doc_ids` is the full pool `build_round_batches` was given for this
-    round, before any oversized-pool sampling. When it is omitted (the
-    exact-`rounds * size` case, where nothing was ever dropped) the dealt
-    batches are themselves the whole pool. Passing the true pool lets a
-    later audit recompute `pool_fingerprint` and confirm the batches were
-    dealt from the declared pool, and `dropped_count` records how many
-    documents the seeded sample left out without listing which ones -- the
-    seed is enough to reproduce that if ever needed.
+    round, before any oversized-pool sampling -- required, not optional: a
+    manifest that cannot see the actual pool must not be assemblable at all,
+    rather than quietly reporting the dealt batches' own size as `pool_size`
+    with `dropped_count: 0` when documents were in fact dropped. Passing the
+    true pool lets a later audit recompute `pool_fingerprint` and confirm the
+    batches were dealt from the declared pool, and `dropped_count` records
+    how many documents the seeded sample left out without listing which ones
+    -- the seed is enough to reproduce that if ever needed. Callers whose
+    pool is exactly `rounds * size` (nothing was ever dropped) pass the same
+    document IDs they gave `build_round_batches`.
     """
     output_dir.mkdir(parents=True, exist_ok=True)
     dealt_ids = sorted(doc_id for batch in batches for doc_id in batch)
     selected_count = len(dealt_ids)
-    pool_ids = sorted(pool_doc_ids) if pool_doc_ids is not None else dealt_ids
+    pool_ids = sorted(pool_doc_ids)
     pool_size = len(pool_ids)
     payload = {
-        "schema_version": 1,
+        "schema_version": 2,
         "seed": seed,
         "rounds": len(batches),
         "size": len(batches[0]) if batches else 0,

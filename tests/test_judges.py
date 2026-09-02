@@ -260,9 +260,10 @@ def test_second_run_after_explicit_lock_executes_production_coverage(tmp_path) -
     assert production["coverage_complete"] is True
 
 
-def test_pilot_honours_a_model_set_override(tmp_path) -> None:
+def test_pilot_honours_a_model_set_override(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     from data_quality_checker.judges import gemini_judge_model
 
+    monkeypatch.setenv("GEMINI_JUDGE_MODEL", "gemini-test-model")
     config = prepared_processed_fixture(tmp_path)
     summary = run_judge_pilot(
         config=config,
@@ -286,9 +287,12 @@ def test_pilot_rejects_an_unregistered_model_in_the_override(tmp_path) -> None:
         )
 
 
-def test_lock_judge_accepts_a_gemini_model_that_ran_in_the_pilot(tmp_path) -> None:
+def test_lock_judge_accepts_a_gemini_model_that_ran_in_the_pilot(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from data_quality_checker.judges import gemini_judge_model
 
+    monkeypatch.setenv("GEMINI_JUDGE_MODEL", "gemini-test-model")
     config = prepared_processed_fixture(tmp_path)
     with Store(config.database_path) as store:
         document = store.list_documents("batch")[0]

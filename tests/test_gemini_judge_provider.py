@@ -36,12 +36,12 @@ def test_judge_returns_model_text_and_metadata(monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setattr("data_quality_checker.judges.urllib.request.urlopen", fake_urlopen)
 
     provider = GeminiJudgeProvider()
-    raw, meta = provider.judge(model="gemini-3.1-pro", payload={"document": "metin"})
+    raw, meta = provider.judge(model="gemini-test-model", payload={"document": "metin"})
 
     assert raw == '{"verdict":"A"}'
     assert meta["provider"] == "gemini"
     assert meta["latency_seconds"] >= 0.0
-    assert "gemini-3.1-pro:generateContent" in captured["url"]
+    assert "gemini-test-model:generateContent" in captured["url"]
     assert captured["body"]["generationConfig"]["temperature"] == 0
     assert captured["body"]["generationConfig"]["responseMimeType"] == "application/json"
     assert "metin" in captured["body"]["contents"][0]["parts"][0]["text"]
@@ -68,7 +68,7 @@ def test_network_failure_is_unavailable(monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.setattr("data_quality_checker.judges.urllib.request.urlopen", boom)
     provider = GeminiJudgeProvider()
     with pytest.raises(JudgeProviderUnavailable):
-        provider.judge(model="gemini-3.1-pro", payload={"document": "metin"})
+        provider.judge(model="gemini-test-model", payload={"document": "metin"})
 
 
 def test_empty_candidates_is_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -80,7 +80,7 @@ def test_empty_candidates_is_unavailable(monkeypatch: pytest.MonkeyPatch) -> Non
     monkeypatch.setattr("data_quality_checker.judges.urllib.request.urlopen", fake_urlopen)
     provider = GeminiJudgeProvider()
     with pytest.raises(JudgeProviderUnavailable):
-        provider.judge(model="gemini-3.1-pro", payload={"document": "metin"})
+        provider.judge(model="gemini-test-model", payload={"document": "metin"})
 
 
 def test_http_error_body_is_surfaced_in_the_message(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -98,7 +98,7 @@ def test_http_error_body_is_surfaced_in_the_message(monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr("data_quality_checker.judges.urllib.request.urlopen", fake_urlopen)
     provider = GeminiJudgeProvider()
     with pytest.raises(JudgeProviderUnavailable) as exc_info:
-        provider.judge(model="gemini-3.1-pro", payload={"document": "metin"})
+        provider.judge(model="gemini-test-model", payload={"document": "metin"})
 
     message = str(exc_info.value)
     assert "model not found" in message
@@ -126,16 +126,23 @@ def test_incomplete_read_during_response_read_is_unavailable(
     monkeypatch.setattr("data_quality_checker.judges.urllib.request.urlopen", fake_urlopen)
     provider = GeminiJudgeProvider()
     with pytest.raises(JudgeProviderUnavailable):
-        provider.judge(model="gemini-3.1-pro", payload={"document": "metin"})
+        provider.judge(model="gemini-test-model", payload={"document": "metin"})
 
 
 def test_gemini_judge_model_reads_the_environment_at_call_time(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from data_quality_checker.judges import DEFAULT_GEMINI_JUDGE_MODEL, gemini_judge_model
+    from data_quality_checker.judges import gemini_judge_model
 
     monkeypatch.delenv("GEMINI_JUDGE_MODEL", raising=False)
-    assert gemini_judge_model() == DEFAULT_GEMINI_JUDGE_MODEL
+    assert gemini_judge_model() is None
 
     monkeypatch.setenv("GEMINI_JUDGE_MODEL", "gemini-custom-id")
     assert gemini_judge_model() == "gemini-custom-id"
+
+
+def test_gemini_judge_model_treats_blank_as_unset(monkeypatch: pytest.MonkeyPatch) -> None:
+    from data_quality_checker.judges import gemini_judge_model
+
+    monkeypatch.setenv("GEMINI_JUDGE_MODEL", "   ")
+    assert gemini_judge_model() is None

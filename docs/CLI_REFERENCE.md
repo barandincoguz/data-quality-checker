@@ -73,8 +73,8 @@ dqcheck pilot-judges \
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `GEMINI_API_KEY` (or `GOOGLE_API_KEY`) | — | Required. An absent key raises `JudgeProviderUnavailable`. |
-| `GEMINI_JUDGE_MODEL` | `gemini-3.1-pro` | Model id used as the Gemini judge. |
+| `GEMINI_API_KEY` (or `GOOGLE_API_KEY`) | — | Required for the Gemini judge. An absent key raises `JudgeProviderUnavailable`. |
+| `GEMINI_JUDGE_MODEL` | — | Required for the Gemini judge; no default. Leaving it unset or blank does not break anything — it simply omits Gemini from `judge_model_providers()`, so the Ollama judges keep working and requesting a Gemini model id raises `ContractError` ("unknown judge model"). |
 | `GEMINI_BASE_URL` | `https://aiplatform.googleapis.com/v1/publishers/google/models` | Endpoint prefix. |
 | `GEMINI_TIMEOUT` | `500` | Per-request timeout in seconds. |
 

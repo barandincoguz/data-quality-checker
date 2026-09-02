@@ -248,16 +248,14 @@ class OllamaJudgeProvider:
         }
 
 
-DEFAULT_GEMINI_JUDGE_MODEL = "gemini-3.1-pro"
+def gemini_judge_model() -> str | None:
+    """Resolve the configured Gemini judge model id, or None if unconfigured.
 
-
-def gemini_judge_model() -> str:
-    """Resolve the Gemini judge model id at call time.
-
-    Read on every call rather than bound at import, so a process that sets
-    GEMINI_JUDGE_MODEL after this module loads still gets the configured id.
+    There is deliberately no default. A wrong default routes silently to a
+    model that cannot answer, so an unset GEMINI_JUDGE_MODEL simply leaves
+    Gemini out of the registry and the Ollama judges keep working.
     """
-    return os.environ.get("GEMINI_JUDGE_MODEL", DEFAULT_GEMINI_JUDGE_MODEL)
+    return os.environ.get("GEMINI_JUDGE_MODEL", "").strip() or None
 
 
 class GeminiJudgeProvider:
@@ -338,14 +336,21 @@ def judge_model_providers() -> dict[str, str]:
 
     The Gemini entry is keyed on gemini_judge_model(), which reads the
     environment on every call, so the registry follows configuration rather
-    than whatever the environment held at import.
+    than whatever the environment held at import. When GEMINI_JUDGE_MODEL is
+    unset or blank, the Gemini entry is omitted entirely rather than falling
+    back to a guessed id, so the Ollama judges keep working untouched.
     """
-    gemini_model = gemini_judge_model()
-    if gemini_model in _STATIC_JUDGE_MODEL_PROVIDERS:
+    providers = dict(_STATIC_JUDGE_MODEL_PROVIDERS)
+    model = gemini_judge_model()
+    if model is None:
+        return providers
+    if model in providers:
         raise ContractError(
-            f"GEMINI_JUDGE_MODEL {gemini_model!r} collides with a static judge model id"
+            f"GEMINI_JUDGE_MODEL={model!r} collides with a built-in judge model; "
+            f"choose an id outside {sorted(_STATIC_JUDGE_MODEL_PROVIDERS)}"
         )
-    return {**_STATIC_JUDGE_MODEL_PROVIDERS, gemini_model: "gemini"}
+    providers[model] = "gemini"
+    return providers
 
 
 def resolve_judge_provider(model: str, *, fake_backend: bool = False) -> JudgeProvider:

@@ -20,13 +20,15 @@ def test_registry_covers_every_pilot_model() -> None:
         assert model in judge_model_providers()
 
 
-def test_gemini_model_is_registered() -> None:
+def test_gemini_model_is_registered_when_configured(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GEMINI_JUDGE_MODEL", "gemini-test-model")
     assert judge_model_providers()[gemini_judge_model()] == "gemini"
 
 
 def test_fake_backend_short_circuits_every_model(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("OLLAMA_API_KEY", raising=False)
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.setenv("GEMINI_JUDGE_MODEL", "gemini-test-model")
     provider = resolve_judge_provider(gemini_judge_model(), fake_backend=True)
     assert isinstance(provider, FakeJudgeProvider)
 
@@ -39,6 +41,7 @@ def test_resolves_ollama_model(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_resolves_gemini_model(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    monkeypatch.setenv("GEMINI_JUDGE_MODEL", "gemini-test-model")
     provider = resolve_judge_provider(gemini_judge_model())
     assert isinstance(provider, GeminiJudgeProvider)
 
@@ -63,3 +66,21 @@ def test_fake_backend_does_not_rescue_an_unregistered_model() -> None:
     # cannot flip this without a deliberate test change.
     with pytest.raises(ContractError):
         resolve_judge_provider("bogus", fake_backend=True)
+
+
+def test_unset_gemini_judge_model_leaves_ollama_judges_working(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The regression this change most risks: no Gemini config must not
+    break resolving the Ollama judges."""
+    monkeypatch.delenv("GEMINI_JUDGE_MODEL", raising=False)
+    assert gemini_judge_model() is None
+    assert judge_model_providers() == {
+        "qwen3.5:397b": "ollama",
+        "deepseek-v3.2": "ollama",
+    }
+    monkeypatch.setenv("OLLAMA_API_KEY", "test-key")
+    provider = resolve_judge_provider("qwen3.5:397b")
+    assert isinstance(provider, OllamaJudgeProvider)
+    with pytest.raises(ContractError):
+        resolve_judge_provider("gemini-anything")

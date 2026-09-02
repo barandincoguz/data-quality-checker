@@ -296,6 +296,51 @@ def test_pool_doc_ids_missing_some_dealt_ids_is_rejected(tmp_path: Path) -> None
         write_batch_manifest(tmp_path, batches, seed=LOOP_BATCH_SEED, pool_doc_ids=["a", "b"])
 
 
+def test_manifest_counts_are_truthful_with_duplicate_dealt_ids(tmp_path: Path) -> None:
+    """FIX: counts must be set-based, not length-based.
+
+    `batches=[["a","b"],["a","b"]]` dealt the same two documents twice (not
+    reachable via `build_round_batches`, which rejects duplicate `doc_id`s,
+    but `write_batch_manifest` has no such guard of its own). Counting dealt
+    ids by list length used to report `selected_count: 4` against a
+    `pool_size: 2`, yielding a nonsensical `dropped_count: -2`. Counting
+    distinct documents instead makes both counts truthful.
+    """
+    batches = [["a", "b"], ["a", "b"]]
+    result = write_batch_manifest(tmp_path, batches, seed=1, pool_doc_ids=["a", "b"])
+    payload = json.loads((tmp_path / "round_batches_manifest.json").read_text(encoding="utf-8"))
+    assert payload["selected_count"] == 2
+    assert payload["pool_size"] == 2
+    assert payload["dropped_count"] == 0
+    assert payload["dropped_count"] >= 0
+    assert result["manifest_sha256"]
+
+
+def test_manifest_counts_are_truthful_with_duplicates_in_the_pool(tmp_path: Path) -> None:
+    """FIX: a pool listing each id twice must not double `pool_size`.
+
+    4 distinct documents dealt, but `pool_doc_ids` lists each one twice (8
+    entries). Counting the pool by list length used to report `pool_size: 8`
+    and a fabricated `dropped_count: 4` -- nothing was actually dropped.
+    Counting distinct pool ids reports the true `pool_size: 4` and
+    `dropped_count: 0`, and `pool_fingerprint` is computed over the distinct
+    ids (it attests to the set of documents, not to how many times the
+    caller happened to list one).
+    """
+    from data_quality_checker.fingerprints import fingerprint_json
+
+    batches = [["a", "b"], ["c", "d"]]
+    pool = ["a", "b", "c", "d", "a", "b", "c", "d"]
+    result = write_batch_manifest(tmp_path, batches, seed=1, pool_doc_ids=pool)
+    payload = json.loads((tmp_path / "round_batches_manifest.json").read_text(encoding="utf-8"))
+    assert payload["selected_count"] == 4
+    assert payload["pool_size"] == 4
+    assert payload["dropped_count"] == 0
+    assert payload["dropped_count"] >= 0
+    assert payload["pool_fingerprint"] == fingerprint_json(sorted(set(pool)))
+    assert result["manifest_sha256"]
+
+
 def test_pool_doc_ids_is_required(tmp_path: Path) -> None:
     """`pool_doc_ids` must not be assemblable without the true pool.
 

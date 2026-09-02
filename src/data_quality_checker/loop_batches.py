@@ -182,8 +182,17 @@ def write_batch_manifest(
     """
     output_dir.mkdir(parents=True, exist_ok=True)
     dealt_ids = sorted(doc_id for batch in batches for doc_id in batch)
-    selected_count = len(dealt_ids)
-    pool_ids = sorted(pool_doc_ids)
+    # Both sides are sets of documents, not lists: a duplicate doc_id (either
+    # dealt into more than one batch, or listed more than once in the pool)
+    # is still one document, and the counts below must say so. Deriving
+    # `selected_count`/`pool_size`/`pool_fingerprint` from the raw lists
+    # would let a duplicate inflate `selected_count` past `pool_size`
+    # (negative `dropped_count`) or inflate `pool_size` while fabricating
+    # drops that never happened. Counting distinct ids makes both counts --
+    # and the fingerprint, which now attests to the set of documents rather
+    # than to how many times the caller happened to list one -- truthful.
+    selected_count = len(set(dealt_ids))
+    pool_ids = sorted(set(pool_doc_ids))
     pool_size = len(pool_ids)
     if not set(dealt_ids) <= set(pool_ids):
         missing = sorted(set(dealt_ids) - set(pool_ids))

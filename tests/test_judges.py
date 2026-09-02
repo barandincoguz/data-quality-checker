@@ -254,3 +254,52 @@ def test_pilot_rejects_an_unregistered_model_in_the_override(tmp_path) -> None:
             provider=FakeJudgeProvider(),
             judge_models=("made-up-model",),
         )
+
+
+def test_lock_judge_accepts_a_gemini_model_that_ran_in_the_pilot(tmp_path) -> None:
+    from data_quality_checker.judges import gemini_judge_model
+
+    config = prepared_processed_fixture(tmp_path)
+    with Store(config.database_path) as store:
+        document = store.list_documents("batch")[0]
+        store.set_router_bucket("batch", document["internal_doc_id"], "RED")
+
+    run_judge_pilot(
+        config=config,
+        batch_id="batch",
+        allow_external_judge=True,
+        provider=FakeJudgeProvider(),
+        judge_models=("qwen3.5:397b", gemini_judge_model()),
+    )
+    with Store(config.database_path) as store:
+        review = store.get_review("batch", document["internal_doc_id"])
+        assert review is not None
+        store.update_review(
+            batch_id="batch",
+            internal_doc_id=document["internal_doc_id"],
+            expected_version=review["row_version"],
+            status="finalized",
+            action="accept_human",
+            final_references=[],
+            reason=None,
+            reviewer="fixture",
+        )
+
+    payload = lock_judge(
+        config=config,
+        batch_id="batch",
+        model=gemini_judge_model(),
+        reason="dq-loop production judge",
+    )
+    assert payload["model"] == gemini_judge_model()
+    assert set(payload["pilot_model_metrics"]) == {"qwen3.5:397b", gemini_judge_model()}
+    written = json.loads(
+        (config.public_root / "batches" / "batch" / "judge_lock.json").read_text(encoding="utf-8")
+    )
+    assert written["model"] == gemini_judge_model()
+
+
+def test_lock_judge_rejects_an_unregistered_model(tmp_path) -> None:
+    config = prepared_processed_fixture(tmp_path)
+    with pytest.raises(ContractError):
+        lock_judge(config=config, batch_id="batch", model="made-up-model", reason="test")

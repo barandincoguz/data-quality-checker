@@ -414,9 +414,6 @@ def _run_pilot_impl(
         raise ContractError(
             f"unknown judge models {unknown}; expected from {sorted(judge_model_providers())}"
         )
-    selected_provider: JudgeProvider = provider or (
-        FakeJudgeProvider() if fake_backend else OllamaJudgeProvider()
-    )
     with Store(config.database_path, busy_timeout_ms=config.runtime.busy_timeout_ms) as store:
         batch = store.get_batch(batch_id)
         if batch is None or batch["status"] != "processed":
@@ -488,9 +485,12 @@ def _run_pilot_impl(
                 operational: dict[str, Any] = {}
                 last_error = ""
                 unavailable = False
+                model_provider = provider or resolve_judge_provider(
+                    model, fake_backend=fake_backend
+                )
                 for attempt in range(1, 4):
                     try:
-                        raw, operational = selected_provider.judge(
+                        raw, operational = model_provider.judge(
                             model=model, payload=external_payload
                         )
                         validated = _validate_judge_result(raw, document["text"])
@@ -750,9 +750,6 @@ def run_judge_pilot(
     if not fake_backend and not allow_external_judge:
         raise GateBlocked("--allow-external-judge is required before any external call")
     ready = validate_ready(config, batch_id)
-    selected_provider: JudgeProvider = provider or (
-        FakeJudgeProvider() if fake_backend else OllamaJudgeProvider()
-    )
     lease = RunLease(
         lock_path=config.sensitive_root / "locks" / f"judge_{batch_id}.lock",
         heartbeat_path=config.sensitive_root / "batches" / batch_id / "judge_heartbeat.json",
@@ -765,11 +762,13 @@ def run_judge_pilot(
         lock_path = config.public_root / "batches" / batch_id / "judge_lock.json"
         if lock_path.exists():
             lock_payload = json.loads(lock_path.read_text(encoding="utf-8"))
+            locked_model = str(lock_payload["model"])
             result = _run_locked_judge_coverage(
                 config=config,
                 batch_id=batch_id,
-                model=str(lock_payload["model"]),
-                provider=selected_provider,
+                model=locked_model,
+                provider=provider
+                or resolve_judge_provider(locked_model, fake_backend=fake_backend),
                 fake_backend=fake_backend,
                 allow_external_judge=allow_external_judge,
                 lease=lease,
@@ -780,7 +779,7 @@ def run_judge_pilot(
                 batch_id=batch_id,
                 allow_external_judge=allow_external_judge,
                 fake_backend=fake_backend,
-                provider=selected_provider,
+                provider=provider,
                 lease=lease,
                 judge_models=judge_models,
             )
@@ -853,8 +852,8 @@ def judge_expert_metrics(
 
 
 def lock_judge(*, config: AppConfig, batch_id: str, model: str, reason: str) -> dict[str, Any]:
-    if model not in JUDGE_MODELS:
-        raise ContractError(f"model must be one of {JUDGE_MODELS}")
+    if model not in judge_model_providers():
+        raise ContractError(f"model must be one of {sorted(judge_model_providers())}")
     if not reason.strip():
         raise ContractError("judge lock requires a non-empty reason")
     selection_path = config.public_root / "batches" / batch_id / "judge_pilot_selection.json"
@@ -863,10 +862,17 @@ def lock_judge(*, config: AppConfig, batch_id: str, model: str, reason: str) -> 
     except (OSError, json.JSONDecodeError) as exc:
         raise GateBlocked(f"judge pilot selection is unavailable: {exc}") from exc
     ids = [str(value) for value in selection.get("internal_doc_ids", [])]
+    summary_path = config.public_root / "batches" / batch_id / "judge_pilot_summary.json"
+    try:
+        pilot_models = tuple(json.loads(summary_path.read_text(encoding="utf-8"))["models"])
+    except (OSError, json.JSONDecodeError, KeyError, TypeError):
+        pilot_models = JUDGE_MODELS
+    if model not in pilot_models:
+        raise GateBlocked(f"judge {model} did not run in this batch's pilot")
     with Store(config.database_path, busy_timeout_ms=config.runtime.busy_timeout_ms) as store:
         all_metrics = {
             candidate: judge_expert_metrics(store, batch_id=batch_id, model=candidate, ids=ids)
-            for candidate in JUDGE_MODELS
+            for candidate in pilot_models
         }
         metrics = all_metrics[model]
         if metrics.get("status") != "complete":
@@ -903,7 +909,6 @@ def lock_judge(*, config: AppConfig, batch_id: str, model: str, reason: str) -> 
                 raise GateBlocked("a different production judge is already locked")
             return existing
         write_json_atomic(path, payload, mode=0o644)
-        summary_path = config.public_root / "batches" / batch_id / "judge_pilot_summary.json"
         if summary_path.exists():
             summary = json.loads(summary_path.read_text(encoding="utf-8"))
             for candidate, candidate_metrics in all_metrics.items():

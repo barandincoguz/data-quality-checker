@@ -16,7 +16,7 @@
 - **Output contract is shared.** Gemini results pass through the existing `_validate_judge_result(payload, document_text)` unchanged: verdict in `{A, B, TIE, NEITHER}`, `candidate_errors` with `A` and `B` lists, `final_references` validated by `validate_reference_list` and filtered by `apply_reference_policy`, every `source_text` and every `evidence` span must occur in the document under `evidence_match_mode`.
 - **External calls stay behind consent.** `run_judge_pilot` and the green-audit path already refuse to run without `allow_external_judge=True`; Gemini inherits this.
 - **Reference policy default is `ignore_vuk_213_article_413_v1`** (`reference_policy.py:12`) and is applied inside the validator. Do not add a second filter.
-- **Model id is configuration, not a constant in code paths.** `GEMINI_JUDGE_MODEL` env var, default `"gemini-3.1-pro"`. The default string is unverified against the live API — Task 1 Step 7 verifies it before the model is locked for production use.
+- **Model id is configuration, not a constant in code paths.** `GEMINI_JUDGE_MODEL` env var, required with no default: an unset or blank value simply omits Gemini from `judge_model_providers()`, so the two Ollama judges keep working untouched and requesting a Gemini id raises `ContractError`. (This plan originally specified a default of `"gemini-3.1-pro"`; that shipped, then was removed — see the note under Task 1 Step 7.)
 - Formatting: `ruff format` and `ruff check` must pass. Type checking: `mypy src` must introduce **no new** errors — the tree carries 37 pre-existing ones on `main`; compare counts, do not require a clean run.
 
 ---
@@ -43,7 +43,7 @@
 
 **Interfaces:**
 - Consumes: `JudgeProvider` protocol (`judges.py:39`), `JudgeProviderUnavailable` (`judges.py:33`).
-- Produces: `GeminiJudgeProvider` class with `__init__(self) -> None` and `judge(self, *, model: str, payload: dict[str, Any]) -> tuple[Any, dict[str, Any]]`; module constants `DEFAULT_GEMINI_JUDGE_MODEL: str`, `JUDGE_PROMPT: str`, and the accessor `gemini_judge_model() -> str` (the accessor shape lands via Task 1's review fix).
+- Produces: `GeminiJudgeProvider` class with `__init__(self) -> None` and `judge(self, *, model: str, payload: dict[str, Any]) -> tuple[Any, dict[str, Any]]`; module constant `JUDGE_PROMPT: str`, and the accessor `gemini_judge_model() -> str | None` (there is no `DEFAULT_GEMINI_JUDGE_MODEL` constant — see the note under Step 7 below).
 
 - [ ] **Step 1: Write the failing test file**
 
@@ -88,12 +88,12 @@ def test_judge_returns_model_text_and_metadata(monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setattr("data_quality_checker.judges.urllib.request.urlopen", fake_urlopen)
 
     provider = GeminiJudgeProvider()
-    raw, meta = provider.judge(model="gemini-3.1-pro", payload={"document": "metin"})
+    raw, meta = provider.judge(model="gemini-test-model", payload={"document": "metin"})
 
     assert raw == '{"verdict":"A"}'
     assert meta["provider"] == "gemini"
     assert meta["latency_seconds"] >= 0.0
-    assert "gemini-3.1-pro:generateContent" in captured["url"]
+    assert "gemini-test-model:generateContent" in captured["url"]
     assert captured["body"]["generationConfig"]["temperature"] == 0
     assert captured["body"]["generationConfig"]["responseMimeType"] == "application/json"
     assert "metin" in captured["body"]["contents"][0]["parts"][0]["text"]
@@ -115,7 +115,7 @@ def test_network_failure_is_unavailable(monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.setattr("data_quality_checker.judges.urllib.request.urlopen", boom)
     provider = GeminiJudgeProvider()
     with pytest.raises(JudgeProviderUnavailable):
-        provider.judge(model="gemini-3.1-pro", payload={"document": "metin"})
+        provider.judge(model="gemini-test-model", payload={"document": "metin"})
 
 
 def test_empty_candidates_is_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -127,7 +127,7 @@ def test_empty_candidates_is_unavailable(monkeypatch: pytest.MonkeyPatch) -> Non
     monkeypatch.setattr("data_quality_checker.judges.urllib.request.urlopen", fake_urlopen)
     provider = GeminiJudgeProvider()
     with pytest.raises(JudgeProviderUnavailable):
-        provider.judge(model="gemini-3.1-pro", payload={"document": "metin"})
+        provider.judge(model="gemini-test-model", payload={"document": "metin"})
 ```
 
 - [ ] **Step 2: Run the test to verify it fails**
@@ -166,16 +166,14 @@ Expected: PASS, same count as before the edit.
 Add after `OllamaJudgeProvider` in `judges.py`:
 
 ```python
-DEFAULT_GEMINI_JUDGE_MODEL = "gemini-3.1-pro"
+def gemini_judge_model() -> str | None:
+    """Resolve the configured Gemini judge model id, or None if unconfigured.
 
-
-def gemini_judge_model() -> str:
-    """Resolve the Gemini judge model id at call time.
-
-    Read on every call rather than bound at import, so a process that sets
-    GEMINI_JUDGE_MODEL after this module loads still gets the configured id.
+    There is deliberately no default. A wrong default routes silently to a
+    model that cannot answer, so an unset GEMINI_JUDGE_MODEL simply leaves
+    Gemini out of the registry and the Ollama judges keep working.
     """
-    return os.environ.get("GEMINI_JUDGE_MODEL", DEFAULT_GEMINI_JUDGE_MODEL)
+    return os.environ.get("GEMINI_JUDGE_MODEL", "").strip() or None
 
 
 class GeminiJudgeProvider:
@@ -247,14 +245,16 @@ Expected: PASS — 4 passed.
 
 - [ ] **Step 7: Verify the model id against the live API (manual, one command)**
 
-The default `gemini-3.1-pro` is a guess and must be confirmed before anything is locked. Run:
+There is no default id in code to fall back on: `GEMINI_JUDGE_MODEL` must be set explicitly to a confirmed id before the Gemini judge is used for anything beyond `--fake-backend` runs. Run:
 
 ```bash
 curl -s -H "Authorization: Bearer $GEMINI_API_KEY" \
   "https://aiplatform.googleapis.com/v1/publishers/google/models" | head -c 2000
 ```
 
-Expected: a JSON list containing the exact model id. If `gemini-3.1-pro` is absent, set the real id in `.env` as `GEMINI_JUDGE_MODEL=<real-id>` and record the id in `/Users/student2/ner-project/Journal/experiments/dq_loop/RUNBOOK.md` (**a different repository** — the experiment's provenance workspace lives in `ner-project`, not here). **Do not** edit the default in code to an unverified string.
+Expected: a JSON list containing the exact model id. Set it in `.env` as `GEMINI_JUDGE_MODEL=<real-id>` and record the id in `/Users/student2/ner-project/Journal/experiments/dq_loop/RUNBOOK.md` (**a different repository** — the experiment's provenance workspace lives in `ner-project`, not here). **Do not** hardcode any id as a default in code — an unset `GEMINI_JUDGE_MODEL` is the safe state; a wrong default is not.
+
+> **Note — what actually shipped, and why this step is still open.** This plan originally specified a default of `DEFAULT_GEMINI_JUDGE_MODEL = "gemini-3.1-pro"`. That id turned out not to exist as a stable model, and the project does not support that Gemini generation at all, so the default was removed outright rather than corrected to another guess: `gemini_judge_model()` now returns `str | None`, resolving to `None` when `GEMINI_JUDGE_MODEL` is unset or blank, and `judge_model_providers()` simply omits the Gemini entry in that case (see Task 1's review fix, and Task 2 Step 3 below). The model id is now configuration-only — there is no code-level default to be wrong. This verification step itself has still not been run against a live endpoint: the only `GEMINI_API_KEY` available is blocked service-wide. Do not invent or assume a model id here; the id must be confirmed against a live, working API call before it is ever used.
 
 - [ ] **Step 8: Lint, type-check, commit**
 
@@ -358,9 +358,21 @@ def judge_model_providers() -> dict[str, str]:
 
     The Gemini entry is keyed on gemini_judge_model(), which reads the
     environment on every call, so the registry follows configuration rather
-    than whatever the environment held at import.
+    than whatever the environment held at import. When GEMINI_JUDGE_MODEL is
+    unset or blank, the Gemini entry is omitted entirely rather than falling
+    back to a guessed id, so the Ollama judges keep working untouched.
     """
-    return {**_STATIC_JUDGE_MODEL_PROVIDERS, gemini_judge_model(): "gemini"}
+    providers = dict(_STATIC_JUDGE_MODEL_PROVIDERS)
+    model = gemini_judge_model()
+    if model is None:
+        return providers
+    if model in providers:
+        raise ContractError(
+            f"GEMINI_JUDGE_MODEL={model!r} collides with a built-in judge model; "
+            f"choose an id outside {sorted(_STATIC_JUDGE_MODEL_PROVIDERS)}"
+        )
+    providers[model] = "gemini"
+    return providers
 
 
 def resolve_judge_provider(model: str, *, fake_backend: bool = False) -> JudgeProvider:
@@ -533,10 +545,15 @@ python sample_data/generate_sample_zips.py
   --batch-id judge_demo --hmac-key-file sample_data/sample_hmac.key
 .venv/bin/python -m data_quality_checker --config configs/presets/sample_data.json process \
   --prepared-batch judge_demo --fake-backend
+GEMINI_JUDGE_MODEL=gemini-demo-model \
 .venv/bin/python -m data_quality_checker --config configs/presets/sample_data.json pilot-judges \
   --batch-id judge_demo --allow-external-judge --fake-backend \
-  --judge-models "qwen3.5:397b,gemini-3.1-pro"
+  --judge-models "qwen3.5:397b,gemini-demo-model"
 ```
+
+`GEMINI_JUDGE_MODEL` has no code-level default (see the note under Task 1 Step 7), so it must be
+set here for `gemini-demo-model` to be a registered id at all; the value itself is an arbitrary
+placeholder since `--fake-backend` never calls a real endpoint.
 
 Expected: exit 0. Then confirm the model set landed in the artifact:
 
@@ -545,7 +562,7 @@ SUMMARY=$(find . -name judge_pilot_summary.json -mmin -5 | head -1)
 .venv/bin/python -c "import json,sys;print(sorted(json.load(open(sys.argv[1]))['models']))" "$SUMMARY"
 ```
 
-Expected output: `['gemini-3.1-pro', 'qwen3.5:397b']`
+Expected output: `['gemini-demo-model', 'qwen3.5:397b']`
 
 - [ ] **Step 7: Document the flag**
 
@@ -558,8 +575,8 @@ In `docs/CLI_REFERENCE.md`, under the `pilot-judges` section, add:
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `GEMINI_API_KEY` (or `GOOGLE_API_KEY`) | — | Required. An absent key raises `JudgeProviderUnavailable`. |
-| `GEMINI_JUDGE_MODEL` | `gemini-3.1-pro` | Model id used as the Gemini judge. |
+| `GEMINI_API_KEY` (or `GOOGLE_API_KEY`) | — | Required for the Gemini judge. An absent key raises `JudgeProviderUnavailable`. |
+| `GEMINI_JUDGE_MODEL` | — | Required for the Gemini judge; no default. Leaving it unset or blank does not break anything — it simply omits Gemini from `judge_model_providers()`, so the Ollama judges keep working and requesting a Gemini model id raises `ContractError` ("unknown judge model"). |
 | `GEMINI_BASE_URL` | `https://aiplatform.googleapis.com/v1/publishers/google/models` | Endpoint prefix. |
 | `GEMINI_TIMEOUT` | `500` | Per-request timeout in seconds. |
 ```

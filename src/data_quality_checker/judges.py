@@ -28,6 +28,12 @@ from .storage import Store
 from .text import evidence_match_mode
 
 JUDGE_MODELS = ("qwen3.5:397b", "deepseek-v3.2")
+JUDGE_PROMPT = (
+    "Act as a blind legal-reference adjudicator. Compare candidate A and B "
+    "only against the Turkish document. Return JSON with verdict (A, B, TIE, "
+    "or NEITHER), candidate_errors {A:[],B:[]}, final_references, evidence, "
+    "and reason_codes. Every evidence span must occur in the document.\n\n"
+)
 PILOT_TARGET_PER_BUCKET = 20
 PILOT_MAX_DOCS = 60
 
@@ -203,13 +209,7 @@ class OllamaJudgeProvider:
         self._key_index = 0
 
     def judge(self, *, model: str, payload: dict[str, Any]) -> tuple[Any, dict[str, Any]]:
-        prompt = (
-            "Act as a blind legal-reference adjudicator. Compare candidate A and B "
-            "only against the Turkish document. Return JSON with verdict (A, B, TIE, "
-            "or NEITHER), candidate_errors {A:[],B:[]}, final_references, evidence, "
-            "and reason_codes. Every evidence span must occur in the document.\n\n"
-            + json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
-        )
+        prompt = JUDGE_PROMPT + json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
         request_payload = json.dumps(
             {
                 "model": model,
@@ -240,6 +240,71 @@ class OllamaJudgeProvider:
             "latency_seconds": time.perf_counter() - started,
             "cost": body.get("cost"),
             "provider": "ollama",
+        }
+
+
+GEMINI_JUDGE_MODEL = os.environ.get("GEMINI_JUDGE_MODEL", "gemini-3.1-pro")
+
+
+class GeminiJudgeProvider:
+    """Google Generative AI adjudicator, stdlib HTTP only.
+
+    Mirrors OllamaJudgeProvider: same prompt, same return shape, same
+    fail-closed behaviour. The response is handed back as raw text so
+    _validate_judge_result applies the identical contract to every provider.
+    """
+
+    def __init__(self) -> None:
+        self.base_url = os.environ.get(
+            "GEMINI_BASE_URL",
+            "https://aiplatform.googleapis.com/v1/publishers/google/models",
+        ).rstrip("/")
+        self.timeout = float(os.environ.get("GEMINI_TIMEOUT", "500"))
+        key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+        if not key:
+            raise JudgeProviderUnavailable("GEMINI_API_KEY is unavailable")
+        self.api_key = key
+
+    def judge(self, *, model: str, payload: dict[str, Any]) -> tuple[Any, dict[str, Any]]:
+        prompt = JUDGE_PROMPT + json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+        request_payload = json.dumps(
+            {
+                "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+                "generationConfig": {
+                    "temperature": 0,
+                    "responseMimeType": "application/json",
+                },
+            }
+        ).encode("utf-8")
+        request = urllib.request.Request(
+            f"{self.base_url}/{model}:generateContent",
+            data=request_payload,
+            method="POST",
+            headers={
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+            },
+        )
+        started = time.perf_counter()
+        try:
+            with urllib.request.urlopen(request, timeout=self.timeout) as response:
+                body = json.loads(response.read().decode("utf-8"))
+        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+            raise JudgeProviderUnavailable(str(exc)) from exc
+        candidates = body.get("candidates") or []
+        if not candidates:
+            raise JudgeProviderUnavailable("gemini returned no candidates")
+        parts = ((candidates[0].get("content") or {}).get("parts")) or []
+        content = "".join(str(part.get("text", "")) for part in parts)
+        if not content:
+            raise JudgeProviderUnavailable("gemini returned an empty candidate")
+        usage = body.get("usageMetadata") or {}
+        return content, {
+            "latency_seconds": time.perf_counter() - started,
+            "cost": None,
+            "provider": "gemini",
+            "input_tokens": usage.get("promptTokenCount"),
+            "output_tokens": usage.get("candidatesTokenCount"),
         }
 
 

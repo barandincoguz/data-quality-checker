@@ -340,7 +340,12 @@ def judge_model_providers() -> dict[str, str]:
     environment on every call, so the registry follows configuration rather
     than whatever the environment held at import.
     """
-    return {**_STATIC_JUDGE_MODEL_PROVIDERS, gemini_judge_model(): "gemini"}
+    gemini_model = gemini_judge_model()
+    if gemini_model in _STATIC_JUDGE_MODEL_PROVIDERS:
+        raise ContractError(
+            f"GEMINI_JUDGE_MODEL {gemini_model!r} collides with a static judge model id"
+        )
+    return {**_STATIC_JUDGE_MODEL_PROVIDERS, gemini_model: "gemini"}
 
 
 def resolve_judge_provider(model: str, *, fake_backend: bool = False) -> JudgeProvider:

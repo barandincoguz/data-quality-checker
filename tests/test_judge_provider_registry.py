@@ -46,3 +46,12 @@ def test_resolves_gemini_model(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_unknown_model_is_a_contract_error() -> None:
     with pytest.raises(ContractError):
         resolve_judge_provider("not-a-registered-model")
+
+
+def test_fake_backend_does_not_rescue_an_unregistered_model() -> None:
+    # Intentional: fake_backend short-circuits credential lookup for a known
+    # model, but an unregistered model id must still fail closed instead of
+    # silently returning a FakeJudgeProvider. Pinned so a later refactor
+    # cannot flip this without a deliberate test change.
+    with pytest.raises(ContractError):
+        resolve_judge_provider("bogus", fake_backend=True)

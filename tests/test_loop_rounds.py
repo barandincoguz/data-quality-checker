@@ -241,3 +241,12 @@ def test_the_curve_is_empty_when_no_round_has_been_measured(tmp_path: Path) -> N
     write_round_state(tmp_path, advance_round(new_round(1), to="predicted", artifact_sha256="a"))
     assert learning_curve_rows(tmp_path, rounds=[1]) == []
 
+
+def test_the_curve_deduplicates_repeated_round_numbers(tmp_path: Path) -> None:
+    measured = new_round(1)
+    for stage in ROUND_STAGES[1 : ROUND_STAGES.index("measured") + 1]:
+        measured = advance_round(measured, to=stage, artifact_sha256="sha")
+    write_round_state(tmp_path, measured)
+
+    rows = learning_curve_rows(tmp_path, rounds=[1, 1])
+    assert [row["round"] for row in rows] == [1]

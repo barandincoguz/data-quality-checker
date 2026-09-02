@@ -163,7 +163,7 @@ def learning_curve_rows(output_dir: Path, rounds: list[int]) -> list[dict[str, A
     """
     measured_index = ROUND_STAGES.index("measured")
     rows: list[dict[str, Any]] = []
-    for round_index in sorted(rounds):
+    for round_index in sorted(set(rounds)):
         try:
             state = read_round_state(output_dir, round_index)
         except ContractError:

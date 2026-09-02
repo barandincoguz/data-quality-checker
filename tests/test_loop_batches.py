@@ -146,6 +146,19 @@ def test_length_quartile_is_balanced_across_batches() -> None:
         assert max(shares) - min(shares) <= 0.10, f"{quartile} spread too high: {shares}"
 
 
+def test_annotator_is_balanced_across_batches() -> None:
+    documents = make_documents()
+    by_id = {str(doc["doc_id"]): doc for doc in documents}
+    batches = build_round_batches(documents, rounds=12, size=100, seed=LOOP_BATCH_SEED)
+    annotators = {str(doc["annotator"]) for doc in documents}
+    for annotator in annotators:
+        shares = [
+            sum(1 for doc_id in batch if by_id[doc_id]["annotator"] == annotator) / len(batch)
+            for batch in batches
+        ]
+        assert max(shares) - min(shares) <= 0.10, f"annotator {annotator} is unbalanced"
+
+
 def test_zero_reference_documents_are_spread_not_clumped() -> None:
     documents = make_documents()
     by_id = {str(doc["doc_id"]): doc for doc in documents}

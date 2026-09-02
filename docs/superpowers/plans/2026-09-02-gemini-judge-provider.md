@@ -254,7 +254,7 @@ curl -s -H "Authorization: Bearer $GEMINI_API_KEY" \
   "https://aiplatform.googleapis.com/v1/publishers/google/models" | head -c 2000
 ```
 
-Expected: a JSON list containing the exact model id. If `gemini-3.1-pro` is absent, set the real id in `.env` as `GEMINI_JUDGE_MODEL=<real-id>` and record the id in `Journal/experiments/dq_loop/RUNBOOK.md`. **Do not** edit the default in code to an unverified string.
+Expected: a JSON list containing the exact model id. If `gemini-3.1-pro` is absent, set the real id in `.env` as `GEMINI_JUDGE_MODEL=<real-id>` and record the id in `/Users/student2/ner-project/Journal/experiments/dq_loop/RUNBOOK.md` (**a different repository** — the experiment's provenance workspace lives in `ner-project`, not here). **Do not** edit the default in code to an unverified string.
 
 - [ ] **Step 8: Lint, type-check, commit**
 
@@ -745,7 +745,7 @@ git commit -m "feat(judges): resolve providers per model and allow a Gemini lock
 - `GeminiJudgeProvider` exists, is registered, and is reachable from `pilot-judges` and `judge-lock`.
 - `.venv/bin/python -m pytest -q` passes with 15 new tests: 191 on `main` -> 206. (4 from Task 1, 1 from Task 1's review fix, 6 from Task 2, 2 from Task 3, 2 from Task 4.)
 - `ruff check` passes. `mypy src` reports **no new** errors: the tree already has 37 pre-existing errors on `main`; the count and file list must be unchanged.
-- The real model id is confirmed against the live API and recorded in `Journal/experiments/dq_loop/RUNBOOK.md`.
+- The real model id is confirmed against the live API and recorded in `/Users/student2/ner-project/Journal/experiments/dq_loop/RUNBOOK.md`. That path is in a **different repository**; this criterion is closed by the controller, not by an implementer working in `data-quality-checker`.
 - `requirements.txt` is unchanged.
 
 ## Explicitly Out Of Scope

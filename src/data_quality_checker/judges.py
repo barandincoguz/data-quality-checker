@@ -28,6 +28,10 @@ from .storage import Store
 from .text import evidence_match_mode
 
 JUDGE_MODELS = ("qwen3.5:397b", "deepseek-v3.2")
+_STATIC_JUDGE_MODEL_PROVIDERS: dict[str, str] = {
+    "qwen3.5:397b": "ollama",
+    "deepseek-v3.2": "ollama",
+}
 JUDGE_PROMPT = (
     "Act as a blind legal-reference adjudicator. Compare candidate A and B "
     "only against the Turkish document. Return JSON with verdict (A, B, TIE, "
@@ -315,6 +319,33 @@ class GeminiJudgeProvider:
             "input_tokens": usage.get("promptTokenCount"),
             "output_tokens": usage.get("candidatesTokenCount"),
         }
+
+
+def judge_model_providers() -> dict[str, str]:
+    """Model id to provider kind, resolved at call time.
+
+    The Gemini entry is keyed on gemini_judge_model(), which reads the
+    environment on every call, so the registry follows configuration rather
+    than whatever the environment held at import.
+    """
+    return {**_STATIC_JUDGE_MODEL_PROVIDERS, gemini_judge_model(): "gemini"}
+
+
+def resolve_judge_provider(model: str, *, fake_backend: bool = False) -> JudgeProvider:
+    """Return the provider that serves `model`.
+
+    `fake_backend` short-circuits before any credential is read, so tests and
+    dry runs never touch the network or require a key.
+    """
+    providers = judge_model_providers()
+    kind = providers.get(model)
+    if kind is None:
+        raise ContractError(f"unknown judge model {model!r}; expected one of {sorted(providers)}")
+    if fake_backend:
+        return FakeJudgeProvider()
+    if kind == "gemini":
+        return GeminiJudgeProvider()
+    return OllamaJudgeProvider()
 
 
 def _validate_judge_result(payload: Any, document_text: str) -> dict[str, Any]:

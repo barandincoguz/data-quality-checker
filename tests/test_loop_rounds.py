@@ -9,6 +9,7 @@ from data_quality_checker.errors import ContractError
 from data_quality_checker.loop_rounds import (
     ROUND_STAGES,
     RoundState,
+    advance_round,
     new_round,
     read_round_state,
     write_round_state,
@@ -86,3 +87,79 @@ def test_a_state_file_with_a_non_numeric_round_is_a_contract_error(tmp_path: Pat
     _write_raw_state(tmp_path, 1, {"round": "seven", "stage": "pending", "artifacts": {}})
     with pytest.raises(ContractError):
         read_round_state(tmp_path, 1)
+
+
+def test_a_round_advances_one_stage_and_records_its_artifact() -> None:
+    state = advance_round(new_round(1), to="predicted", artifact_sha256="aaa")
+    assert state.stage == "predicted"
+    assert state.artifacts["predicted"] == "aaa"
+
+
+def test_skipping_a_stage_is_rejected() -> None:
+    with pytest.raises(ContractError):
+        advance_round(new_round(1), to="routed", artifact_sha256="aaa")
+
+
+def test_going_backwards_is_rejected() -> None:
+    state = advance_round(new_round(1), to="predicted", artifact_sha256="aaa")
+    with pytest.raises(ContractError):
+        advance_round(state, to="pending", artifact_sha256="bbb")
+
+
+def test_repeating_a_stage_is_rejected() -> None:
+    state = advance_round(new_round(1), to="predicted", artifact_sha256="aaa")
+    with pytest.raises(ContractError):
+        advance_round(state, to="predicted", artifact_sha256="bbb")
+
+
+def test_earlier_artifacts_survive_later_transitions() -> None:
+    state = new_round(1)
+    for index, stage in enumerate(ROUND_STAGES[1:], start=1):
+        state = advance_round(state, to=stage, artifact_sha256=f"sha{index}")
+    assert state.stage == "sealed"
+    assert state.artifacts["predicted"] == "sha1"
+    assert len(state.artifacts) == len(ROUND_STAGES) - 1
+
+
+def test_an_empty_artifact_sha_is_rejected() -> None:
+    with pytest.raises(ContractError):
+        advance_round(new_round(1), to="predicted", artifact_sha256="")
+
+
+def test_measurement_cannot_precede_checkpoint_selection() -> None:
+    """The protocol rule, enforced.
+
+    Reaching `measured` requires `checkpoint_selected` to be the current
+    stage, so a test-set number cannot exist before the checkpoint that
+    number might otherwise have influenced.
+    """
+    state = new_round(1)
+    for stage in ("predicted", "routed", "judged", "adjudicated", "composed", "trained"):
+        state = advance_round(state, to=stage, artifact_sha256="sha")
+    assert state.stage == "trained"
+    with pytest.raises(ContractError):
+        advance_round(state, to="measured", artifact_sha256="sha")
+
+
+def test_measurement_is_allowed_once_the_checkpoint_is_selected() -> None:
+    state = new_round(1)
+    for stage in (
+        "predicted",
+        "routed",
+        "judged",
+        "adjudicated",
+        "composed",
+        "trained",
+        "checkpoint_selected",
+    ):
+        state = advance_round(state, to=stage, artifact_sha256="sha")
+    measured = advance_round(state, to="measured", artifact_sha256="sha")
+    assert measured.stage == "measured"
+
+
+def test_a_sealed_round_cannot_advance() -> None:
+    state = new_round(1)
+    for stage in ROUND_STAGES[1:]:
+        state = advance_round(state, to=stage, artifact_sha256="sha")
+    with pytest.raises(ContractError, match="already sealed"):
+        advance_round(state, to="sealed", artifact_sha256="sha")

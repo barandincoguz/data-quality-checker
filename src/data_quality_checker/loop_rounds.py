@@ -76,6 +76,36 @@ def write_round_state(output_dir: Path, state: RoundState) -> dict[str, Any]:
     return {"path": str(path), "state_sha256": sha256_file(path)}
 
 
+def advance_round(state: RoundState, *, to: str, artifact_sha256: str) -> RoundState:
+    """Move a round exactly one stage forward, recording that stage's artifact.
+
+    Only forward, only one step, only once. Skipping would let a stage consume
+    an artifact its predecessor never produced; repeating would overwrite a
+    seal; reversing would let a sealed decision be revisited after later
+    evidence -- which for the `measured` stage is precisely the contamination
+    this loop is built to avoid.
+    """
+    state.validate()
+    if to not in ROUND_STAGES:
+        raise ContractError(f"unknown stage {to!r}; expected one of {list(ROUND_STAGES)}")
+    if not artifact_sha256:
+        raise ContractError(
+            f"advancing round {state.round_index} to {to!r} requires an artifact sha256"
+        )
+    if state.stage == ROUND_STAGES[-1]:
+        raise ContractError(f"round {state.round_index} is already sealed")
+    current = ROUND_STAGES.index(state.stage)
+    target = ROUND_STAGES.index(to)
+    if target != current + 1:
+        raise ContractError(
+            f"round {state.round_index} is at {state.stage!r}; the only legal next stage is "
+            f"{ROUND_STAGES[current + 1]!r}, not {to!r}"
+        )
+    artifacts = dict(state.artifacts)
+    artifacts[to] = artifact_sha256
+    return RoundState(round_index=state.round_index, stage=to, artifacts=artifacts).validate()
+
+
 def read_round_state(output_dir: Path, round_index: int) -> RoundState:
     path = _state_path(output_dir, round_index)
     try:

@@ -63,3 +63,26 @@ def test_an_unknown_stage_is_rejected() -> None:
 def test_a_negative_round_index_is_rejected() -> None:
     with pytest.raises(ContractError):
         new_round(-1)
+
+
+def _write_raw_state(output_dir: Path, round_index: int, payload: dict) -> None:
+    path = output_dir / f"round_{round_index:03d}_state.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+
+def test_a_state_file_missing_the_round_key_is_a_contract_error(tmp_path: Path) -> None:
+    _write_raw_state(tmp_path, 1, {"stage": "pending", "artifacts": {}})
+    with pytest.raises(ContractError):
+        read_round_state(tmp_path, 1)
+
+
+def test_a_state_file_with_artifacts_as_a_list_is_a_contract_error(tmp_path: Path) -> None:
+    _write_raw_state(tmp_path, 1, {"round": 1, "stage": "pending", "artifacts": ["oops"]})
+    with pytest.raises(ContractError):
+        read_round_state(tmp_path, 1)
+
+
+def test_a_state_file_with_a_non_numeric_round_is_a_contract_error(tmp_path: Path) -> None:
+    _write_raw_state(tmp_path, 1, {"round": "seven", "stage": "pending", "artifacts": {}})
+    with pytest.raises(ContractError):
+        read_round_state(tmp_path, 1)

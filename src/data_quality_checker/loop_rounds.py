@@ -41,6 +41,9 @@ class RoundState:
     stage: str
     artifacts: dict[str, str] = field(default_factory=dict)
 
+    def __post_init__(self) -> None:
+        self.validate()
+
     def validate(self) -> "RoundState":
         if self.round_index < 0:
             raise ContractError(f"round_index must be non-negative, got {self.round_index}")
@@ -79,8 +82,11 @@ def read_round_state(output_dir: Path, round_index: int) -> RoundState:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise ContractError(f"no readable state for round {round_index}: {exc}") from exc
-    return RoundState(
-        round_index=int(payload["round"]),
-        stage=str(payload["stage"]),
-        artifacts=dict(payload.get("artifacts") or {}),
-    ).validate()
+    try:
+        return RoundState(
+            round_index=int(payload["round"]),
+            stage=str(payload["stage"]),
+            artifacts=dict(payload.get("artifacts") or {}),
+        ).validate()
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ContractError(f"malformed state for round {round_index} in {path}: {exc}") from exc

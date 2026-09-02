@@ -243,7 +243,16 @@ class OllamaJudgeProvider:
         }
 
 
-GEMINI_JUDGE_MODEL = os.environ.get("GEMINI_JUDGE_MODEL", "gemini-3.1-pro")
+DEFAULT_GEMINI_JUDGE_MODEL = "gemini-3.1-pro"
+
+
+def gemini_judge_model() -> str:
+    """Resolve the Gemini judge model id at call time.
+
+    Read on every call rather than bound at import, so a process that sets
+    GEMINI_JUDGE_MODEL after this module loads still gets the configured id.
+    """
+    return os.environ.get("GEMINI_JUDGE_MODEL", DEFAULT_GEMINI_JUDGE_MODEL)
 
 
 class GeminiJudgeProvider:

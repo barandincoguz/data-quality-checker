@@ -74,3 +74,15 @@ def test_empty_candidates_is_unavailable(monkeypatch: pytest.MonkeyPatch) -> Non
     provider = GeminiJudgeProvider()
     with pytest.raises(JudgeProviderUnavailable):
         provider.judge(model="gemini-3.1-pro", payload={"document": "metin"})
+
+
+def test_gemini_judge_model_reads_the_environment_at_call_time(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from data_quality_checker.judges import DEFAULT_GEMINI_JUDGE_MODEL, gemini_judge_model
+
+    monkeypatch.delenv("GEMINI_JUDGE_MODEL", raising=False)
+    assert gemini_judge_model() == DEFAULT_GEMINI_JUDGE_MODEL
+
+    monkeypatch.setenv("GEMINI_JUDGE_MODEL", "gemini-custom-id")
+    assert gemini_judge_model() == "gemini-custom-id"

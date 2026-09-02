@@ -458,6 +458,10 @@ def _run_pilot_impl(
         total_latency: dict[str, float] = {model: 0.0 for model in models}
         total_cost: dict[str, float] = {model: 0.0 for model in models}
         document_by_id = {row["internal_doc_id"]: row for row in documents}
+        providers_by_model: dict[str, JudgeProvider] = {
+            model: provider or resolve_judge_provider(model, fake_backend=fake_backend)
+            for model in models
+        }
 
         for selection_index, internal_doc_id in enumerate(selection.internal_doc_ids, 1):
             document = document_by_id[internal_doc_id]
@@ -497,9 +501,7 @@ def _run_pilot_impl(
                 operational: dict[str, Any] = {}
                 last_error = ""
                 unavailable = False
-                model_provider = provider or resolve_judge_provider(
-                    model, fake_backend=fake_backend
-                )
+                model_provider = providers_by_model[model]
                 for attempt in range(1, 4):
                     try:
                         raw, operational = model_provider.judge(

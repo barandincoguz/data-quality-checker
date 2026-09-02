@@ -135,6 +135,34 @@ def test_blind_pilot_sends_only_text_and_candidates_and_persists_both_models(tmp
     assert {row["status"] for row in results} == {"valid"}
 
 
+def test_run_judge_pilot_resolves_each_model_once_via_the_registry(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from data_quality_checker import judges as judges_module
+
+    config = prepared_processed_fixture(tmp_path, count=3)
+    calls: list[str] = []
+
+    def recording_resolve(model: str, *, fake_backend: bool = False) -> FakeJudgeProvider:
+        calls.append(model)
+        return FakeJudgeProvider()
+
+    monkeypatch.setattr(judges_module, "resolve_judge_provider", recording_resolve)
+
+    summary = run_judge_pilot(
+        config=config,
+        batch_id="batch",
+        allow_external_judge=True,
+        fake_backend=True,
+    )
+
+    assert set(calls) == set(judges_module.JUDGE_MODELS)
+    # One resolution per model, not once per document: with three documents
+    # and two models a per-document rebuild would show six calls here.
+    assert len(calls) == len(judges_module.JUDGE_MODELS)
+    assert summary["selected_document_count"] == 3
+
+
 class RetryThenValid:
     def __init__(self):
         self.calls = 0

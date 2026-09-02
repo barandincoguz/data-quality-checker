@@ -63,10 +63,11 @@ Runs candidate blind automated judges on a batch subset.
 ```bash
 dqcheck pilot-judges \
   --batch-id <batch-id> \
-  [--allow-external-judge]
+  [--allow-external-judge] \
+  [--judge-models <model-id,model-id,...>]
 ```
 
-| `--judge-models` | Comma-separated judge model ids. Defaults to the two-model pilot pair. Every id must be registered in `judge_model_providers()`. |
+- `--judge-models`: Comma-separated judge model ids. Defaults to the two-model pilot pair. Every id must be registered in `judge_model_providers()`.
 
 **Gemini judge environment:**
 

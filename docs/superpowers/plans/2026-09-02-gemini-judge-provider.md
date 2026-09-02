@@ -541,7 +541,7 @@ python sample_data/generate_sample_zips.py
 Expected: exit 0. Then confirm the model set landed in the artifact:
 
 ```bash
-SUMMARY=$(find . -name judge_pilot_summary.json -newermt '-5 minutes' | head -1)
+SUMMARY=$(find . -name judge_pilot_summary.json -mmin -5 | head -1)
 .venv/bin/python -c "import json,sys;print(sorted(json.load(open(sys.argv[1]))['models']))" "$SUMMARY"
 ```
 

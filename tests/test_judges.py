@@ -3,9 +3,11 @@ from __future__ import annotations
 import json
 import zipfile
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
+from data_quality_checker.commands import pilot_judges
 from data_quality_checker.config import default_config_path, load_config
 from data_quality_checker.errors import ContractError, GateBlocked
 from data_quality_checker.judges import (
@@ -331,3 +333,16 @@ def test_lock_judge_rejects_an_unregistered_model(tmp_path) -> None:
     config = prepared_processed_fixture(tmp_path)
     with pytest.raises(ContractError):
         lock_judge(config=config, batch_id="batch", model="made-up-model", reason="test")
+
+
+def test_cli_rejects_an_explicitly_supplied_empty_judge_models_flag() -> None:
+    # "" is falsy, unlike ",, " (already rejected), so a truthiness check
+    # would silently fall back to the default pair instead of raising.
+    args = SimpleNamespace(
+        batch_id="batch",
+        allow_external_judge=False,
+        fake_backend=False,
+        judge_models="",
+    )
+    with pytest.raises(ContractError):
+        pilot_judges(args, config=None)

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import http.client
 import io
 import json
+import urllib.error
 from typing import Any
 
 import pytest
@@ -74,6 +76,52 @@ def test_empty_candidates_is_unavailable(monkeypatch: pytest.MonkeyPatch) -> Non
 
     def fake_urlopen(request: Any, timeout: float | None = None) -> _FakeResponse:
         return _FakeResponse(json.dumps({"candidates": []}).encode("utf-8"))
+
+    monkeypatch.setattr("data_quality_checker.judges.urllib.request.urlopen", fake_urlopen)
+    provider = GeminiJudgeProvider()
+    with pytest.raises(JudgeProviderUnavailable):
+        provider.judge(model="gemini-3.1-pro", payload={"document": "metin"})
+
+
+def test_http_error_body_is_surfaced_in_the_message(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+
+    def fake_urlopen(request: Any, timeout: float | None = None) -> None:
+        raise urllib.error.HTTPError(
+            request.full_url,
+            404,
+            "Not Found",
+            {},
+            io.BytesIO(b'{"error":{"message":"model not found"}}'),
+        )
+
+    monkeypatch.setattr("data_quality_checker.judges.urllib.request.urlopen", fake_urlopen)
+    provider = GeminiJudgeProvider()
+    with pytest.raises(JudgeProviderUnavailable) as exc_info:
+        provider.judge(model="gemini-3.1-pro", payload={"document": "metin"})
+
+    message = str(exc_info.value)
+    assert "model not found" in message
+    assert message != "HTTP Error 404: Not Found"
+
+
+def test_incomplete_read_during_response_read_is_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+
+    class _BrokenResponse:
+        def __enter__(self) -> "_BrokenResponse":
+            return self
+
+        def __exit__(self, *args: Any) -> None:
+            return None
+
+        def read(self) -> bytes:
+            raise http.client.IncompleteRead(partial=b"{")
+
+    def fake_urlopen(request: Any, timeout: float | None = None) -> _BrokenResponse:
+        return _BrokenResponse()
 
     monkeypatch.setattr("data_quality_checker.judges.urllib.request.urlopen", fake_urlopen)
     provider = GeminiJudgeProvider()

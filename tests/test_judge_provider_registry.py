@@ -48,6 +48,14 @@ def test_unknown_model_is_a_contract_error() -> None:
         resolve_judge_provider("not-a-registered-model")
 
 
+def test_gemini_judge_model_collision_with_a_static_model_id_is_a_contract_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("GEMINI_JUDGE_MODEL", "qwen3.5:397b")
+    with pytest.raises(ContractError, match="qwen3.5:397b"):
+        judge_model_providers()
+
+
 def test_fake_backend_does_not_rescue_an_unregistered_model() -> None:
     # Intentional: fake_backend short-circuits credential lookup for a known
     # model, but an unregistered model id must still fail closed instead of

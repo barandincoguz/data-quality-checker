@@ -15,16 +15,24 @@ from each other) and rerunning this test made it fail with
 
 from __future__ import annotations
 
+import inspect
+import json
+from pathlib import Path
 from typing import Any
 
 import pytest
 
-from data_quality_checker.errors import ContractError
+from data_quality_checker.config import load_config
+from data_quality_checker.errors import ContractError, IntegrityError
 from data_quality_checker.loop_metrics import (
+    PAIRED_BOOTSTRAP_SAMPLES,
+    PAIRED_BOOTSTRAP_SEED,
     attribute_errors,
     documents_with_finalized_truth,
     edit_distance_from_best_candidate,
     expert_workload,
+    model_round_metrics,
+    paired_delta,
     rater_agreement,
 )
 
@@ -586,3 +594,262 @@ def test_green_audit_sample_counts_as_required_review() -> None:
     result = expert_workload(records)
     assert result["documents_requiring_review_count"] == 1
     assert result["document_count"] == 2
+
+
+# ---------------------------------------------------------------------------
+# model_round_metrics
+# ---------------------------------------------------------------------------
+
+# Real, approved-only ground truth from the reference split's frozen test
+# section (`docs/superpowers/plans/2026-09-04-loop-metrics.md` Task 4). Reused
+# rather than a synthetic fixture so this test exercises the real
+# `canonical_evaluate` subprocess, exactly as `test_g0_training.py`'s own
+# canonical-evaluator test does -- this module wraps that evaluator and must
+# not invent its own notion of what it returns.
+_FROZEN_TEST_PERFECT_DOC_IDS = (5, 17, 50)
+_FROZEN_TEST_MISS_DOC_IDS = (20, 21)
+
+
+def _frozen_test_fixture(tmp_path: Path):
+    config = load_config()
+    predictions: list[dict[str, Any]] = []
+    for doc_id in _FROZEN_TEST_PERFECT_DOC_IDS:
+        gold = json.loads(
+            (config.canonical_gt_dir / f"doc_{doc_id}.json").read_text(encoding="utf-8")
+        )
+        approved = [
+            reference
+            for reference in gold["references"]
+            if str(reference.get("status", "approved")).lower() == "approved"
+        ]
+        predictions.append(
+            {
+                "doc_id": doc_id,
+                "status": "success",
+                "references": approved,
+                "operational": {
+                    "latency_seconds": 1.5,
+                    "input_tokens": 900,
+                    "output_tokens": 40,
+                    "peak_memory_bytes": 4_000_000_000,
+                    "truncated": False,
+                },
+            }
+        )
+    # A generation-limit truncation: the model never produced a usable
+    # reference list because it hit the token ceiling.
+    predictions.append(
+        {
+            "doc_id": _FROZEN_TEST_MISS_DOC_IDS[0],
+            "status": "error",
+            "references": [],
+            "error": "model output reached generation limit",
+            "operational": {
+                "latency_seconds": 4.0,
+                "input_tokens": 900,
+                "output_tokens": 4096,
+                "peak_memory_bytes": 4_500_000_000,
+                "truncated": True,
+            },
+        }
+    )
+    # A genuine parse failure: the model finished cleanly but wrote nothing
+    # `_parse_model_output` could turn into references -- disjoint from the
+    # truncation above, and must not be counted as one.
+    predictions.append(
+        {
+            "doc_id": _FROZEN_TEST_MISS_DOC_IDS[1],
+            "status": "error",
+            "references": [],
+            "error": "model output contains no JSON array",
+            "operational": {
+                "latency_seconds": 0.8,
+                "input_tokens": 900,
+                "output_tokens": 12,
+                "peak_memory_bytes": 4_100_000_000,
+                "truncated": False,
+            },
+        }
+    )
+    doc_ids = sorted(_FROZEN_TEST_PERFECT_DOC_IDS + _FROZEN_TEST_MISS_DOC_IDS)
+    predictions_path = tmp_path / "predictions.json"
+    doc_ids_path = tmp_path / "doc_ids.json"
+    predictions_path.write_text(json.dumps(predictions), encoding="utf-8")
+    doc_ids_path.write_text(json.dumps(doc_ids), encoding="utf-8")
+    return config, predictions_path, doc_ids_path, doc_ids
+
+
+def test_model_round_metrics_has_no_default_for_expected_doc_count() -> None:
+    """`canonical_evaluate` defaults `expected_doc_count` to 50; this wrapper
+    must not inherit that default silently, since the frozen test split is
+    not 50 documents. The absence of a default is itself the contract, so it
+    is asserted directly on the signature rather than only indirectly."""
+    parameter = inspect.signature(model_round_metrics).parameters["expected_doc_count"]
+    assert parameter.default is inspect.Parameter.empty
+
+
+def test_model_round_metrics_wraps_the_evaluator_and_splits_parse_failure_from_truncation(
+    tmp_path: Path,
+) -> None:
+    config, predictions_path, doc_ids_path, doc_ids = _frozen_test_fixture(tmp_path)
+
+    result = model_round_metrics(
+        config=config,
+        predictions_path=predictions_path,
+        doc_ids_path=doc_ids_path,
+        output_dir=tmp_path / "evaluation",
+        expected_doc_count=len(doc_ids),
+    )
+
+    assert result["document_count"] == len(doc_ids)
+    for view in ("core", "full"):
+        assert set(result[view]) == {"tp", "fp", "fn", "precision", "recall", "f1"}
+    # Two of the five documents (20, 21) contributed zero references, so the
+    # evaluator's own recall must reflect real misses, never a vacuous 1.0.
+    assert result["core"]["fn"] > 0
+    assert result["core"]["recall"] < 1.0
+
+    docwise = result["docwise_f1_distribution"]
+    assert docwise["total_docs"] == len(doc_ids)
+    assert docwise["perfect_f1_count"] == len(_FROZEN_TEST_PERFECT_DOC_IDS)
+    assert docwise["zero_f1_count"] == len(_FROZEN_TEST_MISS_DOC_IDS)
+
+    assert set(result["core_per_document"]) == set(doc_ids)
+    for doc_id in _FROZEN_TEST_PERFECT_DOC_IDS:
+        assert result["core_per_document"][doc_id]["fn"] == 0
+    for doc_id in _FROZEN_TEST_MISS_DOC_IDS:
+        assert result["core_per_document"][doc_id]["tp"] == 0
+
+    # The discriminating assertion: one error is a truncation, the other a
+    # parse failure, and the two counts must not conflate them.
+    assert result["prediction_status_counts"] == {"success": 3, "error": 2}
+    assert result["truncation_count"] == 1
+    assert result["parse_failure_count"] == 1
+
+    operational = result["operational"]
+    assert operational["document_count"] == len(doc_ids)
+    assert operational["latency_seconds"]["count"] == len(doc_ids)
+    assert operational["reliability"]["truncated_count"] == 1
+
+
+def test_model_round_metrics_propagates_the_evaluators_coverage_gate(tmp_path: Path) -> None:
+    """A wrong `expected_doc_count` must not be swallowed: the evaluator's own
+    coverage gate is what actually enforces it, and this wrapper must not
+    intercept or soften that failure."""
+    config, predictions_path, doc_ids_path, doc_ids = _frozen_test_fixture(tmp_path)
+
+    with pytest.raises(IntegrityError):
+        model_round_metrics(
+            config=config,
+            predictions_path=predictions_path,
+            doc_ids_path=doc_ids_path,
+            output_dir=tmp_path / "evaluation",
+            expected_doc_count=len(doc_ids) + 1,
+        )
+
+
+# ---------------------------------------------------------------------------
+# paired_delta
+# ---------------------------------------------------------------------------
+
+
+def test_paired_delta_default_samples_and_seed_match_the_published_method() -> None:
+    """The published external-selection number
+    (`ner-project/scripts/dqcheck_g0_external_selection.py:908-909`) used
+    `samples=10_000`, `seed=42`; this replication must default to exactly
+    those, not merely "a large number"."""
+    assert PAIRED_BOOTSTRAP_SAMPLES == 10_000
+    assert PAIRED_BOOTSTRAP_SEED == 42
+    parameters = inspect.signature(paired_delta).parameters
+    assert parameters["samples"].default == 10_000
+    assert parameters["seed"].default == 42
+
+
+def test_paired_delta_single_shared_document_is_exact_and_deterministic() -> None:
+    """With exactly one shared document, every bootstrap resample draws that
+    same document every time (`rng.choice` over a length-1 universe), so the
+    entire interval collapses to the one observed delta -- a fully
+    hand-computable case that pins down the sign convention (current minus
+    previous) and the win/tie/loss bookkeeping without relying on the
+    resampling itself being correct."""
+    previous = {1: {"tp": 8, "fp": 2, "fn": 2}}  # f1 = 0.8
+    current = {1: {"tp": 9, "fp": 1, "fn": 1}}  # f1 = 0.9
+
+    result = paired_delta(previous, current, samples=50, seed=42)
+
+    assert result["lower_2_5"] == pytest.approx(0.1)
+    assert result["upper_97_5"] == pytest.approx(0.1)
+    assert result["bootstrap_mean"] == pytest.approx(0.1)
+    assert result["probability_delta_gt_zero"] == pytest.approx(1.0)
+    assert result["delta_gt_zero_count"] == 50
+    assert result["per_document"] == {"challenger_win": 1, "tie": 0, "incumbent_win": 0}
+    assert result["verdict"] == "improved"
+    assert result["samples"] == 50
+    assert result["seed"] == 42
+    assert result["document_count"] == 1
+
+
+def test_paired_delta_a_consistent_regression_is_reported_as_regressed() -> None:
+    previous = {doc_id: {"tp": 9, "fp": 1, "fn": 1} for doc_id in range(1, 11)}  # f1 = 0.9
+    current = {doc_id: {"tp": 8, "fp": 2, "fn": 2} for doc_id in range(1, 11)}  # f1 = 0.8
+
+    result = paired_delta(previous, current, samples=200, seed=42)
+
+    assert result["upper_97_5"] < 0
+    assert result["verdict"] == "regressed"
+    assert result["per_document"] == {"challenger_win": 0, "tie": 0, "incumbent_win": 10}
+
+
+def test_paired_delta_requires_the_same_document_universe_in_both_rounds() -> None:
+    previous = {1: {"tp": 1, "fp": 0, "fn": 0}, 2: {"tp": 1, "fp": 0, "fn": 0}}
+    current = {1: {"tp": 1, "fp": 0, "fn": 0}}
+    with pytest.raises(ContractError, match="same document universe"):
+        paired_delta(previous, current, samples=10, seed=42)
+
+
+def test_paired_delta_requires_at_least_one_shared_document() -> None:
+    with pytest.raises(ContractError, match="at least one shared document"):
+        paired_delta({}, {}, samples=10, seed=42)
+
+
+def test_paired_delta_requires_tp_fp_fn_on_every_shared_document() -> None:
+    previous = {1: {"tp": 1, "fp": 0, "fn": 0}}
+    current = {1: {"tp": 1, "fp": 0}}  # missing "fn"
+    with pytest.raises(ContractError, match="fn"):
+        paired_delta(previous, current, samples=10, seed=42)
+
+
+def test_paired_delta_a_small_noisy_difference_is_inconclusive_not_improved() -> None:
+    """The required discrimination case (Task 4 brief): the two rounds differ
+    by a small, noisy amount -- 12 of 20 documents tick up, 8 tick down, by
+    the same one-reference margin either way -- so the raw bootstrap mean is
+    *positive* (`current` looks better on average) but the per-document
+    variance is large enough that the 95%% interval still reaches below zero.
+
+    This is exactly the trap a mean-sign-only verdict falls into: a
+    mutation of `paired_delta` that set `verdict` from `sign(bootstrap_mean)`
+    alone (rather than from whether the interval spans zero) would report
+    `"improved"` here, since `bootstrap_mean > 0`. The correct verdict is
+    `"inconclusive"`, because the interval still spans zero -- confirmed by
+    hand: swapping the verdict computation for
+    `"improved" if bootstrap_mean > 0 else "regressed"` and rerunning this
+    test made it fail with `verdict == "improved"`, exactly as expected; the
+    swap was then reverted (see the commit message / task report for the
+    literal pytest output of both runs).
+    """
+    previous = {doc_id: {"tp": 8, "fp": 2, "fn": 2} for doc_id in range(1, 21)}  # f1 = 0.8
+    current = {
+        doc_id: (
+            {"tp": 9, "fp": 2, "fn": 1}  # f1 ~ 0.857, ticks up
+            if doc_id <= 12
+            else {"tp": 7, "fp": 2, "fn": 3}  # f1 ~ 0.737, ticks down
+        )
+        for doc_id in range(1, 21)
+    }
+
+    result = paired_delta(previous, current, samples=2000, seed=42)
+
+    assert result["bootstrap_mean"] > 0
+    assert result["lower_2_5"] < 0 < result["upper_97_5"]
+    assert result["verdict"] == "inconclusive"
+    assert result["verdict"] != "improved"

@@ -25,18 +25,33 @@ row is the hinge between the two halves: it is real work (it counts toward
 workload) but it is not truth (`final_references_json` is stored `null`,
 so it must never reach an accuracy computation -- see
 `documents_with_finalized_truth`).
+
+`model_round_metrics` and `paired_delta` (Task 4) complete the first half
+with the model's own numbers on the frozen test split, and the paired
+significance test that decides whether a round-over-round change in them is
+real rather than resampling noise. Neither reimplements reference scoring:
+`model_round_metrics` wraps the repo's own evaluator
+(`g0_training.canonical_evaluate`), and `paired_delta` replicates -- rather
+than imports, since it lives in another repository -- the exact bootstrap
+method (`paired_core_bootstrap`) that produced the project's one published
+external-selection number, parameter for parameter.
 """
 
 from __future__ import annotations
 
 import itertools
+import json
+import random
+from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
+from pathlib import Path
 from typing import Any
 
 from .constants import EXPERT_ACTIONS, REVIEW_STATUSES
-from .errors import ContractError
+from .errors import ContractError, IntegrityError
+from .g0_training import canonical_evaluate
 from .normalization import compact_references, core_identity
-from .performance import _percentile
+from .performance import _percentile, summarize_operational_records
 from .reference_policy import apply_reference_policy
 
 Identity = tuple[str, str, str, str]
@@ -578,4 +593,340 @@ def expert_workload(records: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
             ),
             "closest_candidate_counts": closest_candidate_counts,
         },
+    }
+
+
+# ---------------------------------------------------------------------------
+# Model round metrics (Task 4): the model half of the paper's claim, on the
+# frozen test split, plus the paired significance test that decides whether a
+# round-over-round change in it is real.
+# ---------------------------------------------------------------------------
+
+_CORE_METRIC_FIELDS = ("tp", "fp", "fn", "precision", "recall", "f1")
+
+
+def model_round_metrics(
+    *,
+    config: Any,
+    predictions_path: Path,
+    doc_ids_path: Path,
+    output_dir: Path,
+    expected_doc_count: int,
+) -> dict[str, Any]:
+    """Score one round's model on the frozen test split.
+
+    Wraps the repo's own evaluator (`g0_training.canonical_evaluate`) rather
+    than reimplementing reference matching; this function contributes no
+    scoring logic of its own, only extraction of what the evaluator already
+    computed plus the operational counters scoring never touches.
+
+    `expected_doc_count` has no default on purpose. `canonical_evaluate`
+    defaults it to 50 -- the G0 development-validation set size -- which is
+    the wrong number for a round's frozen test split, and silently passing
+    that default here would score against the wrong document count without
+    any error. A caller must state the real split size explicitly, exactly as
+    `loop_bindings.measure_step` already requires for the same reason.
+    Stating the wrong count does not fail silently either way: the
+    evaluator's own coverage gate raises `IntegrityError` the moment
+    `evaluated_doc_count` disagrees with it.
+
+    `predictions_path` is read twice: once by the evaluator itself (for
+    scoring) and once here (for the `operational` counters -- latency,
+    tokens, peak memory, truncation -- that scoring never touches, and that
+    `canonical_evaluate`'s report does not carry). Rows are restricted to the
+    `doc_ids_path` universe before either use, so a predictions file that
+    happens to carry extra rows outside this round's frozen split cannot
+    inflate the operational counters or the status counts below.
+
+    Returns a dict with:
+    - `document_count`: the evaluated document count (`== expected_doc_count`
+      once the coverage gate above has passed).
+    - `core` / `full`: `{tp, fp, fn, precision, recall, f1}` at core identity
+      (law + article; the evaluator's `core_law_article_strict`) and full
+      identity (core + fikra + bent; the evaluator's `overall`) respectively.
+      Core is the identity level `paired_delta` below and the loop's own
+      checkpoint selection both use; full is reported alongside it because a
+      round can gain or lose only on fikra/bent while core holds steady, and
+      that would otherwise be invisible.
+    - `docwise_f1_distribution`: the evaluator's own per-document core-F1
+      distribution (`core_doc_level_diagnostics`) -- `perfect_f1_count`,
+      `zero_f1_count`, and the min/max/mean/median/p25/p75 of per-document F1
+      -- alongside `total_docs` as their shared denominator. This is a
+      *distribution* of how thoroughly each document was solved; it is not
+      `docwise_core_accuracy` (a single pass/fail rate at one threshold),
+      which this function does not emit.
+    - `core_per_document`: `{doc_id: {"tp", "fp", "fn"}}` over the evaluated
+      universe, at core identity -- exactly the shape `paired_delta` below
+      takes as its `previous`/`current` arguments, so a caller never has to
+      reshape this function's own output to run the significance test.
+    - `parse_failure_count`, `truncation_count`: a genuine model-output
+      failure (produced nothing parseable, or was cut off at the generation
+      limit) is exactly one of these two, never both, so they never double
+      count the same document. `truncation_count` is the project's
+      established `operational.truncated` count
+      (`performance.summarize_operational_records`'s `reliability` block --
+      the same field `router.route_document` and `hitl` already key off);
+      `parse_failure_count` is what remains of the evaluator's own
+      `error`-status count once truncations are subtracted out, so a
+      document whose input alone exceeded the context window before
+      generation was ever attempted is counted here too -- it likewise never
+      produced a valid reference list, and it was not a generation-limit
+      truncation.
+    - `prediction_status_counts`: the raw status tally (`success`/`error`/...)
+      over the restricted rows, so `parse_failure_count`'s derivation from it
+      is auditable rather than opaque.
+    - `operational`: `performance.summarize_operational_records` over the
+      same restricted rows -- latency (p50/p95 among other percentiles),
+      input/output token distributions, and peak memory, so no accuracy
+      number here ships without them.
+    """
+    predictions_path = Path(predictions_path)
+    doc_ids_path = Path(doc_ids_path)
+    output_dir = Path(output_dir)
+
+    doc_ids = {int(doc_id) for doc_id in json.loads(doc_ids_path.read_text(encoding="utf-8"))}
+    raw_predictions = json.loads(predictions_path.read_text(encoding="utf-8"))
+    if not isinstance(raw_predictions, list):
+        raise ContractError("model_round_metrics requires predictions_path to hold a JSON array")
+
+    rows_by_doc_id: dict[int, dict[str, Any]] = {}
+    for row in raw_predictions:
+        if isinstance(row, dict) and row.get("doc_id") in doc_ids:
+            # A repeated doc_id keeps the last block, mirroring the evaluator's
+            # own `load_predictions` duplicate policy exactly.
+            rows_by_doc_id[row["doc_id"]] = row
+    rows = [rows_by_doc_id[doc_id] for doc_id in sorted(rows_by_doc_id)]
+
+    report = canonical_evaluate(
+        config=config,
+        predictions_path=predictions_path,
+        doc_ids_path=doc_ids_path,
+        output_dir=output_dir,
+        expected_doc_count=expected_doc_count,
+    )
+    result = report["results"][0]
+    if "core_per_doc_metrics" not in result:
+        # canonical_evaluate always passes `--per-doc`; this can only fire if
+        # that changes underneath this function, and it must fail loudly
+        # rather than silently short the per-document universe paired_delta needs.
+        raise ContractError("canonical evaluator report is missing per-document core metrics")
+
+    core_metric = result["core_law_article_strict"]
+    full_metric = result["overall"]
+    docwise = result["core_doc_level_diagnostics"]
+
+    status_counts: Counter[str] = Counter(
+        str(row.get("status", "success")).strip().lower() or "success" for row in rows
+    )
+    error_count = status_counts.get("error", 0)
+
+    operational_records = [dict(row.get("operational") or {}) for row in rows]
+    operational_summary = summarize_operational_records(
+        operational_records,
+        provenance={"source": "model_round_metrics", "document_count": len(rows)},
+    )
+    truncation_count = operational_summary["reliability"]["truncated_count"]
+    parse_failure_count = error_count - truncation_count
+    if parse_failure_count < 0:
+        raise IntegrityError(
+            "truncated-prediction count exceeds the evaluator's own error-status "
+            "count; the operational and status counters disagree"
+        )
+
+    core_per_document = {
+        int(entry["doc_id"]): {
+            "tp": int(entry["tp"]),
+            "fp": int(entry["fp"]),
+            "fn": int(entry["fn"]),
+        }
+        for entry in result["core_per_doc_metrics"]
+    }
+
+    f1_distribution = docwise["f1_distribution"]
+    return {
+        "document_count": result["evaluated_doc_count"],
+        "core": {field: core_metric[field] for field in _CORE_METRIC_FIELDS},
+        "full": {field: full_metric[field] for field in _CORE_METRIC_FIELDS},
+        "docwise_f1_distribution": {
+            "total_docs": docwise["total_docs"],
+            "perfect_f1_count": docwise["perfect_f1_count"],
+            "zero_f1_count": docwise["zero_f1_count"],
+            "min_f1": f1_distribution["min"],
+            "max_f1": f1_distribution["max"],
+            "mean_f1": f1_distribution["mean"],
+            "median_f1": f1_distribution["median"],
+            "p25_f1": f1_distribution["p25"],
+            "p75_f1": f1_distribution["p75"],
+        },
+        "core_per_document": core_per_document,
+        "prediction_status_counts": dict(status_counts),
+        "parse_failure_count": parse_failure_count,
+        "truncation_count": truncation_count,
+        "operational": operational_summary,
+    }
+
+
+# `paired_core_bootstrap`'s own bootstrap parameters
+# (`ner-project/scripts/dqcheck_g0_external_selection.py:908-909`), echoed
+# here as named constants rather than repeated literals so the two numbers
+# that must never drift from the published method live in exactly one place.
+PAIRED_BOOTSTRAP_SAMPLES = 10_000
+PAIRED_BOOTSTRAP_SEED = 42
+
+
+def _bootstrap_quantile(values: Sequence[float], fraction: float) -> float:
+    """Linearly-interpolated quantile between order statistics.
+
+    Bit-for-bit the published method's own `_quantile`
+    (`ner-project/scripts/dqcheck_g0_external_selection.py:895-903`), and
+    deliberately *not* this repo's `performance._percentile` (nearest-rank):
+    the two give different numbers for the same sample, and this function
+    exists to reproduce the one number the project has already published, not
+    a differently-rounded one.
+    """
+    ordered = sorted(values)
+    if not ordered:
+        raise ValueError("quantile requires values")
+    position = (len(ordered) - 1) * fraction
+    lower = int(position)
+    upper = min(len(ordered) - 1, lower + 1)
+    weight = position - lower
+    return ordered[lower] * (1 - weight) + ordered[upper] * weight
+
+
+def _bootstrap_f1(tp: int, fp: int, fn: int) -> float:
+    """F1 from summed tp/fp/fn, with a 0.0 (not 1.0) vacuous convention.
+
+    Deliberately not this module's own `_rate`/`_f1` (which default an
+    empty-denominator precision or recall to a vacuous 1.0, appropriate for
+    error attribution against the expert): the published bootstrap method
+    being replicated here (`paired_core_bootstrap`'s own `_metric_dict`) uses
+    0.0 for both, and matching it bit-for-bit -- not merely approximately --
+    is the entire point of this function.
+    """
+    precision = tp / (tp + fp) if (tp + fp) else 0.0
+    recall = tp / (tp + fn) if (tp + fn) else 0.0
+    return 2 * precision * recall / (precision + recall) if (precision + recall) else 0.0
+
+
+def _require_core_counts(mapping: Mapping[Any, Mapping[str, int]], *, name: str) -> None:
+    for doc_id, counts in mapping.items():
+        missing = {"tp", "fp", "fn"} - counts.keys()
+        if missing:
+            raise ContractError(f"paired_delta: {name}[{doc_id!r}] is missing {sorted(missing)}")
+
+
+def paired_delta(
+    previous: Mapping[Any, Mapping[str, int]],
+    current: Mapping[Any, Mapping[str, int]],
+    *,
+    samples: int = PAIRED_BOOTSTRAP_SAMPLES,
+    seed: int = PAIRED_BOOTSTRAP_SEED,
+) -> dict[str, Any]:
+    """Paired bootstrap over the frozen test split's shared documents.
+
+    Replicates -- rather than imports, since it lives in another repository
+    -- `paired_core_bootstrap`
+    (`ner-project/scripts/dqcheck_g0_external_selection.py:910-957`), the
+    method that produced the only external-selection number this project has
+    published, parameter for parameter: `samples=10_000`, `seed=42`
+    (`random.Random(seed)`), resampling document ids *with replacement* from
+    the shared universe (`[rng.choice(doc_ids) for _ in doc_ids]`), and
+    computing F1 from tp/fp/fn *summed* across each resample -- never from
+    averaging each document's own F1, which is a different estimator and
+    would not reproduce that number.
+
+    `previous` and `current` are each `{doc_id: {"tp", "fp", "fn"}}` at core
+    identity -- exactly `model_round_metrics`'s own `core_per_document`
+    output -- for the round being compared against and the round being
+    evaluated, respectively. The two must share the exact same document
+    universe: a paired test compares each document against itself across
+    rounds, so a mismatched universe (documents scored in one round but not
+    the other) cannot honestly be paired, and is refused with a
+    `ContractError` rather than silently scored over whichever documents
+    happen to be common or padded with a fabricated pairing.
+
+    A round that reports ΔF1 without this interval is not evidence -- the
+    interval is the entire deliverable. This is why `verdict` is added on top
+    of the published method's own fields: it is one of `"improved"`,
+    `"regressed"` or `"inconclusive"`, and `"inconclusive"` fires whenever the
+    95% interval (`lower_2_5`, `upper_97_5`) spans zero, *regardless of the
+    sign of `bootstrap_mean`* -- a positive mean with an interval that still
+    reaches below zero is exactly the noisy case a round-over-round claim
+    must not read as improvement.
+
+    Returns `samples`, `seed` (both echoed so a report is self-describing);
+    `document_count` (the shared universe size); `lower_2_5`, `upper_97_5`,
+    `bootstrap_mean` (of `current_f1 - previous_f1` over the bootstrap
+    resamples); `delta_gt_zero_count` alongside `probability_delta_gt_zero`
+    (`delta_gt_zero_count / samples`, never a bare rate); `per_document`
+    (`challenger_win` / `tie` / `incumbent_win`, from each document's own
+    observed F1 -- current vs. previous -- once, not resampled); and
+    `verdict`.
+    """
+    if not isinstance(samples, int) or samples <= 0:
+        raise ContractError("paired_delta requires a positive integer sample count")
+
+    doc_ids = sorted(current)
+    if doc_ids != sorted(previous):
+        raise ContractError("paired_delta requires the same document universe for both rounds")
+    if not doc_ids:
+        raise ContractError("paired_delta requires at least one shared document")
+    _require_core_counts(previous, name="previous")
+    _require_core_counts(current, name="current")
+
+    rng = random.Random(seed)
+    deltas: list[float] = []
+    for _ in range(samples):
+        sampled = [rng.choice(doc_ids) for _ in doc_ids]
+        current_f1 = _bootstrap_f1(
+            sum(current[doc_id]["tp"] for doc_id in sampled),
+            sum(current[doc_id]["fp"] for doc_id in sampled),
+            sum(current[doc_id]["fn"] for doc_id in sampled),
+        )
+        previous_f1 = _bootstrap_f1(
+            sum(previous[doc_id]["tp"] for doc_id in sampled),
+            sum(previous[doc_id]["fp"] for doc_id in sampled),
+            sum(previous[doc_id]["fn"] for doc_id in sampled),
+        )
+        deltas.append(current_f1 - previous_f1)
+
+    lower = _bootstrap_quantile(deltas, 0.025)
+    upper = _bootstrap_quantile(deltas, 0.975)
+    if lower > 0:
+        verdict = "improved"
+    elif upper < 0:
+        verdict = "regressed"
+    else:
+        verdict = "inconclusive"
+
+    win_tie_loss = {"challenger_win": 0, "tie": 0, "incumbent_win": 0}
+    for doc_id in doc_ids:
+        current_doc_f1 = _bootstrap_f1(
+            current[doc_id]["tp"], current[doc_id]["fp"], current[doc_id]["fn"]
+        )
+        previous_doc_f1 = _bootstrap_f1(
+            previous[doc_id]["tp"], previous[doc_id]["fp"], previous[doc_id]["fn"]
+        )
+        if current_doc_f1 > previous_doc_f1:
+            win_tie_loss["challenger_win"] += 1
+        elif current_doc_f1 < previous_doc_f1:
+            win_tie_loss["incumbent_win"] += 1
+        else:
+            win_tie_loss["tie"] += 1
+
+    delta_gt_zero_count = sum(1 for delta in deltas if delta > 0)
+    return {
+        "metric": "core_law_article_strict.f1",
+        "delta_direction": "current_minus_previous",
+        "document_count": len(doc_ids),
+        "samples": samples,
+        "seed": seed,
+        "lower_2_5": lower,
+        "upper_97_5": upper,
+        "bootstrap_mean": sum(deltas) / len(deltas),
+        "delta_gt_zero_count": delta_gt_zero_count,
+        "probability_delta_gt_zero": delta_gt_zero_count / len(deltas),
+        "per_document": win_tie_loss,
+        "verdict": verdict,
     }

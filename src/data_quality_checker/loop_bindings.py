@@ -20,8 +20,10 @@ from .atomic import write_json_atomic
 from .config import AppConfig
 from .errors import ContractError
 from .fingerprints import sha256_file
+from .judges import run_judge_pilot
 from .loop_rounds import RoundState
 from .loop_runner import RoundStep
+from .loop_training import compose_round_training_ids, write_round_training_manifest
 from .processing import process_batch
 from .storage import Store
 
@@ -95,5 +97,65 @@ def route_step(config: AppConfig, *, batch_id: str, output_dir: Path) -> RoundSt
         path = output_dir / f"round_{state.round_index:03d}_routing.json"
         write_json_atomic(path, payload)
         return sha256_file(path)
+
+    return step
+
+
+def judge_step(
+    config: AppConfig,
+    *,
+    batch_id: str,
+    judge_models: tuple[str, ...] | None = None,
+    allow_external_judge: bool = False,
+    fake_backend: bool = False,
+) -> RoundStep:
+    """Get the judge's third opinion on this round's disagreements.
+
+    `allow_external_judge` is passed straight through rather than defaulted to
+    True: the pipeline refuses an external call without it, and a binding that
+    quietly supplied consent would move that decision out of the operator's
+    hands.
+    """
+
+    def step(state: RoundState) -> str:
+        run_judge_pilot(
+            config=config,
+            batch_id=batch_id,
+            allow_external_judge=allow_external_judge,
+            fake_backend=fake_backend,
+            judge_models=judge_models,
+        )
+        summary = config.public_root / "batches" / batch_id / "judge_pilot_summary.json"
+        if not summary.is_file():
+            raise ContractError(f"judge pilot wrote no summary at {summary}")
+        return sha256_file(summary)
+
+    return step
+
+
+def compose_step(
+    config: AppConfig,
+    *,
+    split: dict[str, list[int]],
+    cleaned_rounds: list[list[str]],
+    output_dir: Path,
+    split_manifest_sha256: str,
+) -> RoundStep:
+    """Compose this round's training set: canonical train plus cleaned rounds.
+
+    Validation and test come back unchanged on every round; the loop re-runs
+    checkpoint selection each round, so validation can never be folded in, and
+    the test split may never influence any decision.
+    """
+
+    def step(state: RoundState) -> str:
+        composition = compose_round_training_ids(split, cleaned_rounds)
+        result = write_round_training_manifest(
+            output_dir,
+            state.round_index,
+            composition,
+            split_manifest_sha256=split_manifest_sha256,
+        )
+        return str(result["manifest_sha256"])
 
     return step

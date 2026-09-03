@@ -374,7 +374,13 @@ def test_an_empty_subset_is_rejected(tmp_path) -> None:
     config = make_config(tmp_path)
     annotation_zip, pool_zip, keyfile = _archives(tmp_path, config, count=5)
 
-    with pytest.raises(ContractError):
+    # Pinned to the empty-doc_ids guard's own message (preparation.py's
+    # "omit it to prepare the whole archive"), not merely `ContractError` in
+    # general: with the guard deleted, `annotations` collapses to `[]` and a
+    # pre-existing, differently worded check ("annotation ZIP contains no
+    # recognizable annotation records") raises the same exception type,
+    # which let this test pass even with no guard at all.
+    with pytest.raises(ContractError, match="omit it to prepare"):
         prepare_batch(
             config=config,
             annotation_zip=annotation_zip,

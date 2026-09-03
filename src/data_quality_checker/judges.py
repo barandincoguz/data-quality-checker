@@ -1,4 +1,4 @@
-"""Blind two-model judge pilot, GREEN audit sampling, and explicit judge lock."""
+"""Blind judge pilot, GREEN audit sampling, and explicit judge lock."""
 
 from __future__ import annotations
 
@@ -29,7 +29,13 @@ from .reference_policy import apply_reference_policy
 from .storage import Store
 from .text import evidence_match_mode
 
-JUDGE_MODELS = ("qwen3.5:397b", "deepseek-v3.2")
+# The default pilot runs the local judge alone. A cloud id left in this tuple
+# would not degrade gracefully: _run_pilot_impl resolves each provider outside
+# its retry block, and OllamaJudgeProvider raises in __init__ when no key is
+# present, so one unusable default would abort the whole pilot at the first
+# document rather than being recorded as unavailable. The cloud ids stay
+# registered and reachable through --judge-models wherever a key exists.
+JUDGE_MODELS = (JUDGE_MODEL_KEY,)
 _STATIC_JUDGE_MODEL_PROVIDERS: dict[str, str] = {
     "qwen3.5:397b": "ollama",
     "deepseek-v3.2": "ollama",

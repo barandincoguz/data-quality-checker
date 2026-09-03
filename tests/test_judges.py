@@ -151,6 +151,7 @@ def test_blind_pilot_sends_only_text_and_candidates_and_persists_both_models(tmp
         batch_id="batch",
         allow_external_judge=True,
         provider=provider,
+        judge_models=("qwen3.5:397b", "deepseek-v3.2"),
     )
     assert summary["selected_document_count"] == 1
     assert len(provider.payloads) == 2
@@ -224,6 +225,7 @@ def test_malformed_output_retries_up_to_three_and_records_retry_count(tmp_path) 
         batch_id="batch",
         allow_external_judge=True,
         provider=provider,
+        judge_models=("qwen3.5:397b", "deepseek-v3.2"),
     )
     assert provider.calls == 6
     with Store(config.database_path) as store:
@@ -259,6 +261,7 @@ def test_second_run_after_explicit_lock_executes_production_coverage(tmp_path) -
         batch_id="batch",
         allow_external_judge=True,
         provider=FakeJudgeProvider(),
+        judge_models=("qwen3.5:397b", "deepseek-v3.2"),
     )
     with Store(config.database_path) as store:
         review = store.get_review("batch", document["internal_doc_id"])
@@ -407,6 +410,7 @@ def test_missing_credential_aborts_the_pilot_instead_of_recording_error_rows(
             config=config,
             batch_id="batch",
             allow_external_judge=True,
+            judge_models=("qwen3.5:397b",),
         )
     assert isinstance(exc_info.value, DQCheckError)
     assert "OLLAMA_API_KEY" in str(exc_info.value)
@@ -434,6 +438,8 @@ def test_missing_credential_surfaces_as_a_clean_cli_error(
             "--batch-id",
             "batch",
             "--allow-external-judge",
+            "--judge-models",
+            "qwen3.5:397b",
         ]
     )
 

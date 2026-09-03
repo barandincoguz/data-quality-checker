@@ -85,3 +85,31 @@ def test_unset_gemini_judge_model_leaves_ollama_judges_working(
     assert isinstance(provider, OllamaJudgeProvider)
     with pytest.raises(ContractError):
         resolve_judge_provider("gemini-anything")
+
+
+def test_default_pilot_is_the_local_judge() -> None:
+    from data_quality_checker.constants import JUDGE_MODEL_KEY
+    from data_quality_checker.judges import JUDGE_MODELS
+
+    assert JUDGE_MODELS == (JUDGE_MODEL_KEY,)
+
+
+def test_every_default_judge_resolves_without_any_cloud_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The default pilot must be runnable on this machine with no credentials.
+
+    resolve_judge_provider is called outside the pilot's retry block, and the
+    cloud providers raise in __init__ when their key is missing, so a cloud id
+    in JUDGE_MODELS aborts the entire pilot at the first document instead of
+    recording an unavailable judge.
+    """
+    from data_quality_checker.judges import JUDGE_MODELS, resolve_judge_provider
+
+    for name in ("OLLAMA_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY", "GEMINI_JUDGE_MODEL"):
+        monkeypatch.delenv(name, raising=False)
+    for index in range(2, 8):
+        monkeypatch.delenv(f"OLLAMA_API_KEY_V{index}", raising=False)
+
+    for model in JUDGE_MODELS:
+        resolve_judge_provider(model)

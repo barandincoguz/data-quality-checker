@@ -189,7 +189,7 @@ def test_judge_step_judges_the_rounds_own_predictions(
         / "batch"
         / "judges"
         / "pilot"
-        / "qwen3_5_397b"
+        / "gemma-4-31b-it-optiq-4bit"
         / f"{internal_doc_id}.json"
     )
     result = json.loads(result_path.read_text(encoding="utf-8"))
@@ -236,7 +236,7 @@ def test_judge_step_fingerprints_the_summary_the_run_actually_wrote(tmp_path: Pa
     lock_judge(
         config=config,
         batch_id="batch",
-        model="qwen3.5:397b",
+        model="gemma-4-31b-it-optiq-4bit",
         reason="fixture metrics reviewed",
     )
 

@@ -425,12 +425,13 @@ def _validation_request(
     }
 
 
-def _canonical_evaluate(
+def canonical_evaluate(
     *,
     config: AppConfig,
     predictions_path: Path,
     doc_ids_path: Path,
     output_dir: Path,
+    expected_doc_count: int = 50,
 ) -> dict[str, Any]:
     repo_root = config.canonical_gt_dir.resolve().parents[3]
     evaluator = repo_root / "benchmark" / "reference" / "evaluate.py"
@@ -491,11 +492,14 @@ def _canonical_evaluate(
             raise IntegrityError("canonical evaluator returned an unexpected result count")
         result = results[0]
         if (
-            result.get("evaluated_doc_count") != 50
+            result.get("evaluated_doc_count") != expected_doc_count
             or result.get("missing_prediction_doc_ids")
             or result.get("duplicate_prediction_doc_ids")
         ):
-            raise IntegrityError("validation evaluator coverage gate failed")
+            raise IntegrityError(
+                f"evaluator coverage gate failed: expected {expected_doc_count} evaluated "
+                f"documents, got {result.get('evaluated_doc_count')}"
+            )
         os.replace(temporary, report_path)
         fsync_directory(output_dir)
         return report
@@ -780,7 +784,7 @@ def run_development(
         config_fingerprint=contract["contract_fingerprint"],
     ).start(stage="starting")
     runner = worker_runner or _run_worker
-    evaluator = evaluator_runner or _canonical_evaluate
+    evaluator = evaluator_runner or canonical_evaluate
     checkpoint_root = candidate_root / "checkpoints"
     verify_checkpoint = checkpoint_verifier or _checkpoint_verifier(
         checkpoint_root=checkpoint_root,

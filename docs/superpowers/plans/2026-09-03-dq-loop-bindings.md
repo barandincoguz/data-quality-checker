@@ -241,7 +241,7 @@ git commit -m "feat(loop): bind prediction and routing to round stages"
 
 **Interfaces:**
 - Consumes: `run_judge_pilot` from `.judges`; `compose_round_training_ids`, `write_round_training_manifest` from `.loop_training`.
-- Produces: `judge_step(config, *, batch_id, judge_models=None, allow_external_judge=False, fake_backend=False) -> RoundStep`; `compose_step(config, *, split, cleaned_rounds, output_dir, split_manifest_sha256) -> RoundStep`.
+- Produces: `judge_step(config, *, batch_id, generation, judge_models=None, allow_external_judge=False, fake_backend=False) -> RoundStep`; `compose_step(config, *, split, cleaned_rounds, output_dir, split_manifest_sha256) -> RoundStep`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -403,7 +403,7 @@ git commit -m "feat(loop): bind judging and training composition to round stages
 
 **Interfaces:**
 - Consumes: `select_checkpoint` from `.g0`; `write_selection_record` from `.loop_selection`; `canonical_evaluate` from `.g0_training`.
-- Produces: `select_step(config, *, candidates, output_dir, validation_documents=50, minimum_parse_count=49) -> RoundStep`; `measure_step(config, *, predictions_path, test_doc_ids_path, output_dir) -> RoundStep`; `seal_step(config, *, output_dir) -> RoundStep`.
+- Produces: `select_step(config, *, candidates, output_dir, validation_documents, minimum_parse_count=None) -> RoundStep`; `measure_step(config, *, predictions_path, test_doc_ids_path, output_dir) -> RoundStep`; `seal_step(config, *, output_dir) -> RoundStep`.
 
 **On the rename.** `g0_training._canonical_evaluate` already runs `benchmark/reference/evaluate.py` — which lives in this repository — against a predictions file, a ground-truth directory and a `--doc-ids-file`. That is exactly what measuring a round on the frozen 150-document test split needs. Rename it rather than writing a second evaluator: a duplicate would drift from the one the training loop already trusts, and the two would silently disagree. Do not change its body. Find every reference with `grep -rn "_canonical_evaluate" src/ tests/` and update them all.
 
@@ -649,3 +649,32 @@ git commit -m "feat(loop): bind selection, measurement and sealing to round stag
 - **`trained` has no binding yet.** `train_bootstrap` raises `only canonical-only G0 is supported in v1` (`g0.py:449`), so it cannot train `M001`..`M012` at all, and training needs the shared GPU. Lifting that restriction is real work — the training export has to accept a round's composed set instead of the canonical 494 — and it deserves its own plan rather than being smuggled into a binding.
 - **No `loop-run` CLI command.** Running a round end to end needs `trained`, and a command that stopped halfway without saying so would mislead.
 - Any GPU run.
+
+## Post-Plan: What The Merge-Gate Review Found
+
+This plan's draft signatures above (now corrected) are left as evidence that the
+final code differs from what was first written here. Three defects surfaced
+between the draft and the shipped code, none visible from reading a single
+task in isolation:
+
+1. **`judge_step` re-introduced the `"G0"` default the pipeline had just shed.**
+   The draft's `judge_step(config, *, batch_id, judge_models=None, ...)` took no
+   `generation`, so it would have silently re-judged generation `"G0"` no matter
+   which round was actually running — exactly the hardcoded-generation
+   assumption the rest of this plan's bindings were written to remove. Fixed by
+   making `generation` a required keyword argument with no default.
+2. **The binding fingerprinted a summary the run may not have written.**
+   `run_judge_pilot` takes one of two branches — pilot or already-locked
+   production — and writes a different summary file on each. A binding that
+   always fingerprinted `judge_pilot_summary.json` would raise on a batch whose
+   judge was already locked. Fixed by choosing the filename from
+   `result["stage"]`, the branch the call actually took.
+3. **The parse-quality threshold failed open at any validation size other than
+   50.** `select_step`'s `minimum_parse_count: int = 49` was a literal tied to
+   an assumed 50-document split. Because `select_checkpoint` gates on
+   `parse_count` as an absolute count, not a ratio, a 120-document round would
+   accept a checkpoint that parsed only 49/120 (41%) documents, and any round
+   with fewer than 49 validation documents could never select a checkpoint at
+   all. Fixed by deriving `minimum_parse_count` as `validation_documents - 1`
+   when the caller leaves it unstated, keeping the two numbers coupled instead
+   of letting one drift from the other.

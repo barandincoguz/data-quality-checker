@@ -431,6 +431,7 @@ def _run_pilot_impl(
     config: AppConfig,
     batch_id: str,
     allow_external_judge: bool,
+    generation: str = "G0",
     fake_backend: bool = False,
     provider: JudgeProvider | None = None,
     lease: RunLease | None = None,
@@ -481,9 +482,11 @@ def _run_pilot_impl(
         for selection_index, internal_doc_id in enumerate(selection.internal_doc_ids, 1):
             document = document_by_id[internal_doc_id]
             human, _ = apply_reference_policy(json.loads(document["human_references_json"]))
-            prediction = store.get_prediction(batch_id, internal_doc_id, "G0")
+            prediction = store.get_prediction(batch_id, internal_doc_id, generation)
             if prediction is None:
-                raise IntegrityError(f"missing G0 prediction for pilot doc {internal_doc_id}")
+                raise IntegrityError(
+                    f"missing {generation} prediction for pilot doc {internal_doc_id}"
+                )
             model_references, _ = apply_reference_policy(json.loads(prediction["references_json"]))
             for model in models:
                 existing = store.get_judge_result(batch_id, internal_doc_id, model)
@@ -641,6 +644,7 @@ def _run_locked_judge_coverage(
     fake_backend: bool,
     allow_external_judge: bool,
     lease: RunLease,
+    generation: str = "G0",
 ) -> dict[str, Any]:
     with Store(config.database_path, busy_timeout_ms=config.runtime.busy_timeout_ms) as store:
         documents = store.list_documents(batch_id)
@@ -667,9 +671,9 @@ def _run_locked_judge_coverage(
                 counts["valid"] += 1
                 lease.beat(completed_units=index, last_successful_unit=internal_doc_id)
                 continue
-            prediction = store.get_prediction(batch_id, internal_doc_id, "G0")
+            prediction = store.get_prediction(batch_id, internal_doc_id, generation)
             if prediction is None:
-                raise IntegrityError(f"missing G0 prediction for {internal_doc_id}")
+                raise IntegrityError(f"missing {generation} prediction for {internal_doc_id}")
             human, _ = apply_reference_policy(json.loads(document["human_references_json"]))
             model_references, _ = apply_reference_policy(json.loads(prediction["references_json"]))
             mapping, candidate_a, candidate_b = blind_candidates(
@@ -776,6 +780,7 @@ def run_judge_pilot(
     config: AppConfig,
     batch_id: str,
     allow_external_judge: bool,
+    generation: str = "G0",
     fake_backend: bool = False,
     provider: JudgeProvider | None = None,
     judge_models: tuple[str, ...] | None = None,
@@ -805,12 +810,14 @@ def run_judge_pilot(
                 fake_backend=fake_backend,
                 allow_external_judge=allow_external_judge,
                 lease=lease,
+                generation=generation,
             )
         else:
             result = _run_pilot_impl(
                 config=config,
                 batch_id=batch_id,
                 allow_external_judge=allow_external_judge,
+                generation=generation,
                 fake_backend=fake_backend,
                 provider=provider,
                 lease=lease,

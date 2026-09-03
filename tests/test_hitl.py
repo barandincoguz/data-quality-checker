@@ -38,7 +38,7 @@ def config_for(tmp_path: Path):
     return load_config(path)
 
 
-def fixture(tmp_path: Path, *, count: int = 1):
+def fixture(tmp_path: Path, *, count: int = 1, generation: str = "G0"):
     config = config_for(tmp_path)
     references = [
         {
@@ -101,7 +101,7 @@ def fixture(tmp_path: Path, *, count: int = 1):
     process_batch(
         config=config,
         batch_id="batch",
-        generation="G0",
+        generation=generation,
         resume=False,
         fake_backend=True,
     )
@@ -111,6 +111,7 @@ def fixture(tmp_path: Path, *, count: int = 1):
         testing=True,
         session_secret=SECRET,
         access_token=TOKEN,
+        generation=generation,
     )
     return config, app
 
@@ -161,6 +162,54 @@ def test_authentication_attribution_and_optimistic_version(tmp_path) -> None:
         headers={"X-CSRF-Token": csrf},
     )
     assert stale.status_code == 409
+
+
+def test_document_under_a_rounds_generation_is_reviewable_when_generation_is_passed(
+    tmp_path,
+) -> None:
+    """`adjudicated` has no stage binding by design, but a DQ-Loop round's
+    predictions live under its own generation label (e.g. "M003"), never
+    "G0" -- passing that generation through to `create_hitl_app` lets the
+    expert reach a round's document even though no "G0" prediction exists
+    for this batch at all.
+    """
+    config, app = fixture(tmp_path, generation="M003")
+    client = app.test_client()
+    authenticated(client)
+    queue = client.get("/api/queue").get_json()["queue"]
+    assert len(queue) == 1
+    doc_id = queue[0]["internal_doc_id"]
+
+    response = client.get(f"/api/documents/{doc_id}")
+    assert response.status_code == 200
+    document = response.get_json()
+    assert document["candidate_mapping"] == "A=human,B=model"
+    assert document["candidate_a"] and document["candidate_b"]
+
+
+def test_reviewing_without_stating_the_generation_cannot_find_the_document(tmp_path) -> None:
+    """Reproduces the failure the fix closes: a batch whose predictions live
+    only under "M003" has no "G0" row, so an app that was not told to look
+    under "M003" cannot find the document to review at all -- confirming
+    `_document_for_review` (and `submit_review`) still default to "G0", so
+    every existing caller that never mentions `generation` keeps working
+    unedited.
+    """
+    config, _ = fixture(tmp_path, generation="M003")
+    with Store(config.database_path) as store:
+        internal_doc_id = store.list_documents("batch")[0]["internal_doc_id"]
+
+    app = create_hitl_app(
+        config=config,
+        batch_id="batch",
+        testing=True,
+        session_secret=SECRET,
+        access_token=TOKEN,
+    )
+    client = app.test_client()
+    authenticated(client)
+    with pytest.raises(KeyError):
+        client.get(f"/api/documents/{internal_doc_id}")
 
 
 def test_successful_review_is_present_in_a_verified_sqlite_backup(tmp_path) -> None:

@@ -557,3 +557,32 @@ def test_deferred_row_counts_as_workload_but_is_excluded_from_truth() -> None:
     truth_bearing = documents_with_finalized_truth([deferred, finalized])
     assert deferred not in truth_bearing
     assert truth_bearing == [finalized]
+
+
+def test_green_audit_sample_counts_as_required_review() -> None:
+    """A GREEN document in the audit sample is mandatory review even unescalated.
+
+    hitl._review_requirements seeds the required set with the audit sample
+    before it looks at any bucket. Omitting it here would understate expert
+    workload exactly where the paper's claim is strongest -- late rounds, when
+    most documents route GREEN and the audit sample is most of what is left.
+    """
+    records = [
+        {
+            "internal_doc_id": "d1",
+            "router_bucket": "GREEN",
+            "escalated": False,
+            "in_green_audit_sample": True,
+            "status": "pending",
+        },
+        {
+            "internal_doc_id": "d2",
+            "router_bucket": "GREEN",
+            "escalated": False,
+            "in_green_audit_sample": False,
+            "status": "pending",
+        },
+    ]
+    result = expert_workload(records)
+    assert result["documents_requiring_review_count"] == 1
+    assert result["document_count"] == 2

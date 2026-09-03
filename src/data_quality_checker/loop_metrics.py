@@ -434,7 +434,9 @@ def expert_workload(records: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
 
     Each entry in `records` is one document's review row plus the routing
     and candidate context needed to place it in the workload picture:
-    `router_bucket` (`documents.router_bucket`), `escalated` (whether GREEN
+    `router_bucket` (`documents.router_bucket`), `in_green_audit_sample`
+    (whether the document is in this batch's GREEN audit sample, from
+    `ensure_green_audit_plan`'s `sample_internal_doc_ids`), `escalated` (whether GREEN
     escalation is active for this document's batch; default `False` --
     see `hitl._trigger_green_escalation`), `status` and `action` (the
     `reviews` row's own values), `created_at_epoch` / `updated_at_epoch`
@@ -504,7 +506,17 @@ def expert_workload(records: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         if action is not None and action not in EXPERT_ACTIONS:
             raise ContractError(f"unsupported review action: {action!r}")
 
-        if router_bucket in {"RED", "YELLOW"} or (escalated and router_bucket == "GREEN"):
+        # Mirrors hitl._review_requirements exactly: the GREEN audit sample is
+        # required review regardless of escalation. Leaving it out would make
+        # workload appear to fall faster than it does -- as the model improves,
+        # more documents route GREEN, but the audit sample does not shrink with
+        # them, so review work has a floor that this metric must show.
+        in_green_audit_sample = bool(record.get("in_green_audit_sample", False))
+        if (
+            router_bucket in {"RED", "YELLOW"}
+            or in_green_audit_sample
+            or (escalated and router_bucket == "GREEN")
+        ):
             documents_requiring_review += 1
 
         if status == "pending":

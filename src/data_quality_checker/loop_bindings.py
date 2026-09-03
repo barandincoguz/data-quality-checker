@@ -20,9 +20,12 @@ from .atomic import write_json_atomic
 from .config import AppConfig
 from .errors import ContractError
 from .fingerprints import sha256_file
+from .g0 import CheckpointCandidate, select_checkpoint
+from .g0_training import canonical_evaluate
 from .judges import run_judge_pilot
 from .loop_rounds import RoundState
 from .loop_runner import RoundStep
+from .loop_selection import write_selection_record
 from .loop_training import compose_round_training_ids, write_round_training_manifest
 from .processing import process_batch
 from .storage import Store
@@ -163,5 +166,82 @@ def compose_step(
             split_manifest_sha256=split_manifest_sha256,
         )
         return str(result["manifest_sha256"])
+
+    return step
+
+
+def select_step(
+    config: AppConfig,
+    *,
+    candidates: list[CheckpointCandidate],
+    output_dir: Path,
+    validation_documents: int = 50,
+    minimum_parse_count: int = 49,
+) -> RoundStep:
+    """Choose this round's checkpoint, on validation alone, and record why."""
+
+    def step(state: RoundState) -> str:
+        selected = select_checkpoint(
+            list(candidates),
+            validation_documents=validation_documents,
+            minimum_parse_count=minimum_parse_count,
+        )
+        result = write_selection_record(
+            output_dir,
+            state.round_index,
+            selected,
+            candidates,
+            validation_documents=validation_documents,
+            minimum_parse_count=minimum_parse_count,
+        )
+        return str(result["record_sha256"])
+
+    return step
+
+
+def measure_step(
+    config: AppConfig,
+    *,
+    predictions_path: Path,
+    test_doc_ids_path: Path,
+    output_dir: Path,
+) -> RoundStep:
+    """Score this round's model on the frozen test split, and only record it.
+
+    `run_round` reaches `measured` only from `checkpoint_selected`, so the
+    checkpoint is already sealed on validation by the time this runs. This step
+    writes the number down and returns its sha; it compares nothing and decides
+    nothing, because the test split may never influence a decision.
+    """
+
+    def step(state: RoundState) -> str:
+        canonical_evaluate(
+            config=config,
+            predictions_path=predictions_path,
+            doc_ids_path=test_doc_ids_path,
+            output_dir=output_dir,
+        )
+        report = output_dir / "evaluation.json"
+        if not report.is_file():
+            raise ContractError(f"evaluator wrote no report at {report}")
+        return sha256_file(report)
+
+    return step
+
+
+def seal_step(config: AppConfig, *, output_dir: Path) -> RoundStep:
+    """Freeze the round: write what it did and what each stage produced."""
+
+    def step(state: RoundState) -> str:
+        payload: dict[str, Any] = {
+            "schema_version": 1,
+            "round": state.round_index,
+            "stage": state.stage,
+            "artifacts": dict(state.artifacts),
+        }
+        output_dir.mkdir(parents=True, exist_ok=True)
+        path = output_dir / f"round_{state.round_index:03d}_record.json"
+        write_json_atomic(path, payload)
+        return sha256_file(path)
 
     return step

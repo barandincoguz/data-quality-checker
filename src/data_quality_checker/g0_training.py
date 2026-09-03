@@ -425,7 +425,7 @@ def _validation_request(
     }
 
 
-def _canonical_evaluate(
+def canonical_evaluate(
     *,
     config: AppConfig,
     predictions_path: Path,
@@ -780,7 +780,7 @@ def run_development(
         config_fingerprint=contract["contract_fingerprint"],
     ).start(stage="starting")
     runner = worker_runner or _run_worker
-    evaluator = evaluator_runner or _canonical_evaluate
+    evaluator = evaluator_runner or canonical_evaluate
     checkpoint_root = candidate_root / "checkpoints"
     verify_checkpoint = checkpoint_verifier or _checkpoint_verifier(
         checkpoint_root=checkpoint_root,

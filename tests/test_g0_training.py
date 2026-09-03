@@ -10,7 +10,7 @@ from data_quality_checker.config import default_config_path, load_config
 from data_quality_checker.errors import GateBlocked
 from data_quality_checker.fingerprints import sha256_file
 from data_quality_checker.g0_training import (
-    _canonical_evaluate,
+    canonical_evaluate,
     run_development,
     validation_milestones,
 )
@@ -266,7 +266,7 @@ def test_validation_wrapper_uses_canonical_evaluator_and_exact_50_doc_universe(
     predictions_path.write_text(json.dumps(predictions), encoding="utf-8")
     doc_ids_path.write_text(json.dumps(doc_ids), encoding="utf-8")
 
-    report = _canonical_evaluate(
+    report = canonical_evaluate(
         config=config,
         predictions_path=predictions_path,
         doc_ids_path=doc_ids_path,

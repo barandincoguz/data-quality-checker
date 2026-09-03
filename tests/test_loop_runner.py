@@ -137,6 +137,26 @@ def test_a_step_returning_an_empty_artifact_is_a_failure(tmp_path: Path) -> None
     assert resume_round(tmp_path, 1).stage == "pending"
 
 
+def test_a_step_raising_a_contract_error_keeps_its_own_meaning(tmp_path: Path) -> None:
+    """A step's own ContractError must not be relabelled a step failure.
+
+    advance_round's rejections and a step's own contract violations are both
+    ContractErrors, and wrapping the latter would blame the runner's machinery
+    for a problem in the step. RoundStepFailed subclasses ContractError, so
+    this has to assert on the exact type, not merely that a ContractError was
+    raised.
+    """
+
+    def step(state: RoundState) -> str:
+        raise ContractError("the step's own contract violation")
+
+    with pytest.raises(ContractError) as caught:
+        run_round(tmp_path, 1, steps={"predicted": step})
+    assert not isinstance(caught.value, RoundStepFailed)
+    assert "the step's own contract violation" in str(caught.value)
+    assert resume_round(tmp_path, 1).stage == "pending"
+
+
 def test_status_reports_a_round_that_has_not_started(tmp_path: Path) -> None:
     from data_quality_checker.loop_runner import round_status
 

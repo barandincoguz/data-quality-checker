@@ -6,7 +6,7 @@ import pytest
 
 from data_quality_checker.errors import ContractError
 from data_quality_checker.loop_rounds import ROUND_STAGES, RoundState, resume_round
-from data_quality_checker.loop_runner import MANUAL_STAGES, run_round
+from data_quality_checker.loop_runner import MANUAL_STAGES, RoundStepFailed, run_round
 
 
 def _steps(*stages: str, recorder: list[str] | None = None):
@@ -89,3 +89,46 @@ def test_a_sealed_round_runs_nothing(tmp_path: Path) -> None:
 def test_an_unknown_stage_in_steps_is_rejected(tmp_path: Path) -> None:
     with pytest.raises(ContractError):
         run_round(tmp_path, 1, steps={"halfway": lambda state: "sha"})
+
+
+def _boom(state: RoundState) -> str:
+    raise RuntimeError("the model fell over")
+
+
+def test_a_failing_stage_raises_a_typed_error(tmp_path: Path) -> None:
+    with pytest.raises(RoundStepFailed) as caught:
+        run_round(tmp_path, 1, steps={"predicted": _boom})
+    assert caught.value.stage == "predicted"
+    assert caught.value.round_index == 1
+
+
+def test_a_failing_stage_leaves_the_round_where_it_was(tmp_path: Path) -> None:
+    steps = dict(_steps("predicted", "routed"))
+    steps["judged"] = _boom
+    with pytest.raises(RoundStepFailed):
+        run_round(tmp_path, 1, steps=steps)
+    assert resume_round(tmp_path, 1).stage == "routed"
+
+
+def test_rerunning_after_a_failure_retries_the_failed_stage(tmp_path: Path) -> None:
+    steps = dict(_steps("predicted", "routed"))
+    steps["judged"] = _boom
+    with pytest.raises(RoundStepFailed):
+        run_round(tmp_path, 1, steps=steps)
+
+    seen: list[str] = []
+    state = run_round(tmp_path, 1, steps=_steps("predicted", "routed", "judged", recorder=seen))
+    assert seen == ["judged"], "the failed stage must be retried, the completed ones must not"
+    assert state.stage == "judged"
+
+
+def test_a_failure_on_the_very_first_stage_leaves_nothing_claimed(tmp_path: Path) -> None:
+    with pytest.raises(RoundStepFailed):
+        run_round(tmp_path, 1, steps={"predicted": _boom})
+    assert resume_round(tmp_path, 1).artifacts == {}
+
+
+def test_a_step_returning_an_empty_artifact_is_a_failure(tmp_path: Path) -> None:
+    with pytest.raises(ContractError):
+        run_round(tmp_path, 1, steps={"predicted": lambda state: ""})
+    assert resume_round(tmp_path, 1).stage == "pending"

@@ -26,6 +26,22 @@ RoundStep = Callable[[RoundState], str]
 MANUAL_STAGES = frozenset({"adjudicated"})
 
 
+class RoundStepFailed(ContractError):
+    """A round's stage raised, so that stage did not happen.
+
+    The round's persisted state is left at the last stage that genuinely
+    completed. Re-running retries the failed stage rather than skipping it: a
+    round that skipped ahead would claim an artifact nothing produced, and
+    nothing downstream would notice.
+    """
+
+    def __init__(self, round_index: int, stage: str, cause: BaseException) -> None:
+        super().__init__(f"round {round_index} failed at stage {stage!r}: {cause}")
+        self.round_index = round_index
+        self.stage = stage
+        self.cause = cause
+
+
 def run_round(
     state_dir: Path,
     round_index: int,
@@ -38,6 +54,12 @@ def run_round(
     Runs from wherever the round already is, so calling this twice resumes
     rather than restarting. It stops at the first stage that is manual, has no
     supplied step, or is past the end.
+
+    State is persisted only after a stage's step returns, so a crash between
+    the two re-runs that same step on resume. Every step a caller supplies
+    must therefore be idempotent -- safe to run again against the state it
+    was given -- since this module has no way to know what a step does and so
+    cannot enforce that on its behalf.
     """
     unknown = sorted(set(steps) - set(ROUND_STAGES))
     if unknown:
@@ -51,7 +73,12 @@ def run_round(
         step = steps.get(nxt)
         if step is None:
             break
-        artifact = step(state)
+        try:
+            artifact = step(state)
+        except ContractError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - any step failure is a round failure
+            raise RoundStepFailed(round_index, nxt, exc) from exc
         state = advance_round(state, to=nxt, artifact_sha256=artifact)
         write_round_state(state_dir, state)
     return state

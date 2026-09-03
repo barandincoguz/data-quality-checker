@@ -205,6 +205,7 @@ def measure_step(
     predictions_path: Path,
     test_doc_ids_path: Path,
     output_dir: Path,
+    expected_doc_count: int,
 ) -> RoundStep:
     """Score this round's model on the frozen test split, and only record it.
 
@@ -220,6 +221,7 @@ def measure_step(
             predictions_path=predictions_path,
             doc_ids_path=test_doc_ids_path,
             output_dir=output_dir,
+            expected_doc_count=expected_doc_count,
         )
         report = output_dir / "evaluation.json"
         if not report.is_file():

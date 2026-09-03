@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 from test_processing import prepared_fixture
 
-from data_quality_checker.errors import ContractError
+from data_quality_checker.errors import ContractError, IntegrityError
 from data_quality_checker.fingerprints import sha256_file
 from data_quality_checker.g0 import CheckpointCandidate
 from data_quality_checker.loop_bindings import (
@@ -198,10 +199,10 @@ def test_measure_step_runs_the_real_evaluator_and_returns_a_sha(tmp_path: Path) 
     """Integration test against this repo's own evaluator (no mock, no stub).
 
     The evaluator gate inside `canonical_evaluate` requires the evaluated
-    document count to match the doc-ids file exactly, so this test drives it
-    with the project's real frozen "test" split (50 documents) rather than an
-    arbitrary handful -- anything else trips the coverage gate before we ever
-    get to assert non-emptiness.
+    document count to match `expected_doc_count` exactly, so this test drives
+    it with the project's real frozen "test" split (50 documents) and states
+    that count explicitly -- `measure_step` takes no default, since a round's
+    split size is a fact its caller must know and state.
     """
     config = prepared_fixture(tmp_path)
     split = json.loads(config.reference_split_manifest_path.read_text(encoding="utf-8"))
@@ -237,6 +238,7 @@ def test_measure_step_runs_the_real_evaluator_and_returns_a_sha(tmp_path: Path) 
         predictions_path=predictions_path,
         test_doc_ids_path=doc_ids_path,
         output_dir=out,
+        expected_doc_count=50,
     )(new_round(5))
 
     report_path = out / "evaluation.json"
@@ -245,6 +247,94 @@ def test_measure_step_runs_the_real_evaluator_and_returns_a_sha(tmp_path: Path) 
     results = report["results"]
     assert len(results) > 0
     assert results[0]["evaluated_doc_count"] == 50
+
+
+def _canonical_predictions(config, doc_ids: list[int]) -> list[dict[str, Any]]:
+    predictions = []
+    for doc_id in doc_ids:
+        gold = json.loads(
+            (config.canonical_gt_dir / f"doc_{doc_id}.json").read_text(encoding="utf-8")
+        )
+        predictions.append(
+            {
+                "doc_id": doc_id,  # must stay an int -- evaluate.py skips non-int doc_ids
+                "status": "success",
+                "references": [
+                    reference
+                    for reference in gold["references"]
+                    if str(reference.get("status", "approved")).lower() == "approved"
+                ],
+            }
+        )
+    assert all(isinstance(row["doc_id"], int) for row in predictions)
+    return predictions
+
+
+def test_measure_step_succeeds_on_a_split_that_is_not_fifty_documents(tmp_path: Path) -> None:
+    """The coverage gate must discriminate on whatever count the round states,
+    not just the historical G0 validation size of 50 -- a DQ-Loop round's
+    frozen test split is 150 documents, so 50 can never be assumed.
+
+    Uses 40 real documents drawn from the reference manifest's "train" split
+    (which has 394 entries, so a count other than 50 is available) with real
+    ground truth, rather than mocking the evaluator.
+    """
+    config = prepared_fixture(tmp_path)
+    split = json.loads(config.reference_split_manifest_path.read_text(encoding="utf-8"))
+    doc_ids = split["splits"]["train"][:40]
+    assert len(doc_ids) == 40
+
+    predictions = _canonical_predictions(config, doc_ids)
+
+    predictions_path = tmp_path / "predictions_40.json"
+    doc_ids_path = tmp_path / "test_doc_ids_40.json"
+    predictions_path.write_text(json.dumps(predictions), encoding="utf-8")
+    doc_ids_path.write_text(json.dumps(doc_ids), encoding="utf-8")
+
+    out = tmp_path / "measurement_40"
+    artifact = measure_step(
+        config,
+        predictions_path=predictions_path,
+        test_doc_ids_path=doc_ids_path,
+        output_dir=out,
+        expected_doc_count=40,
+    )(new_round(6))
+
+    report_path = out / "evaluation.json"
+    assert artifact == sha256_file(report_path)
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    # Assert the count the evaluator actually reports, not merely that a
+    # report file appeared: evaluate.py::load_predictions silently drops any
+    # row whose doc_id is not an int, which would otherwise let a wrong-typed
+    # doc_id pass as an empty, vacuously "successful" report.
+    assert report["results"][0]["evaluated_doc_count"] == 40
+
+
+def test_measure_step_raises_when_the_prediction_count_does_not_match(tmp_path: Path) -> None:
+    config = prepared_fixture(tmp_path)
+    split = json.loads(config.reference_split_manifest_path.read_text(encoding="utf-8"))
+    doc_ids = split["splits"]["test"]
+    assert len(doc_ids) == 50
+
+    predictions = _canonical_predictions(config, doc_ids)
+
+    predictions_path = tmp_path / "predictions.json"
+    doc_ids_path = tmp_path / "test_doc_ids.json"
+    predictions_path.write_text(json.dumps(predictions), encoding="utf-8")
+    doc_ids_path.write_text(json.dumps(doc_ids), encoding="utf-8")
+
+    out = tmp_path / "measurement_mismatch"
+    with pytest.raises(
+        IntegrityError,
+        match="expected 42 evaluated documents, got 50",
+    ):
+        measure_step(
+            config,
+            predictions_path=predictions_path,
+            test_doc_ids_path=doc_ids_path,
+            output_dir=out,
+            expected_doc_count=42,
+        )(new_round(7))
 
 
 def test_the_runner_drives_the_real_bindings_up_to_adjudication(tmp_path: Path) -> None:

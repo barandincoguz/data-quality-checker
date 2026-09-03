@@ -21,8 +21,9 @@ from .loop_rounds import ROUND_STAGES, RoundState, advance_round, resume_round, 
 RoundStep = Callable[[RoundState], str]
 
 # `adjudicated` is where an expert settles every disagreement the router and
-# the judge could not. It is the one stage no automation may perform, so the
-# runner stops before it even if a caller supplies a step for it.
+# the judge could not. By default it is the one stage no automation may
+# perform, so the runner stops before it even if a caller supplies a step
+# for it.
 MANUAL_STAGES = frozenset({"adjudicated"})
 
 

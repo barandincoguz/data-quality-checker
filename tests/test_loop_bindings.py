@@ -322,6 +322,75 @@ def test_select_step_records_only_validation_metrics(tmp_path: Path) -> None:
     assert "test" not in raw
 
 
+def _candidate_at(
+    *, update: int, coverage_count: int, parse_count: int, core_f1: float = 0.75
+) -> CheckpointCandidate:
+    return CheckpointCandidate(
+        update=update,
+        coverage_count=coverage_count,
+        parse_count=parse_count,
+        empty_output_count=0,
+        runaway_output_count=0,
+        core_f1=core_f1,
+        docwise_accuracy=0.30,
+        recall=0.70,
+        validation_loss=0.06,
+    )
+
+
+def test_select_step_derives_the_parse_threshold_and_rejects_below_it(tmp_path: Path) -> None:
+    """FIX: at validation_documents=120, a literal minimum_parse_count=49 let a
+    checkpoint that parsed only 49/120 (41%) documents pass the parse-quality
+    gate. Deriving the threshold as validation_documents - 1 (119) rejects it.
+    """
+    from data_quality_checker.errors import GateBlocked
+
+    config = prepared_fixture(tmp_path)
+    out = tmp_path / "rounds"
+    candidate = _candidate_at(update=50, coverage_count=120, parse_count=49)
+    with pytest.raises(GateBlocked):
+        select_step(config, candidates=[candidate], output_dir=out, validation_documents=120)(
+            new_round(1)
+        )
+
+
+def test_select_step_derives_the_parse_threshold_and_accepts_near_full_coverage(
+    tmp_path: Path,
+) -> None:
+    config = prepared_fixture(tmp_path)
+    out = tmp_path / "rounds"
+    candidate = _candidate_at(update=50, coverage_count=120, parse_count=119)
+    artifact = select_step(
+        config, candidates=[candidate], output_dir=out, validation_documents=120
+    )(new_round(1))
+    payload = json.loads((out / "round_001_checkpoint.json").read_text(encoding="utf-8"))
+    assert payload["selected"]["update"] == 50
+    assert artifact == sha256_file(out / "round_001_checkpoint.json")
+
+
+def test_select_step_honours_an_explicit_minimum_parse_count_over_the_derivation(
+    tmp_path: Path,
+) -> None:
+    """An explicit `minimum_parse_count` still overrides the validation_documents - 1
+    derivation -- here a candidate with parse_count=49 at validation_documents=120
+    (which the derivation alone would reject, per the test above) is accepted
+    because the caller deliberately stated a looser tolerance.
+    """
+    config = prepared_fixture(tmp_path)
+    out = tmp_path / "rounds"
+    candidate = _candidate_at(update=50, coverage_count=120, parse_count=49)
+    artifact = select_step(
+        config,
+        candidates=[candidate],
+        output_dir=out,
+        validation_documents=120,
+        minimum_parse_count=49,
+    )(new_round(1))
+    payload = json.loads((out / "round_001_checkpoint.json").read_text(encoding="utf-8"))
+    assert payload["selected"]["update"] == 50
+    assert artifact == sha256_file(out / "round_001_checkpoint.json")
+
+
 def test_seal_step_writes_the_round_record(tmp_path: Path) -> None:
     config = prepared_fixture(tmp_path)
     out = tmp_path / "rounds"

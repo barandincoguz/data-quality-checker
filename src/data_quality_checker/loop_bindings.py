@@ -187,7 +187,7 @@ def select_step(
     candidates: list[CheckpointCandidate],
     output_dir: Path,
     validation_documents: int,
-    minimum_parse_count: int = 49,
+    minimum_parse_count: int | None = None,
 ) -> RoundStep:
     """Choose this round's checkpoint, on validation alone, and record why.
 
@@ -195,13 +195,29 @@ def select_step(
     is a fact its caller must know and state, exactly as `measure_step`
     requires `expected_doc_count` -- a baked-in 50 would fail closed but
     misdirect the reader when a round's split is not 50.
+
+    `minimum_parse_count` is derived, not defaulted: when left `None` it is
+    computed as ``validation_documents - 1``, the same 50 -> 49 relationship
+    this step used to hardcode. `select_checkpoint` gates on `parse_count` as
+    an absolute count, not a ratio, so a literal 49 threshold silently fails
+    open once `validation_documents` is anything other than 50 -- at 120
+    documents, a checkpoint parsing barely a third of the validation set
+    (49/120) would still pass, and below 49 documents no candidate could ever
+    pass at all. Deriving the threshold from whatever `validation_documents`
+    this call actually states keeps the two numbers coupled so they cannot
+    drift apart; a caller that wants a different tolerance still states one
+    explicitly and it is used as given.
     """
+
+    resolved_minimum_parse_count = (
+        validation_documents - 1 if minimum_parse_count is None else minimum_parse_count
+    )
 
     def step(state: RoundState) -> str:
         selected = select_checkpoint(
             list(candidates),
             validation_documents=validation_documents,
-            minimum_parse_count=minimum_parse_count,
+            minimum_parse_count=resolved_minimum_parse_count,
         )
         result = write_selection_record(
             output_dir,
@@ -209,7 +225,7 @@ def select_step(
             selected,
             candidates,
             validation_documents=validation_documents,
-            minimum_parse_count=minimum_parse_count,
+            minimum_parse_count=resolved_minimum_parse_count,
         )
         return str(result["record_sha256"])
 

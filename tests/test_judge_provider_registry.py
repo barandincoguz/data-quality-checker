@@ -78,6 +78,7 @@ def test_unset_gemini_judge_model_leaves_ollama_judges_working(
     assert judge_model_providers() == {
         "qwen3.5:397b": "ollama",
         "deepseek-v3.2": "ollama",
+        "gemma-4-31b-it-optiq-4bit": "mlx",
     }
     monkeypatch.setenv("OLLAMA_API_KEY", "test-key")
     provider = resolve_judge_provider("qwen3.5:397b")

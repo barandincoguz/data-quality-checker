@@ -444,3 +444,49 @@ def test_missing_credential_surfaces_as_a_clean_cli_error(
 
     with Store(load_config(config_path).database_path) as store:
         assert store.list_judge_results("batch") == []
+
+
+def test_local_gemma_is_registered_as_an_mlx_provider() -> None:
+    from data_quality_checker.constants import JUDGE_MODEL_KEY
+    from data_quality_checker.judges import judge_model_providers
+
+    assert judge_model_providers()[JUDGE_MODEL_KEY] == "mlx"
+
+
+def test_resolve_returns_the_mlx_provider_not_an_ollama_fallthrough(monkeypatch) -> None:
+    """Regression: dispatch fell through to Ollama for every non-gemini kind."""
+    from data_quality_checker.constants import JUDGE_MODEL_KEY
+    from data_quality_checker.judges import MlxJudgeProvider, resolve_judge_provider
+
+    monkeypatch.delenv("OLLAMA_API_KEY", raising=False)
+    for index in range(2, 8):
+        monkeypatch.delenv(f"OLLAMA_API_KEY_V{index}", raising=False)
+    provider = resolve_judge_provider(JUDGE_MODEL_KEY)
+    assert isinstance(provider, MlxJudgeProvider)
+
+
+def test_constructing_the_mlx_provider_does_not_load_weights() -> None:
+    """A 21 GB load in __init__ would make every test that builds a provider unusable."""
+    from data_quality_checker.judges import MlxJudgeProvider
+
+    provider = MlxJudgeProvider()
+    assert provider._model is None
+    assert provider._tokenizer is None
+
+
+def test_mlx_provider_strips_a_code_fence_before_returning(monkeypatch) -> None:
+    """Ollama and Gemini enforce JSON server-side; a local model has no such gate."""
+    from data_quality_checker.judges import MlxJudgeProvider
+
+    provider = MlxJudgeProvider()
+    monkeypatch.setattr(provider, "_generate", lambda prompt: ('```json\n{"verdict":"A"}\n```', {}))
+    content, _ = provider.judge(model="gemma-4-31b-it-optiq-4bit", payload={"x": 1})
+    assert content == '{"verdict":"A"}'
+
+
+def test_unknown_judge_model_still_raises(monkeypatch) -> None:
+    from data_quality_checker.errors import ContractError
+    from data_quality_checker.judges import resolve_judge_provider
+
+    with pytest.raises(ContractError):
+        resolve_judge_provider("no-such-judge-model")

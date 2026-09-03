@@ -4,7 +4,10 @@ import json
 import zipfile
 from pathlib import Path
 
+import pytest
+
 from data_quality_checker.config import default_config_path, load_config
+from data_quality_checker.errors import ContractError
 from data_quality_checker.preparation import (
     annotation_attribution_path,
     import_annotation_attribution,
@@ -49,6 +52,23 @@ def key_file(tmp_path: Path) -> Path:
     path = tmp_path / "hmac.key"
     path.write_bytes(b"k" * 32)
     return path
+
+
+def _archives(tmp_path: Path, config, count: int) -> tuple[Path, Path, Path]:
+    """Build an annotation/pool ZIP pair of `count` documents named
+    private-id-1 .. private-id-<count>, for the doc_ids subset tests."""
+    annotations = [
+        {"document_id": f"private-id-{i}", "current_references": []} for i in range(1, count + 1)
+    ]
+    pool = [
+        {"evrakOid": f"private-id-{i}", "pdfText": f"document text {i}"}
+        for i in range(1, count + 1)
+    ]
+    annotation_zip = tmp_path / "subset-annotations.zip"
+    pool_zip = tmp_path / "subset-pool.zip"
+    write_payload_zip(annotation_zip, "annotations.json", annotations)
+    write_payload_zip(pool_zip, "pool.json", pool)
+    return annotation_zip, pool_zip, key_file(tmp_path)
 
 
 def test_prepare_selects_highest_evidence_channel_and_never_uses_annotation_text(
@@ -296,3 +316,69 @@ def test_prepare_is_idempotent_for_same_fingerprints(tmp_path) -> None:
         hmac_key_file=key,
     )
     assert second == first
+
+
+def test_a_subset_restricts_the_batch(tmp_path) -> None:
+    config = make_config(tmp_path)
+    annotation_zip, pool_zip, keyfile = _archives(tmp_path, config, count=5)
+
+    prepare_batch(
+        config=config,
+        annotation_zip=annotation_zip,
+        document_pool_zip=pool_zip,
+        batch_id="subset",
+        hmac_key_file=keyfile,
+        doc_ids={"private-id-1", "private-id-3"},
+    )
+
+    with Store(config.database_path) as store:
+        documents = store.list_documents("subset")
+    assert len(documents) == 2
+    assert {row["raw_document_id"] for row in documents} == {"private-id-1", "private-id-3"}
+
+
+def test_no_subset_keeps_every_document(tmp_path) -> None:
+    config = make_config(tmp_path)
+    annotation_zip, pool_zip, keyfile = _archives(tmp_path, config, count=5)
+
+    prepare_batch(
+        config=config,
+        annotation_zip=annotation_zip,
+        document_pool_zip=pool_zip,
+        batch_id="whole",
+        hmac_key_file=keyfile,
+    )
+
+    with Store(config.database_path) as store:
+        documents = store.list_documents("whole")
+    assert len(documents) == 5
+
+
+def test_a_subset_naming_an_absent_document_is_rejected(tmp_path) -> None:
+    config = make_config(tmp_path)
+    annotation_zip, pool_zip, keyfile = _archives(tmp_path, config, count=5)
+
+    with pytest.raises(ContractError):
+        prepare_batch(
+            config=config,
+            annotation_zip=annotation_zip,
+            document_pool_zip=pool_zip,
+            batch_id="missing",
+            hmac_key_file=keyfile,
+            doc_ids={"private-id-1", "not-in-the-archive"},
+        )
+
+
+def test_an_empty_subset_is_rejected(tmp_path) -> None:
+    config = make_config(tmp_path)
+    annotation_zip, pool_zip, keyfile = _archives(tmp_path, config, count=5)
+
+    with pytest.raises(ContractError):
+        prepare_batch(
+            config=config,
+            annotation_zip=annotation_zip,
+            document_pool_zip=pool_zip,
+            batch_id="empty",
+            hmac_key_file=keyfile,
+            doc_ids=set(),
+        )

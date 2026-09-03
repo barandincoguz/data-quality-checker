@@ -8,6 +8,7 @@ influence any decision at all.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -69,3 +70,51 @@ def write_round_training_manifest(
     path = output_dir / f"round_{round_index:03d}_training.json"
     write_json_atomic(path, payload)
     return {"path": str(path), "manifest_sha256": sha256_file(path)}
+
+
+def round_training_documents(config: Any, *, batch_ids: Sequence[str]) -> dict[str, dict[str, Any]]:
+    """Read finished rounds' releases into training rows.
+
+    A release already carries each document's text and the references the
+    expert settled on, which is exactly what a training row needs. Only the
+    two trustworthy tiers are read: `expert_adjudicated`, where a human decided,
+    and `consensus_clean`, where annotator and model agreed and the round's
+    GREEN sample raised nothing. Quarantined documents are excluded -- training
+    on documents the pipeline could not process would poison the very data this
+    loop exists to clean.
+    """
+    documents: dict[str, dict[str, Any]] = {}
+    for batch_id in batch_ids:
+        directory = Path(config.sensitive_root) / "releases" / batch_id
+        found = False
+        for name in ("expert_adjudicated", "consensus_clean"):
+            path = directory / f"{name}.jsonl"
+            if not path.is_file():
+                continue
+            found = True
+            for line_number, line in enumerate(
+                path.read_text(encoding="utf-8").splitlines(), start=1
+            ):
+                if not line.strip():
+                    continue
+                try:
+                    row = json.loads(line)
+                except json.JSONDecodeError as exc:
+                    raise ContractError(f"{path}:{line_number} is not JSON: {exc}") from exc
+                doc_id = row.get("internal_doc_id")
+                text = row.get("text")
+                references = row.get("references")
+                if not isinstance(doc_id, str) or not doc_id:
+                    raise ContractError(f"{path}:{line_number} has no internal_doc_id")
+                if not isinstance(text, str) or not text:
+                    raise ContractError(f"{path}:{line_number} ({doc_id}) has no text")
+                if not isinstance(references, list):
+                    raise ContractError(f"{path}:{line_number} ({doc_id}) has no references list")
+                if doc_id in documents:
+                    raise ContractError(
+                        f"document {doc_id!r} appears in more than one round's release"
+                    )
+                documents[doc_id] = {"text": text, "references": references}
+        if not found:
+            raise ContractError(f"no release found for batch {batch_id!r} under {directory}")
+    return documents

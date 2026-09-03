@@ -9,7 +9,7 @@ import platform
 import random
 import shutil
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -254,8 +254,8 @@ def _training_example(document: dict[str, Any]) -> dict[str, Any]:
 def write_training_data(
     *,
     output_dir: Path,
-    documents: dict[int, dict[str, Any]],
-    split: dict[str, list[int]],
+    documents: Mapping[Any, dict[str, Any]],
+    split: dict[str, list[Any]],
 ) -> dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
     files: dict[str, Any] = {}

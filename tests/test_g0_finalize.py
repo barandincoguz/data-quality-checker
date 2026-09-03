@@ -132,3 +132,83 @@ def test_seal_g0_writes_registry_at_public_g0_path(tmp_path: Path) -> None:
     assert loaded["model_id"] == MODEL_ID
     assert loaded["adapter_sha256"] == sha256_file(adapter / "adapters.safetensors")
     assert loaded["max_sequence_length"] == 10240
+
+
+def _sealing_fixture(tmp_path: Path):
+    class _Cfg:
+        public_root = tmp_path / "public"
+
+    return _Cfg(), _snapshot(tmp_path), _adapter(tmp_path)
+
+
+def test_round_label_is_zero_padded_to_three_digits() -> None:
+    from data_quality_checker.g0_finalize import round_label
+
+    assert round_label(0) == "M000"
+    assert round_label(7) == "M007"
+    assert round_label(12) == "M012"
+
+
+def test_a_negative_round_index_has_no_label() -> None:
+    from data_quality_checker.errors import ContractError
+    from data_quality_checker.g0_finalize import round_label
+
+    with pytest.raises(ContractError):
+        round_label(-1)
+
+
+def test_sealing_a_round_writes_its_own_registry(tmp_path) -> None:
+    from data_quality_checker.g0_finalize import seal_round_model
+
+    config, snapshot, adapter = _sealing_fixture(tmp_path)
+    written = seal_round_model(
+        config=config,
+        round_label="M003",
+        model_snapshot_path=snapshot,
+        adapter_path=adapter,
+        max_sequence_length=12288,
+    )
+    assert written.name == "M003.json"
+    payload = json.loads(written.read_text(encoding="utf-8"))
+    assert payload["adapter_sha256"]
+    assert payload["max_sequence_length"] == 12288
+
+
+def test_sealing_a_round_leaves_the_g0_registry_alone(tmp_path) -> None:
+    from data_quality_checker.g0_finalize import seal_g0, seal_round_model
+
+    config, snapshot, adapter = _sealing_fixture(tmp_path)
+    # Deliberately distinct from the round's max_sequence_length below: if
+    # seal_round_model ever wrote to G0.json instead of its own registry, the
+    # payload bytes would visibly change and this test would catch it.
+    g0_path = seal_g0(
+        config=config,
+        model_snapshot_path=snapshot,
+        adapter_path=adapter,
+        max_sequence_length=12288,
+    )
+    before = g0_path.read_bytes()
+    seal_round_model(
+        config=config,
+        round_label="M003",
+        model_snapshot_path=snapshot,
+        adapter_path=adapter,
+        max_sequence_length=10240,
+    )
+    assert g0_path.read_bytes() == before
+
+
+def test_an_invalid_round_label_is_rejected(tmp_path) -> None:
+    from data_quality_checker.errors import ContractError
+    from data_quality_checker.g0_finalize import seal_round_model
+
+    config, snapshot, adapter = _sealing_fixture(tmp_path)
+    for label in ("M3", "m003", "G0", "M0003", "round-3", "", "M003\n"):
+        with pytest.raises(ContractError):
+            seal_round_model(
+                config=config,
+                round_label=label,
+                model_snapshot_path=snapshot,
+                adapter_path=adapter,
+                max_sequence_length=12288,
+            )

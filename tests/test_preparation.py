@@ -4,7 +4,11 @@ import json
 import zipfile
 from pathlib import Path
 
+import pytest
+
 from data_quality_checker.config import default_config_path, load_config
+from data_quality_checker.errors import ContractError
+from data_quality_checker.fingerprints import fingerprint_json, sha256_file, sha256_text
 from data_quality_checker.preparation import (
     annotation_attribution_path,
     import_annotation_attribution,
@@ -49,6 +53,23 @@ def key_file(tmp_path: Path) -> Path:
     path = tmp_path / "hmac.key"
     path.write_bytes(b"k" * 32)
     return path
+
+
+def _archives(tmp_path: Path, config, count: int) -> tuple[Path, Path, Path]:
+    """Build an annotation/pool ZIP pair of `count` documents named
+    private-id-1 .. private-id-<count>, for the doc_ids subset tests."""
+    annotations = [
+        {"document_id": f"private-id-{i}", "current_references": []} for i in range(1, count + 1)
+    ]
+    pool = [
+        {"evrakOid": f"private-id-{i}", "pdfText": f"document text {i}"}
+        for i in range(1, count + 1)
+    ]
+    annotation_zip = tmp_path / "subset-annotations.zip"
+    pool_zip = tmp_path / "subset-pool.zip"
+    write_payload_zip(annotation_zip, "annotations.json", annotations)
+    write_payload_zip(pool_zip, "pool.json", pool)
+    return annotation_zip, pool_zip, key_file(tmp_path)
 
 
 def test_prepare_selects_highest_evidence_channel_and_never_uses_annotation_text(
@@ -296,3 +317,217 @@ def test_prepare_is_idempotent_for_same_fingerprints(tmp_path) -> None:
         hmac_key_file=key,
     )
     assert second == first
+
+
+def test_a_subset_restricts_the_batch(tmp_path) -> None:
+    config = make_config(tmp_path)
+    annotation_zip, pool_zip, keyfile = _archives(tmp_path, config, count=5)
+
+    prepare_batch(
+        config=config,
+        annotation_zip=annotation_zip,
+        document_pool_zip=pool_zip,
+        batch_id="subset",
+        hmac_key_file=keyfile,
+        doc_ids={"private-id-1", "private-id-3"},
+    )
+
+    with Store(config.database_path) as store:
+        documents = store.list_documents("subset")
+    assert len(documents) == 2
+    assert {row["raw_document_id"] for row in documents} == {"private-id-1", "private-id-3"}
+
+
+def test_no_subset_keeps_every_document(tmp_path) -> None:
+    config = make_config(tmp_path)
+    annotation_zip, pool_zip, keyfile = _archives(tmp_path, config, count=5)
+
+    prepare_batch(
+        config=config,
+        annotation_zip=annotation_zip,
+        document_pool_zip=pool_zip,
+        batch_id="whole",
+        hmac_key_file=keyfile,
+    )
+
+    with Store(config.database_path) as store:
+        documents = store.list_documents("whole")
+    assert len(documents) == 5
+
+
+def test_a_subset_naming_an_absent_document_is_rejected(tmp_path) -> None:
+    config = make_config(tmp_path)
+    annotation_zip, pool_zip, keyfile = _archives(tmp_path, config, count=5)
+
+    with pytest.raises(ContractError):
+        prepare_batch(
+            config=config,
+            annotation_zip=annotation_zip,
+            document_pool_zip=pool_zip,
+            batch_id="missing",
+            hmac_key_file=keyfile,
+            doc_ids={"private-id-1", "not-in-the-archive"},
+        )
+
+
+def test_an_empty_subset_is_rejected(tmp_path) -> None:
+    config = make_config(tmp_path)
+    annotation_zip, pool_zip, keyfile = _archives(tmp_path, config, count=5)
+
+    # Pinned to the empty-doc_ids guard's own message (preparation.py's
+    # "omit it to prepare the whole archive"), not merely `ContractError` in
+    # general: with the guard deleted, `annotations` collapses to `[]` and a
+    # pre-existing, differently worded check ("annotation ZIP contains no
+    # recognizable annotation records") raises the same exception type,
+    # which let this test pass even with no guard at all.
+    with pytest.raises(ContractError, match="omit it to prepare"):
+        prepare_batch(
+            config=config,
+            annotation_zip=annotation_zip,
+            document_pool_zip=pool_zip,
+            batch_id="empty",
+            hmac_key_file=keyfile,
+            doc_ids=set(),
+        )
+
+
+def test_two_different_subsets_of_the_same_archives_get_different_batch_ids(
+    tmp_path,
+) -> None:
+    """FIX 1 regression: before the fix, `input_fingerprint` (and the batch id
+    derived from it when `batch_id=None`) was computed from the archives only,
+    so two different `doc_ids` subsets of the same archives collided on one
+    batch id - `create_batch` saw a matching fingerprint, found the batch
+    already READY, and handed round 2 round 1's batch."""
+
+    config = make_config(tmp_path)
+    annotation_zip, pool_zip, keyfile = _archives(tmp_path, config, count=5)
+
+    round1 = prepare_batch(
+        config=config,
+        annotation_zip=annotation_zip,
+        document_pool_zip=pool_zip,
+        batch_id=None,
+        hmac_key_file=keyfile,
+        doc_ids={"private-id-1"},
+    )
+    round2 = prepare_batch(
+        config=config,
+        annotation_zip=annotation_zip,
+        document_pool_zip=pool_zip,
+        batch_id=None,
+        hmac_key_file=keyfile,
+        doc_ids={"private-id-4", "private-id-5"},
+    )
+
+    assert round1["batch_id"] != round2["batch_id"]
+    assert round1["input_fingerprint"] != round2["input_fingerprint"]
+    with Store(config.database_path) as store:
+        round1_documents = store.list_documents(round1["batch_id"])
+        round2_documents = store.list_documents(round2["batch_id"])
+    assert {row["raw_document_id"] for row in round1_documents} == {"private-id-1"}
+    assert {row["raw_document_id"] for row in round2_documents} == {
+        "private-id-4",
+        "private-id-5",
+    }
+
+
+def test_the_same_subset_prepared_twice_is_idempotent(tmp_path) -> None:
+    config = make_config(tmp_path)
+    annotation_zip, pool_zip, keyfile = _archives(tmp_path, config, count=5)
+
+    first = prepare_batch(
+        config=config,
+        annotation_zip=annotation_zip,
+        document_pool_zip=pool_zip,
+        batch_id=None,
+        hmac_key_file=keyfile,
+        doc_ids={"private-id-2", "private-id-3"},
+    )
+    second = prepare_batch(
+        config=config,
+        annotation_zip=annotation_zip,
+        document_pool_zip=pool_zip,
+        batch_id=None,
+        hmac_key_file=keyfile,
+        doc_ids={"private-id-2", "private-id-3"},
+    )
+
+    assert second == first
+
+
+def test_a_no_subset_prepare_keeps_todays_fingerprint(tmp_path) -> None:
+    """FIX 1 must not change the fingerprint (and therefore the batch id) of
+    an ordinary whole-archive prepare: an existing batch must not be
+    invalidated by folding `doc_ids` into the input contract. This recomputes
+    the pre-fix contract shape by hand (no `doc_ids` key at all) and checks
+    it against what `prepare_batch` produces today."""
+
+    config = make_config(tmp_path)
+    annotation_zip, pool_zip, keyfile = _archives(tmp_path, config, count=3)
+    key = keyfile.read_bytes().strip()
+
+    todays_contract = {
+        "annotation_zip": {
+            "size": annotation_zip.stat().st_size,
+            "sha256": sha256_file(annotation_zip),
+        },
+        "document_pool_zip": {
+            "size": pool_zip.stat().st_size,
+            "sha256": sha256_file(pool_zip),
+        },
+        "hmac_key_fingerprint": sha256_text(key.hex()),
+    }
+    todays_fingerprint = fingerprint_json(todays_contract)
+
+    ready = prepare_batch(
+        config=config,
+        annotation_zip=annotation_zip,
+        document_pool_zip=pool_zip,
+        batch_id=None,
+        hmac_key_file=keyfile,
+    )
+
+    assert ready["input_fingerprint"] == todays_fingerprint
+    assert ready["batch_id"] == f"dq_{todays_fingerprint[:16]}"
+
+
+def test_a_malformed_record_elsewhere_does_not_block_an_unrelated_subset(
+    tmp_path,
+) -> None:
+    """FIX 2 regression: the subset filter used to call `_record_document_id`
+    outside the try/except the main ingestion loop wraps it in, so one record
+    anywhere in the pool whose evrakId/document_id disagree aborted every
+    subset prepare - even one that never asked for that record. Reproduced
+    here with two unrelated documents requested and a third, unrelated,
+    id-disagreeing record present in the same archive."""
+
+    config = make_config(tmp_path)
+    annotations = [
+        {"document_id": "target-a", "current_references": []},
+        {"document_id": "target-b", "current_references": []},
+        {"evrakId": "bad-1", "document_id": "bad-2", "current_references": []},
+    ]
+    pool = [
+        {"evrakOid": "target-a", "pdfText": "text a"},
+        {"evrakOid": "target-b", "pdfText": "text b"},
+        {"evrakOid": "bad-1", "pdfText": "text bad"},
+    ]
+    annotation_zip = tmp_path / "annotations.zip"
+    pool_zip = tmp_path / "pool.zip"
+    write_payload_zip(annotation_zip, "annotations.json", annotations)
+    write_payload_zip(pool_zip, "pool.json", pool)
+
+    ready = prepare_batch(
+        config=config,
+        annotation_zip=annotation_zip,
+        document_pool_zip=pool_zip,
+        batch_id="subset-with-bad-record",
+        hmac_key_file=key_file(tmp_path),
+        doc_ids={"target-a", "target-b"},
+    )
+
+    assert ready["document_count"] == 2
+    with Store(config.database_path) as store:
+        documents = store.list_documents("subset-with-bad-record")
+    assert {row["raw_document_id"] for row in documents} == {"target-a", "target-b"}

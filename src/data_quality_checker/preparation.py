@@ -49,7 +49,7 @@ def _public_doc_id(key: bytes, raw_id: str) -> str:
     return f"dq_{digest}"
 
 
-def _annotation_id(record: dict[str, Any]) -> str:
+def _record_document_id(record: dict[str, Any]) -> str:
     evrak_id = normalize_text(record.get("evrakId"))
     document_id = normalize_text(record.get("document_id"))
     if evrak_id and document_id and evrak_id != document_id:
@@ -120,7 +120,7 @@ def import_annotation_attribution(
     _, records = read_json_records(annotation_zip, config.security)
     by_raw_id: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for record in records:
-        raw_id = _annotation_id(record.payload)
+        raw_id = _record_document_id(record.payload)
         if raw_id:
             by_raw_id[raw_id].append(record.payload)
 
@@ -256,8 +256,9 @@ def _input_contract(
     document_pool_zip: Path,
     *,
     key: bytes,
+    doc_ids: set[str] | None = None,
 ) -> dict[str, Any]:
-    return {
+    contract: dict[str, Any] = {
         "annotation_zip": {
             "size": annotation_zip.stat().st_size,
             "sha256": sha256_file(annotation_zip),
@@ -268,6 +269,16 @@ def _input_contract(
         },
         "hmac_key_fingerprint": sha256_text(key.hex()),
     }
+    # A subset must fingerprint differently from the whole archive and from
+    # every other subset, or two rounds of a training loop drawing different
+    # hundred-document windows from the same archives collide on one batch
+    # id (`create_batch` sees a matching fingerprint and hands back whichever
+    # round prepared first). Omit the key entirely when no subset was given
+    # so today's no-subset fingerprint - and every batch already prepared
+    # under it - is untouched by this change.
+    if doc_ids is not None:
+        contract["doc_ids"] = sorted(doc_ids)
+    return contract
 
 
 def ready_path(config: AppConfig, batch_id: str) -> Path:
@@ -302,6 +313,7 @@ def prepare_batch(
     document_pool_zip: Path,
     batch_id: str | None,
     hmac_key_file: Path | None,
+    doc_ids: set[str] | None = None,
 ) -> dict[str, Any]:
     annotation_zip = annotation_zip.resolve()
     document_pool_zip = document_pool_zip.resolve()
@@ -324,13 +336,50 @@ def prepare_batch(
             )
         )
     ]
+    if doc_ids is not None:
+        # A round is a hundred named documents, not a whole archive: restrict
+        # which annotation records become the batch. An empty subset or one
+        # naming an absent document is rejected rather than silently
+        # preparing nothing or fewer documents than the round expects.
+        if not doc_ids:
+            raise ContractError(
+                "doc_ids was supplied but empty; omit it to prepare the whole archive"
+            )
+        wanted = {str(value) for value in doc_ids}
+        filtered: list[ZipRecord] = []
+        found: set[str] = set()
+        for record in annotations:
+            # A record whose evrakId/document_id disagree cannot yield an id
+            # to match against `wanted` at all, so it cannot participate in
+            # subset filtering either way. Skip it here exactly as the main
+            # ingestion loop does below (:394-399) and let quarantine handle
+            # it later - a single unrelated bad record must not abort every
+            # round's subset prepare.
+            try:
+                raw_id = _record_document_id(record.payload)
+            except ContractError:
+                continue
+            if raw_id in wanted:
+                filtered.append(record)
+                found.add(raw_id)
+        annotations = filtered
+        missing = sorted(wanted - found)
+        if missing:
+            # Report the count and an HMAC-tokenised (not raw) id per missing
+            # document: this message reaches CLI output and logs, which this
+            # project keeps free of raw document identities.
+            tokens = sorted(_public_doc_id(key, raw_id) for raw_id in missing)
+            raise ContractError(
+                f"doc_ids names {len(missing)} document(s) absent from the archive; "
+                f"public ids: {tokens[:5]}"
+            )
     pool_records = [record for record in raw_pool_records if "evrakOid" in record.payload]
     if not annotations:
         raise ContractError("annotation ZIP contains no recognizable annotation records")
     if not pool_records:
         raise ContractError("document-pool ZIP contains no evrakOid records")
 
-    input_contract = _input_contract(annotation_zip, document_pool_zip, key=key)
+    input_contract = _input_contract(annotation_zip, document_pool_zip, key=key, doc_ids=doc_ids)
     input_fingerprint = fingerprint_json(input_contract)
     effective_batch_id = batch_id or f"dq_{input_fingerprint[:16]}"
     if not effective_batch_id.replace("-", "").replace("_", "").isalnum():
@@ -372,7 +421,7 @@ def prepare_batch(
             annotation_id_errors: dict[str, str] = {}
             for record in annotations:
                 try:
-                    raw_id = _annotation_id(record.payload)
+                    raw_id = _record_document_id(record.payload)
                 except ContractError as exc:
                     origin = f"{record.entry_name}:{record.record_index}"
                     annotation_id_errors[origin] = str(exc)

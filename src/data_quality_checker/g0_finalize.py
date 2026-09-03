@@ -9,14 +9,17 @@ canonical path so real G0 inference/routing can run.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
 from .atomic import write_json_atomic
 from .constants import MODEL_ID, MODEL_REVISION
-from .errors import GateBlocked
+from .errors import ContractError, GateBlocked
 from .fingerprints import sha256_file
 from .g0 import CheckpointCandidate, final_refit_updates, select_checkpoint
+
+ROUND_LABEL_PATTERN = re.compile(r"^M\d{3}\Z")
 
 
 def finalize_selection(candidate_root: Path) -> dict[str, Any]:
@@ -121,6 +124,54 @@ def seal_g0(
         max_generation_tokens=max_generation_tokens,
     )
     target = Path(config.public_root) / "g0" / "G0.json"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    write_json_atomic(target, registry, mode=0o644)
+    return target
+
+
+def round_label(round_index: int) -> str:
+    """The registry label for a round: `M` plus three digits.
+
+    Zero-padded to match the round-state filenames `loop_rounds.py` writes, so
+    a round's model and its state sort together and read the same way.
+    """
+    if round_index < 0:
+        raise ContractError(f"round_index must be non-negative, got {round_index}")
+    return f"M{round_index:03d}"
+
+
+def round_registry_path(config: Any, label: str) -> Path:
+    if not ROUND_LABEL_PATTERN.match(label):
+        raise ContractError(f"invalid round label {label!r}; expected M followed by three digits")
+    return Path(config.public_root) / "g0" / f"{label}.json"
+
+
+def seal_round_model(
+    *,
+    config: Any,
+    # `round_label` shadows the module-level `round_label()` function within
+    # this scope; an internal call to `round_label(...)` here would bind to
+    # this string and raise `TypeError: 'str' object is not callable`.
+    round_label: str,
+    model_snapshot_path: Path,
+    adapter_path: Path,
+    max_sequence_length: int,
+    max_generation_tokens: int = 4096,
+) -> Path:
+    """Seal one round's model into its own registry.
+
+    Each round trains a new adapter, so each round needs its own sealed
+    registry rather than overwriting `G0.json`. Keeping them separate is what
+    lets a finished round be re-run or audited later against exactly the model
+    that produced it.
+    """
+    registry = build_g0_registry(
+        model_snapshot_path=model_snapshot_path,
+        adapter_path=adapter_path,
+        max_sequence_length=max_sequence_length,
+        max_generation_tokens=max_generation_tokens,
+    )
+    target = round_registry_path(config, round_label)
     target.parent.mkdir(parents=True, exist_ok=True)
     write_json_atomic(target, registry, mode=0o644)
     return target

@@ -11,6 +11,7 @@ import pytest
 from data_quality_checker.config import default_config_path, load_config
 from data_quality_checker.errors import ContractError, GateBlocked
 from data_quality_checker.fingerprints import fingerprint_json
+from data_quality_checker.g0_finalize import round_registry_path
 from data_quality_checker.preparation import prepare_batch
 from data_quality_checker.processing import (
     MlxG0Backend,
@@ -309,6 +310,93 @@ def test_round_predictions_land_under_their_own_generation(tmp_path) -> None:
     )
     predictions = config.sensitive_root / "batches" / "batch" / "predictions" / "M003"
     assert predictions.is_dir()
+
+
+def _capturing_mlx_backend():
+    """A non-fake MlxG0Backend stand-in that records the registry_path it was
+    constructed with, without loading any real model. Using ``backend=`` or
+    ``fake_backend=True`` would bypass the very construction call under test,
+    so this monkeypatches ``MlxG0Backend`` itself instead.
+    """
+
+    captured: dict[str, Path | None] = {}
+
+    class RegistryRecordingBackend:
+        model_fingerprint = fingerprint_json({"backend": "registry-recording"})
+
+        def __init__(self, config, *, registry_path=None):
+            captured["registry_path"] = registry_path
+
+        def predict(self, document):
+            return PredictionResult(
+                status="success",
+                references=[],
+                raw_output="[]",
+                operational={"truncated": False, "latency_seconds": 0.0},
+            )
+
+    return RegistryRecordingBackend, captured
+
+
+def test_a_round_generation_derives_its_registry_when_none_is_given(monkeypatch, tmp_path) -> None:
+    config = prepared_fixture(tmp_path, two_docs=False)
+    backend_cls, captured = _capturing_mlx_backend()
+    monkeypatch.setattr("data_quality_checker.processing.MlxG0Backend", backend_cls)
+
+    process_batch(
+        config=config,
+        batch_id="batch",
+        generation="M003",
+        resume=False,
+        registry_path=None,
+    )
+
+    assert captured["registry_path"] == round_registry_path(config, "M003")
+
+
+def test_g0_leaves_registry_path_none_when_none_is_given(monkeypatch, tmp_path) -> None:
+    config = prepared_fixture(tmp_path, two_docs=False)
+    backend_cls, captured = _capturing_mlx_backend()
+    monkeypatch.setattr("data_quality_checker.processing.MlxG0Backend", backend_cls)
+
+    process_batch(
+        config=config,
+        batch_id="batch",
+        generation="G0",
+        resume=False,
+        registry_path=None,
+    )
+
+    assert captured["registry_path"] is None
+
+
+def test_an_explicit_registry_path_overrides_the_derived_one(monkeypatch, tmp_path) -> None:
+    config = prepared_fixture(tmp_path, two_docs=False)
+    backend_cls, captured = _capturing_mlx_backend()
+    monkeypatch.setattr("data_quality_checker.processing.MlxG0Backend", backend_cls)
+    explicit = tmp_path / "explicit-registry.json"
+
+    process_batch(
+        config=config,
+        batch_id="batch",
+        generation="M003",
+        resume=False,
+        registry_path=explicit,
+    )
+
+    assert captured["registry_path"] == explicit
+
+
+def test_generation_none_raises_a_typed_contract_error(tmp_path) -> None:
+    config = prepared_fixture(tmp_path, two_docs=False)
+    with pytest.raises(ContractError):
+        process_batch(
+            config=config,
+            batch_id="batch",
+            generation=None,  # violates the `generation: str` annotation on purpose
+            resume=False,
+            fake_backend=True,
+        )
 
 
 def test_mlx_backend_accepts_an_explicit_isolated_registry_path(monkeypatch, tmp_path) -> None:

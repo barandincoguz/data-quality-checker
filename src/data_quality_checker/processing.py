@@ -15,7 +15,7 @@ from .contracts import validate_reference_list
 from .errors import ContractError, FingerprintMismatch, GateBlocked, IntegrityError
 from .fingerprints import fingerprint_json, sha256_file, sha256_text
 from .g0 import SYSTEM_PROMPT
-from .g0_finalize import ROUND_LABEL_PATTERN
+from .g0_finalize import ROUND_LABEL_PATTERN, round_registry_path
 from .heartbeat import RunLease
 from .performance import optional_float, optional_int
 from .preparation import validate_ready
@@ -324,10 +324,16 @@ def process_batch(
     backend: PredictionBackend | None = None,
     registry_path: Path | None = None,
 ) -> dict[str, Any]:
-    if generation != "G0" and not ROUND_LABEL_PATTERN.match(generation):
+    if not isinstance(generation, str) or (
+        generation != "G0" and not ROUND_LABEL_PATTERN.match(generation)
+    ):
         raise ContractError(
             f"generation must be 'G0' or a round label like 'M003', got {generation!r}"
         )
+    if registry_path is None and generation != "G0":
+        # A round's predictions must come from that round's own sealed model,
+        # never silently from G0's default. See round_registry_path.
+        registry_path = round_registry_path(config, generation)
     ready = validate_ready(config, batch_id)
     selected_backend: PredictionBackend = (
         backend

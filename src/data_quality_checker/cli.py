@@ -144,7 +144,7 @@ def build_parser() -> argparse.ArgumentParser:
     pilot.add_argument(
         "--judge-models",
         default=None,
-        help="comma-separated judge model ids; defaults to the two-model pilot pair",
+        help="comma-separated judge model ids; defaults to the local judge",
     )
     pilot.add_argument("--fake-backend", action="store_true", help=argparse.SUPPRESS)
     pilot.set_defaults(handler=commands.pilot_judges)

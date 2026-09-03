@@ -71,12 +71,13 @@ def test_predict_step_does_not_swallow_a_pipeline_failure(
 
 def test_judge_step_runs_the_pilot_and_returns_a_sha(tmp_path: Path) -> None:
     config = prepared_fixture(tmp_path)
-    # The judge pilot pulls predictions for the fixed "G0" generation
-    # (see judges.py's hardcoded `store.get_prediction(batch_id, internal_doc_id, "G0")`
-    # and test_judges.py's own fixture), independent of whatever generation label
-    # a round's predict_step used -- so the round under test must have a G0 pass.
-    predict_step(config, batch_id="batch", generation="G0", fake_backend=True)(new_round(1))
-    artifact = judge_step(config, batch_id="batch", fake_backend=True)(new_round(1))
+    # judge_step now forwards `generation` to run_judge_pilot, so the round
+    # under test must have a prediction pass under that same round's generation
+    # label rather than the fixed "G0".
+    predict_step(config, batch_id="batch", generation="M003", fake_backend=True)(new_round(1))
+    artifact = judge_step(config, batch_id="batch", generation="M003", fake_backend=True)(
+        new_round(1)
+    )
     summary = config.public_root / "batches" / "batch" / "judge_pilot_summary.json"
     assert artifact == sha256_file(summary)
 
@@ -86,9 +87,11 @@ def test_judge_step_refuses_an_external_call_without_consent(tmp_path: Path) -> 
     from data_quality_checker.errors import GateBlocked
 
     config = prepared_fixture(tmp_path)
-    predict_step(config, batch_id="batch", generation="G0", fake_backend=True)(new_round(1))
+    predict_step(config, batch_id="batch", generation="M003", fake_backend=True)(new_round(1))
     with pytest.raises(GateBlocked):
-        judge_step(config, batch_id="batch", allow_external_judge=False)(new_round(1))
+        judge_step(config, batch_id="batch", generation="M003", allow_external_judge=False)(
+            new_round(1)
+        )
 
 
 def test_compose_step_writes_the_round_training_manifest(tmp_path: Path) -> None:

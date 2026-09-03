@@ -9,7 +9,7 @@ import pytest
 
 from data_quality_checker.commands import pilot_judges
 from data_quality_checker.config import default_config_path, load_config
-from data_quality_checker.errors import ContractError, DQCheckError, GateBlocked
+from data_quality_checker.errors import ContractError, DQCheckError, GateBlocked, IntegrityError
 from data_quality_checker.judges import (
     FakeJudgeProvider,
     JudgeProviderUnavailable,
@@ -41,7 +41,7 @@ def config_for(tmp_path: Path):
     return load_config(path)
 
 
-def prepared_processed_fixture(tmp_path: Path, *, count: int = 1):
+def prepared_processed_fixture(tmp_path: Path, *, count: int = 1, generation: str = "G0"):
     config = config_for(tmp_path)
     annotations = [
         {"document_id": f"private-id-{index}", "current_references": []} for index in range(count)
@@ -69,7 +69,7 @@ def prepared_processed_fixture(tmp_path: Path, *, count: int = 1):
     process_batch(
         config=config,
         batch_id="batch",
-        generation="G0",
+        generation=generation,
         resume=False,
         fake_backend=True,
     )
@@ -110,6 +110,37 @@ def test_external_consent_gate_fires_before_provider_call(tmp_path) -> None:
             provider=provider,
         )
     assert provider.payloads == []
+
+
+def test_run_judge_pilot_judges_a_named_generations_predictions(tmp_path) -> None:
+    """A DQ-Loop round's predictions are stored under its own label (e.g.
+    "M003"), not "G0" -- so the judge must be told which generation to read."""
+    config = prepared_processed_fixture(tmp_path, generation="M003")
+    provider = FakeJudgeProvider()
+    summary = run_judge_pilot(
+        config=config,
+        batch_id="batch",
+        allow_external_judge=True,
+        generation="M003",
+        provider=provider,
+    )
+    assert summary["selected_document_count"] == 1
+
+
+def test_run_judge_pilot_raises_naming_the_missing_generation(tmp_path) -> None:
+    """The judge fails closed rather than silently judging a different
+    generation's predictions -- and the error must name the generation an
+    operator actually asked for, not a hardcoded "G0"."""
+    config = prepared_processed_fixture(tmp_path)  # predictions stored under G0
+    provider = FakeJudgeProvider()
+    with pytest.raises(IntegrityError, match="M003"):
+        run_judge_pilot(
+            config=config,
+            batch_id="batch",
+            allow_external_judge=True,
+            generation="M003",
+            provider=provider,
+        )
 
 
 def test_blind_pilot_sends_only_text_and_candidates_and_persists_both_models(tmp_path) -> None:

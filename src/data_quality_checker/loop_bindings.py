@@ -105,6 +105,7 @@ def judge_step(
     config: AppConfig,
     *,
     batch_id: str,
+    generation: str = "G0",
     judge_models: tuple[str, ...] | None = None,
     allow_external_judge: bool = False,
     fake_backend: bool = False,
@@ -115,6 +116,10 @@ def judge_step(
     True: the pipeline refuses an external call without it, and a binding that
     quietly supplied consent would move that decision out of the operator's
     hands.
+
+    `generation` names the round whose predictions the judge should look at --
+    without it the judge would silently re-judge G0 no matter which round is
+    actually running.
     """
 
     def step(state: RoundState) -> str:
@@ -122,6 +127,7 @@ def judge_step(
             config=config,
             batch_id=batch_id,
             allow_external_judge=allow_external_judge,
+            generation=generation,
             fake_backend=fake_backend,
             judge_models=judge_models,
         )

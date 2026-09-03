@@ -256,8 +256,9 @@ def _input_contract(
     document_pool_zip: Path,
     *,
     key: bytes,
+    doc_ids: set[str] | None = None,
 ) -> dict[str, Any]:
-    return {
+    contract: dict[str, Any] = {
         "annotation_zip": {
             "size": annotation_zip.stat().st_size,
             "sha256": sha256_file(annotation_zip),
@@ -268,6 +269,16 @@ def _input_contract(
         },
         "hmac_key_fingerprint": sha256_text(key.hex()),
     }
+    # A subset must fingerprint differently from the whole archive and from
+    # every other subset, or two rounds of a training loop drawing different
+    # hundred-document windows from the same archives collide on one batch
+    # id (`create_batch` sees a matching fingerprint and hands back whichever
+    # round prepared first). Omit the key entirely when no subset was given
+    # so today's no-subset fingerprint - and every batch already prepared
+    # under it - is untouched by this change.
+    if doc_ids is not None:
+        contract["doc_ids"] = sorted(doc_ids)
+    return contract
 
 
 def ready_path(config: AppConfig, batch_id: str) -> Path:
@@ -350,7 +361,7 @@ def prepare_batch(
     if not pool_records:
         raise ContractError("document-pool ZIP contains no evrakOid records")
 
-    input_contract = _input_contract(annotation_zip, document_pool_zip, key=key)
+    input_contract = _input_contract(annotation_zip, document_pool_zip, key=key, doc_ids=doc_ids)
     input_fingerprint = fingerprint_json(input_contract)
     effective_batch_id = batch_id or f"dq_{input_fingerprint[:16]}"
     if not effective_batch_id.replace("-", "").replace("_", "").isalnum():

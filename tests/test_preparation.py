@@ -8,6 +8,7 @@ import pytest
 
 from data_quality_checker.config import default_config_path, load_config
 from data_quality_checker.errors import ContractError
+from data_quality_checker.fingerprints import fingerprint_json, sha256_file, sha256_text
 from data_quality_checker.preparation import (
     annotation_attribution_path,
     import_annotation_attribution,
@@ -382,3 +383,104 @@ def test_an_empty_subset_is_rejected(tmp_path) -> None:
             hmac_key_file=keyfile,
             doc_ids=set(),
         )
+
+
+def test_two_different_subsets_of_the_same_archives_get_different_batch_ids(
+    tmp_path,
+) -> None:
+    """FIX 1 regression: before the fix, `input_fingerprint` (and the batch id
+    derived from it when `batch_id=None`) was computed from the archives only,
+    so two different `doc_ids` subsets of the same archives collided on one
+    batch id - `create_batch` saw a matching fingerprint, found the batch
+    already READY, and handed round 2 round 1's batch."""
+
+    config = make_config(tmp_path)
+    annotation_zip, pool_zip, keyfile = _archives(tmp_path, config, count=5)
+
+    round1 = prepare_batch(
+        config=config,
+        annotation_zip=annotation_zip,
+        document_pool_zip=pool_zip,
+        batch_id=None,
+        hmac_key_file=keyfile,
+        doc_ids={"private-id-1"},
+    )
+    round2 = prepare_batch(
+        config=config,
+        annotation_zip=annotation_zip,
+        document_pool_zip=pool_zip,
+        batch_id=None,
+        hmac_key_file=keyfile,
+        doc_ids={"private-id-4", "private-id-5"},
+    )
+
+    assert round1["batch_id"] != round2["batch_id"]
+    assert round1["input_fingerprint"] != round2["input_fingerprint"]
+    with Store(config.database_path) as store:
+        round1_documents = store.list_documents(round1["batch_id"])
+        round2_documents = store.list_documents(round2["batch_id"])
+    assert {row["raw_document_id"] for row in round1_documents} == {"private-id-1"}
+    assert {row["raw_document_id"] for row in round2_documents} == {
+        "private-id-4",
+        "private-id-5",
+    }
+
+
+def test_the_same_subset_prepared_twice_is_idempotent(tmp_path) -> None:
+    config = make_config(tmp_path)
+    annotation_zip, pool_zip, keyfile = _archives(tmp_path, config, count=5)
+
+    first = prepare_batch(
+        config=config,
+        annotation_zip=annotation_zip,
+        document_pool_zip=pool_zip,
+        batch_id=None,
+        hmac_key_file=keyfile,
+        doc_ids={"private-id-2", "private-id-3"},
+    )
+    second = prepare_batch(
+        config=config,
+        annotation_zip=annotation_zip,
+        document_pool_zip=pool_zip,
+        batch_id=None,
+        hmac_key_file=keyfile,
+        doc_ids={"private-id-2", "private-id-3"},
+    )
+
+    assert second == first
+
+
+def test_a_no_subset_prepare_keeps_todays_fingerprint(tmp_path) -> None:
+    """FIX 1 must not change the fingerprint (and therefore the batch id) of
+    an ordinary whole-archive prepare: an existing batch must not be
+    invalidated by folding `doc_ids` into the input contract. This recomputes
+    the pre-fix contract shape by hand (no `doc_ids` key at all) and checks
+    it against what `prepare_batch` produces today."""
+
+    config = make_config(tmp_path)
+    annotation_zip, pool_zip, keyfile = _archives(tmp_path, config, count=3)
+    key = keyfile.read_bytes().strip()
+
+    todays_contract = {
+        "annotation_zip": {
+            "size": annotation_zip.stat().st_size,
+            "sha256": sha256_file(annotation_zip),
+        },
+        "document_pool_zip": {
+            "size": pool_zip.stat().st_size,
+            "sha256": sha256_file(pool_zip),
+        },
+        "hmac_key_fingerprint": sha256_text(key.hex()),
+    }
+    todays_fingerprint = fingerprint_json(todays_contract)
+
+    ready = prepare_batch(
+        config=config,
+        annotation_zip=annotation_zip,
+        document_pool_zip=pool_zip,
+        batch_id=None,
+        hmac_key_file=keyfile,
+    )
+
+    assert ready["input_fingerprint"] == todays_fingerprint
+    assert ready["batch_id"] == f"dq_{todays_fingerprint[:16]}"

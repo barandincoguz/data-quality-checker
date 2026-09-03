@@ -185,3 +185,18 @@ def test_status_names_the_next_stage_and_whether_it_is_manual(tmp_path: Path) ->
     status = round_status(tmp_path, 3)
     assert status["next_stage"] == "adjudicated"
     assert status["next_is_manual"] is True
+
+
+def test_status_of_a_sealed_round_has_no_next_stage(tmp_path: Path) -> None:
+    """A sealed round is past the end of ROUND_STAGES, not merely mid-loop.
+
+    `round_status` has to stop indexing once a round reaches the last stage,
+    or it walks off the end of ROUND_STAGES for exactly the rounds an
+    operator is most likely to query: the completed ones.
+    """
+    from data_quality_checker.loop_runner import round_status
+
+    run_round(tmp_path, 3, steps=_steps(*ROUND_STAGES[1:]), manual_stages=frozenset())
+    status = round_status(tmp_path, 3)
+    assert status["next_stage"] is None
+    assert status["next_is_manual"] is False

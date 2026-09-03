@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -15,6 +16,7 @@ from data_quality_checker.loop_rounds import (
     new_round,
     read_round_state,
     resume_round,
+    rounds_state_dir,
     write_round_state,
 )
 
@@ -24,6 +26,11 @@ def test_a_new_round_starts_pending() -> None:
     assert state.round_index == 1
     assert state.stage == "pending"
     assert state.artifacts == {}
+
+
+def test_rounds_state_dir_is_public_root_loop_rounds() -> None:
+    config = SimpleNamespace(public_root="/artifacts/public")
+    assert rounds_state_dir(config) == Path("/artifacts/public/loop/rounds")
 
 
 def test_stage_order_is_total_and_starts_pending() -> None:

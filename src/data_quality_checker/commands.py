@@ -215,9 +215,10 @@ def status(args: Namespace, config: AppConfig) -> int:
 
 
 def loop_status(args: Namespace, config: AppConfig) -> int:
+    from .loop_rounds import rounds_state_dir
     from .loop_runner import round_status
 
-    result = round_status(config.public_root / "loop" / "rounds", args.round_index)
+    result = round_status(rounds_state_dir(config), args.round_index)
     print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
     return 0
 

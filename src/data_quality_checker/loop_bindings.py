@@ -186,10 +186,16 @@ def select_step(
     *,
     candidates: list[CheckpointCandidate],
     output_dir: Path,
-    validation_documents: int = 50,
+    validation_documents: int,
     minimum_parse_count: int = 49,
 ) -> RoundStep:
-    """Choose this round's checkpoint, on validation alone, and record why."""
+    """Choose this round's checkpoint, on validation alone, and record why.
+
+    `validation_documents` takes no default: a round's validation split size
+    is a fact its caller must know and state, exactly as `measure_step`
+    requires `expected_doc_count` -- a baked-in 50 would fail closed but
+    misdirect the reader when a round's split is not 50.
+    """
 
     def step(state: RoundState) -> str:
         selected = select_checkpoint(

@@ -303,7 +303,9 @@ def _candidates() -> list[CheckpointCandidate]:
 def test_select_step_records_the_winner(tmp_path: Path) -> None:
     config = prepared_fixture(tmp_path)
     out = tmp_path / "rounds"
-    artifact = select_step(config, candidates=_candidates(), output_dir=out)(new_round(3))
+    artifact = select_step(
+        config, candidates=_candidates(), output_dir=out, validation_documents=50
+    )(new_round(3))
     payload = json.loads((out / "round_003_checkpoint.json").read_text(encoding="utf-8"))
     assert payload["selected"]["update"] == 100
     assert payload["selection_basis"] == "validation"
@@ -313,7 +315,9 @@ def test_select_step_records_the_winner(tmp_path: Path) -> None:
 def test_select_step_records_only_validation_metrics(tmp_path: Path) -> None:
     config = prepared_fixture(tmp_path)
     out = tmp_path / "rounds"
-    select_step(config, candidates=_candidates(), output_dir=out)(new_round(3))
+    select_step(config, candidates=_candidates(), output_dir=out, validation_documents=50)(
+        new_round(3)
+    )
     raw = (out / "round_003_checkpoint.json").read_text(encoding="utf-8").lower()
     assert "test" not in raw
 

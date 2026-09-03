@@ -17,11 +17,12 @@ from typing import Any, Protocol
 
 from .atomic import write_json_atomic
 from .config import AppConfig
-from .constants import MODEL_ID
+from .constants import JUDGE_MODEL_KEY, JUDGE_MODEL_REVISION, MODEL_ID
 from .contracts import validate_reference_list
 from .errors import ContractError, DQCheckError, GateBlocked, IntegrityError
 from .fingerprints import fingerprint_json, sha256_file
 from .heartbeat import RunLease
+from .judge_model import assert_gemma_thinking_is_disabled, resolve_judge_snapshot
 from .normalization import compact_references, core_identity, full_identity
 from .preparation import validate_ready
 from .reference_policy import apply_reference_policy
@@ -32,12 +33,19 @@ JUDGE_MODELS = ("qwen3.5:397b", "deepseek-v3.2")
 _STATIC_JUDGE_MODEL_PROVIDERS: dict[str, str] = {
     "qwen3.5:397b": "ollama",
     "deepseek-v3.2": "ollama",
+    JUDGE_MODEL_KEY: "mlx",
 }
 JUDGE_PROMPT = (
     "Act as a blind legal-reference adjudicator. Compare candidate A and B "
     "only against the Turkish document. Return JSON with verdict (A, B, TIE, "
     "or NEITHER), candidate_errors {A:[],B:[]}, final_references, evidence, "
-    "and reason_codes. Every evidence span must occur in the document.\n\n"
+    "and reason_codes. evidence and reason_codes must both be JSON arrays, "
+    "never prose: each evidence entry is a single span quoted verbatim from "
+    "the document. "
+    "Each final_references entry must keep the same fields as the candidate "
+    "entries it is drawn from, including source_text quoted verbatim from the "
+    "document: a final reference whose source_text is missing, empty, or not a "
+    "literal span of the document is rejected outright.\n\n"
 )
 PILOT_TARGET_PER_BUCKET = 20
 PILOT_MAX_DOCS = 60
@@ -256,6 +264,82 @@ class OllamaJudgeProvider:
         }
 
 
+class MlxJudgeProvider:
+    """Local adjudicator on the pinned Gemma 4 31B snapshot.
+
+    Weights load lazily and stay loaded: a judged batch is many documents and
+    reloading 21 GB per call would dominate the run. Sampling is greedy, and
+    the snapshot revision is pinned, so a re-run of the same batch reproduces
+    the same verdicts -- which is the property a locked judge needs and a
+    cloud endpoint cannot promise.
+    """
+
+    def __init__(self) -> None:
+        # 2048 truncated a real 18-reference verdict mid-JSON once every
+        # final reference had to carry its own verbatim source_text. A cut-off
+        # verdict is not a cheaper verdict, it is an unusable one, so the
+        # default carries roughly double the observed need.
+        self.max_tokens = int(os.environ.get("MLX_JUDGE_MAX_TOKENS", "4096"))
+        self._snapshot = resolve_judge_snapshot()
+        self._model: Any = None
+        self._tokenizer: Any = None
+
+    def _load(self) -> None:
+        if self._model is not None:
+            return
+        try:
+            from mlx_lm import load
+        except ImportError as exc:
+            raise JudgeProviderUnavailable(f"mlx_lm is unavailable: {exc}") from exc
+        self._model, self._tokenizer = load(str(self._snapshot))
+
+    def _generate(self, prompt: str) -> tuple[str, dict[str, Any]]:
+        self._load()
+        from mlx_lm import stream_generate
+        from mlx_lm.sample_utils import make_sampler
+
+        text = self._tokenizer.apply_chat_template(
+            [{"role": "user", "content": prompt}],
+            add_generation_prompt=True,
+            tokenize=False,
+            enable_thinking=False,
+        )
+        assert_gemma_thinking_is_disabled(text)
+        chunks: list[str] = []
+        last = None
+        for response in stream_generate(
+            self._model,
+            self._tokenizer,
+            text,
+            max_tokens=self.max_tokens,
+            sampler=make_sampler(temp=0.0),
+        ):
+            chunks.append(response.text)
+            last = response
+        meta = {
+            "prompt_tokens": getattr(last, "prompt_tokens", None),
+            "generation_tokens": getattr(last, "generation_tokens", None),
+            "peak_memory_gb": getattr(last, "peak_memory", None),
+            "finish_reason": getattr(last, "finish_reason", None),
+        }
+        return "".join(chunks), meta
+
+    def judge(self, *, model: str, payload: dict[str, Any]) -> tuple[Any, dict[str, Any]]:
+        prompt = JUDGE_PROMPT + json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+        started = time.perf_counter()
+        content, meta = self._generate(prompt)
+        stripped = content.strip()
+        if stripped.startswith("```"):
+            stripped = stripped.split("```")[1].removeprefix("json").strip()
+        return stripped, {
+            "latency_seconds": time.perf_counter() - started,
+            "cost": 0.0,
+            "provider": "mlx",
+            "model_revision": JUDGE_MODEL_REVISION,
+            **meta,
+        }
+
+
 def gemini_judge_model() -> str | None:
     """Resolve the configured Gemini judge model id, or None if unconfigured.
 
@@ -375,7 +459,11 @@ def resolve_judge_provider(model: str, *, fake_backend: bool = False) -> JudgePr
         return FakeJudgeProvider()
     if kind == "gemini":
         return GeminiJudgeProvider()
-    return OllamaJudgeProvider()
+    if kind == "mlx":
+        return MlxJudgeProvider()
+    if kind == "ollama":
+        return OllamaJudgeProvider()
+    raise ContractError(f"judge model {model!r} maps to unknown provider kind {kind!r}")
 
 
 def _validate_judge_result(payload: Any, document_text: str) -> dict[str, Any]:

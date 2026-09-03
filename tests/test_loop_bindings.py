@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from test_loop_train import canonical_fixture, release_fixture
 from test_processing import prepared_fixture
 
 from data_quality_checker.errors import ContractError, IntegrityError
@@ -20,6 +21,15 @@ from data_quality_checker.loop_bindings import (
     select_step,
 )
 from data_quality_checker.loop_rounds import new_round
+from data_quality_checker.loop_train import train_round
+
+
+def canonical_and_release_fixture(tmp_path: Path) -> Any:
+    """A canonical config with round "round1" already released and cleaned,
+    for exercising `train_step` without a real G0 training run."""
+    config = canonical_fixture(tmp_path)
+    release_fixture(config, "round1", ["d1", "d2"])
+    return config
 
 
 def test_predict_step_runs_the_pipeline_and_returns_a_sha(tmp_path: Path) -> None:
@@ -577,3 +587,30 @@ def test_the_runner_drives_the_real_bindings_up_to_adjudication(tmp_path: Path) 
     assert state.stage == "judged"
     assert set(state.artifacts) == {"predicted", "routed", "judged"}
     assert all(len(sha) == 64 for sha in state.artifacts.values())
+
+
+def test_train_step_returns_the_sha_of_its_data_manifest(tmp_path: Path) -> None:
+    from data_quality_checker.loop_bindings import train_step
+
+    config = canonical_and_release_fixture(tmp_path)
+    split = {"train": [1, 2, 3], "valid": [10, 11], "test": [20, 21]}
+    step = train_step(config, generation="M001", split=split, cleaned_batch_ids=["round1"])
+    artifact = step(new_round(1))
+
+    result = train_round(config, generation="M001", split=split, cleaned_batch_ids=["round1"])
+    manifest = Path(result["data_dir"]) / "split_manifest.json"
+    assert artifact == sha256_file(manifest)
+
+
+def test_train_step_requires_the_caller_to_state_every_fact() -> None:
+    """Every default this line of work guessed for `generation`, `split` or
+    `cleaned_batch_ids` produced a defect -- a round predicting with the
+    wrong model, a judge reading the wrong generation, an evaluator gating
+    the wrong split size. The caller knows all three; none may default."""
+    import inspect
+
+    from data_quality_checker.loop_bindings import train_step
+
+    signature = inspect.signature(train_step)
+    for name in ("generation", "split", "cleaned_batch_ids"):
+        assert signature.parameters[name].default is inspect.Parameter.empty

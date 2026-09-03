@@ -26,6 +26,7 @@ from .judges import run_judge_pilot
 from .loop_rounds import RoundState
 from .loop_runner import RoundStep
 from .loop_selection import write_selection_record
+from .loop_train import train_round
 from .loop_training import compose_round_training_ids, write_round_training_manifest
 from .processing import process_batch
 from .storage import Store
@@ -149,6 +150,39 @@ def judge_step(
         if not summary.is_file():
             raise ContractError(f"judge pilot wrote no summary at {summary}")
         return sha256_file(summary)
+
+    return step
+
+
+def train_step(
+    config: AppConfig,
+    *,
+    generation: str,
+    split: dict[str, list[int]],
+    cleaned_batch_ids: list[str],
+    execute: bool = False,
+) -> RoundStep:
+    """Assemble and fingerprint this round's training run.
+
+    `generation`, `split` and `cleaned_batch_ids` take no default: each is a
+    fact only the caller can state, and every default guessed on this line of
+    work produced a defect elsewhere in the pipeline -- a round predicting
+    with the wrong model, a judge reading the wrong generation, an evaluator
+    gating the wrong split size. `train_round` itself already rejects
+    `execute=True` loudly, so it is passed straight through rather than
+    re-validated here.
+    """
+
+    def step(state: RoundState) -> str:
+        result = train_round(
+            config,
+            generation=generation,
+            split=split,
+            cleaned_batch_ids=cleaned_batch_ids,
+            execute=execute,
+        )
+        manifest = Path(result["data_dir"]) / "split_manifest.json"
+        return sha256_file(manifest)
 
     return step
 

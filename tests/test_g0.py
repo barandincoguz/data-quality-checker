@@ -134,6 +134,21 @@ def test_refit_split_keeps_every_document_in_train() -> None:
     assert refit_split(split) == {"train": [1, 2, 3, 4], "valid": [3], "test": [4]}
 
 
+def test_write_training_data_accepts_string_ids(tmp_path: Path) -> None:
+    from data_quality_checker.g0 import write_training_data
+
+    documents = {
+        "canonical:1": {"text": "birinci belge", "references": []},
+        "d000304": {"text": "ikinci belge", "references": []},
+        "canonical:2": {"text": "ucuncu belge", "references": []},
+    }
+    split = {"train": ["canonical:1", "d000304"], "valid": ["canonical:2"], "test": []}
+    result = write_training_data(output_dir=tmp_path, documents=documents, split=split)
+    assert result["files"]["train"]["count"] == 2
+    assert result["files"]["valid"]["count"] == 1
+    assert result["files"]["test"]["count"] == 0
+
+
 def test_select_checkpoint_honours_a_custom_validation_size() -> None:
     from data_quality_checker.g0 import CheckpointCandidate, select_checkpoint
 

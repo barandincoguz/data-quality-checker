@@ -8,6 +8,7 @@ import pytest
 from data_quality_checker.errors import ContractError
 from data_quality_checker.loop_training import (
     compose_round_training_ids,
+    round_training_documents,
     write_round_training_manifest,
 )
 
@@ -82,3 +83,122 @@ def test_manifest_records_the_batch_manifest_seal_when_given(tmp_path: Path) -> 
     )
     payload = json.loads((tmp_path / "round_001_training.json").read_text(encoding="utf-8"))
     assert payload["batch_manifest_sha256"] == "def456"
+
+
+def _release(root: Path, batch_id: str, expert: list[dict], consensus: list[dict]) -> None:
+    directory = root / "releases" / batch_id
+    directory.mkdir(parents=True, exist_ok=True)
+    for name, rows in (("expert_adjudicated", expert), ("consensus_clean", consensus)):
+        (directory / f"{name}.jsonl").write_text(
+            "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows), encoding="utf-8"
+        )
+
+
+class _Cfg:
+    def __init__(self, root: Path) -> None:
+        self.sensitive_root = root
+
+
+def test_reads_both_trust_levels(tmp_path: Path) -> None:
+    _release(
+        tmp_path,
+        "round1",
+        expert=[{"internal_doc_id": "d1", "text": "bir", "references": [{"kanun_no": "193"}]}],
+        consensus=[{"internal_doc_id": "d2", "text": "iki", "references": []}],
+    )
+    documents = round_training_documents(_Cfg(tmp_path), batch_ids=["round1"])
+    assert set(documents) == {"d1", "d2"}
+    assert documents["d1"]["text"] == "bir"
+    assert documents["d1"]["references"] == [{"kanun_no": "193"}]
+
+
+def test_reads_several_rounds(tmp_path: Path) -> None:
+    _release(
+        tmp_path,
+        "round1",
+        expert=[{"internal_doc_id": "d1", "text": "bir", "references": []}],
+        consensus=[],
+    )
+    _release(
+        tmp_path,
+        "round2",
+        expert=[{"internal_doc_id": "d2", "text": "iki", "references": []}],
+        consensus=[],
+    )
+    documents = round_training_documents(_Cfg(tmp_path), batch_ids=["round1", "round2"])
+    assert set(documents) == {"d1", "d2"}
+
+
+def test_a_missing_release_is_rejected(tmp_path: Path) -> None:
+    with pytest.raises(ContractError):
+        round_training_documents(_Cfg(tmp_path), batch_ids=["never-released"])
+
+
+def test_the_same_document_in_two_rounds_is_rejected(tmp_path: Path) -> None:
+    _release(
+        tmp_path,
+        "round1",
+        expert=[{"internal_doc_id": "d1", "text": "bir", "references": []}],
+        consensus=[],
+    )
+    _release(
+        tmp_path,
+        "round2",
+        expert=[{"internal_doc_id": "d1", "text": "bir", "references": []}],
+        consensus=[],
+    )
+    with pytest.raises(ContractError):
+        round_training_documents(_Cfg(tmp_path), batch_ids=["round1", "round2"])
+
+
+def test_a_row_missing_text_or_references_is_rejected(tmp_path: Path) -> None:
+    _release(tmp_path, "round1", expert=[{"internal_doc_id": "d1", "references": []}], consensus=[])
+    with pytest.raises(ContractError):
+        round_training_documents(_Cfg(tmp_path), batch_ids=["round1"])
+
+
+def test_quarantined_documents_are_never_read(tmp_path: Path) -> None:
+    """The reader names its two trustworthy files. A quarantined document sitting
+    in the same release directory must never surface in the returned mapping --
+    even a later refactor toward something like ``glob("*.jsonl")`` must not be
+    able to sneak it in silently.
+    """
+    _release(
+        tmp_path,
+        "round1",
+        expert=[{"internal_doc_id": "d1", "text": "bir", "references": []}],
+        consensus=[{"internal_doc_id": "d2", "text": "iki", "references": []}],
+    )
+    quarantine_path = tmp_path / "releases" / "round1" / "quarantine.jsonl"
+    quarantine_path.write_text(
+        json.dumps({"internal_doc_id": "dQ", "text": "uc", "references": []}) + "\n",
+        encoding="utf-8",
+    )
+    documents = round_training_documents(_Cfg(tmp_path), batch_ids=["round1"])
+    assert set(documents) == {"d1", "d2"}
+    assert "dQ" not in documents
+
+
+def test_a_malformed_line_is_rejected_naming_file_and_line_number(tmp_path: Path) -> None:
+    directory = tmp_path / "releases" / "round1"
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "expert_adjudicated.jsonl").write_text(
+        json.dumps({"internal_doc_id": "d1", "text": "bir", "references": []})
+        + "\n"
+        + "{not json"
+        + "\n",
+        encoding="utf-8",
+    )
+    (directory / "consensus_clean.jsonl").write_text("", encoding="utf-8")
+    with pytest.raises(ContractError) as excinfo:
+        round_training_documents(_Cfg(tmp_path), batch_ids=["round1"])
+    message = str(excinfo.value)
+    assert "expert_adjudicated.jsonl" in message
+    assert ":2" in message
+
+
+def test_an_empty_release_is_rejected_naming_the_batch(tmp_path: Path) -> None:
+    _release(tmp_path, "round1", expert=[], consensus=[])
+    with pytest.raises(ContractError) as excinfo:
+        round_training_documents(_Cfg(tmp_path), batch_ids=["round1"])
+    assert "round1" in str(excinfo.value)

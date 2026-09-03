@@ -68,6 +68,17 @@ def new_round(round_index: int) -> RoundState:
     return RoundState(round_index=round_index, stage="pending", artifacts={}).validate()
 
 
+def rounds_state_dir(config: Any) -> Path:
+    """Where a run's round-state files live.
+
+    The reader and the eventual writer must agree on this, and a mismatch
+    would not fail loudly: `resume_round` maps a missing file to a fresh
+    `pending` round, so a writer pointed elsewhere would leave `loop-status`
+    reporting every round as unstarted forever.
+    """
+    return Path(config.public_root) / "loop" / "rounds"
+
+
 def _state_path(output_dir: Path, round_index: int) -> Path:
     return output_dir / f"round_{round_index:03d}_state.json"
 

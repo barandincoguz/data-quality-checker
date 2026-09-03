@@ -214,6 +214,15 @@ def status(args: Namespace, config: AppConfig) -> int:
     return 0
 
 
+def loop_status(args: Namespace, config: AppConfig) -> int:
+    from .loop_rounds import rounds_state_dir
+    from .loop_runner import round_status
+
+    result = round_status(rounds_state_dir(config), args.round_index)
+    print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0
+
+
 def predict_agent(args: Namespace, config: AppConfig) -> int:
     import os
 

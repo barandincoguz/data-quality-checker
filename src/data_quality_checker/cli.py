@@ -204,6 +204,10 @@ def build_parser() -> argparse.ArgumentParser:
     status = subparsers.add_parser("status", help="show batch coverage and lifecycle state")
     status.add_argument("--batch-id", required=True)
     status.set_defaults(handler=commands.status)
+
+    loop_status = subparsers.add_parser("loop-status", help="show where a DQ-Loop round is")
+    loop_status.add_argument("--round", type=int, required=True, dest="round_index")
+    loop_status.set_defaults(handler=commands.loop_status)
     return parser
 
 

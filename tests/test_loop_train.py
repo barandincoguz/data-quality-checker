@@ -95,3 +95,25 @@ def test_an_invalid_generation_is_rejected(tmp_path: Path) -> None:
     for generation in ("G0", "m001", "M1", "round1", ""):
         with pytest.raises(ContractError):
             train_round(config, generation=generation, split=SPLIT, cleaned_batch_ids=[])
+
+
+def test_execute_true_raises_instead_of_silently_no_opping(tmp_path: Path) -> None:
+    """`execute` is accepted but the body never reads it -- a caller passing
+    `execute=True` must get a loud rejection, not silent no-op with no compute
+    launched and no error raised."""
+    config = canonical_fixture(tmp_path)
+    with pytest.raises(ContractError, match="does not launch compute"):
+        train_round(config, generation="M000", split=SPLIT, cleaned_batch_ids=[], execute=True)
+
+
+def test_round_run_directory_is_pinned_to_the_loop_namespace(tmp_path: Path) -> None:
+    """A round's run directory must live under `sensitive_root / "loop"` and
+    never under `sensitive_root / "g0"`, so it can never collide with G0's
+    historical run directory."""
+    config = canonical_fixture(tmp_path)
+    result = train_round(config, generation="M000", split=SPLIT, cleaned_batch_ids=[])
+    data_dir = Path(result["data_dir"])
+    loop_root = Path(config.sensitive_root) / "loop"
+    g0_root = Path(config.sensitive_root) / "g0"
+    assert loop_root in data_dir.parents
+    assert g0_root not in data_dir.parents

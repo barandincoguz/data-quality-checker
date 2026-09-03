@@ -45,6 +45,11 @@ def train_round(
     cleaned_batch_ids: Sequence[str],
     execute: bool = False,
 ) -> dict[str, Any]:
+    if execute:
+        raise ContractError(
+            "train_round does not launch compute yet; it assembles and fingerprints "
+            "a round's training run. Launch it through the existing compute path."
+        )
     if generation == "G0":
         raise ContractError("train_round does not train G0 -- use train_bootstrap for G0")
     if not isinstance(generation, str) or not ROUND_LABEL_PATTERN.match(generation):

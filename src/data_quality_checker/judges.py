@@ -24,6 +24,7 @@ from .fingerprints import fingerprint_json, sha256_file
 from .heartbeat import RunLease
 from .judge_model import assert_gemma_thinking_is_disabled, resolve_judge_snapshot
 from .normalization import compact_references, core_identity, full_identity
+from .performance import _percentile
 from .preparation import validate_ready
 from .reference_policy import apply_reference_policy
 from .storage import Store
@@ -931,6 +932,40 @@ def _set_metric(references: list[dict[str, Any]], *, core: bool) -> set[Any]:
     }
 
 
+def _resolve_verdict(verdict: str | None, blind_mapping: str) -> str:
+    """Translate a blind A/B verdict into the real side it favoured.
+
+    ``blind_mapping`` values look like ``"A=human,B=model"`` or
+    ``"A=model,B=human"``; which side is the annotator and which is the
+    fine-tuned model is randomised per document, so a raw "A" or "B" is
+    meaningless on its own -- it must be resolved through the mapping before
+    it is counted. TIE and NEITHER need no translation.
+    """
+    if verdict in (None, "TIE", "NEITHER"):
+        return verdict or "NEITHER"
+    sides = dict(pair.split("=", 1) for pair in blind_mapping.split(","))
+    side = sides.get(verdict)
+    if side == "human":
+        return "annotator"
+    if side == "model":
+        return "model"
+    return "NEITHER"
+
+
+def _error_class(error: str) -> str:
+    """Collapse a free-form attempt error message to a stable class label.
+
+    Rejection messages either read as ``"<class> at <detail>"`` (the
+    fabricated/missing-evidence contract check) or ``"<class>: <detail>"`` (a
+    JSON decode failure surfacing its own message); any other contract
+    message carries no detail suffix and is its own class.
+    """
+    for separator in (" at ", ":"):
+        if separator in error:
+            return error.split(separator, 1)[0].strip()
+    return error.strip()
+
+
 def judge_expert_metrics(
     store: Store, *, batch_id: str, model: str, ids: list[str]
 ) -> dict[str, Any]:
@@ -940,6 +975,12 @@ def judge_expert_metrics(
     tp = fp = fn = 0
     latencies: list[float] = []
     costs: list[float] = []
+    total_attempts = 0
+    fabricated_evidence_attempts = 0
+    invalid_attempts = 0
+    invalid_attempts_by_error_class: dict[str, int] = defaultdict(int)
+    documents_needing_retry = 0
+    verdict_distribution = {"annotator": 0, "model": 0, "TIE": 0, "NEITHER": 0}
     for internal_doc_id in ids:
         review = store.get_review(batch_id, internal_doc_id)
         result = store.get_judge_result(batch_id, internal_doc_id, model)
@@ -961,17 +1002,34 @@ def judge_expert_metrics(
         tp += len(expert_core & judge_core)
         fp += len(judge_core - expert_core)
         fn += len(expert_core - judge_core)
+        if result["retry_count"]:
+            documents_needing_retry += 1
+        verdict_distribution[_resolve_verdict(result["verdict"], result["blind_mapping"])] += 1
         if result["response_path"]:
             payload = json.loads(Path(result["response_path"]).read_text(encoding="utf-8"))
-            latency = (payload.get("operational") or {}).get("latency_seconds")
-            cost = (payload.get("operational") or {}).get("cost")
+            operational = payload.get("operational") or {}
+            latency = operational.get("latency_seconds")
+            cost = operational.get("cost")
             if isinstance(latency, (int, float)):
                 latencies.append(float(latency))
             if isinstance(cost, (int, float)):
                 costs.append(float(cost))
+            for attempt in payload.get("attempts") or []:
+                total_attempts += 1
+                if attempt.get("status") != "invalid":
+                    # "valid" needs no counting here; "unavailable" is a
+                    # provider outage, not a rejected judge output, so it
+                    # does not belong in the invalid/fabrication breakdown.
+                    continue
+                invalid_attempts += 1
+                error_class = _error_class(str(attempt.get("error") or ""))
+                invalid_attempts_by_error_class[error_class] += 1
+                if error_class == "fabricated_or_missing_evidence":
+                    fabricated_evidence_attempts += 1
     precision = tp / (tp + fp) if tp + fp else 1.0
     recall = tp / (tp + fn) if tp + fn else 1.0
     f1 = 2 * precision * recall / (precision + recall) if precision + recall else 0.0
+    sorted_latencies = sorted(latencies)
     return {
         "status": "complete",
         "document_count": len(ids),
@@ -979,8 +1037,18 @@ def judge_expert_metrics(
         "expert_core_precision": precision,
         "expert_core_recall": recall,
         "expert_core_f1": f1,
-        "fabricated_evidence_rate": 0.0,
+        "fabricated_evidence_attempts": fabricated_evidence_attempts,
+        "total_attempts": total_attempts,
+        "fabricated_evidence_rate": (
+            fabricated_evidence_attempts / total_attempts if total_attempts else 0.0
+        ),
+        "invalid_attempts": invalid_attempts,
+        "invalid_attempts_by_error_class": dict(invalid_attempts_by_error_class),
+        "documents_needing_retry": documents_needing_retry,
+        "verdict_distribution": verdict_distribution,
         "mean_latency_seconds": sum(latencies) / len(latencies) if latencies else None,
+        "latency_p50_seconds": _percentile(sorted_latencies, 50) if sorted_latencies else None,
+        "latency_p95_seconds": _percentile(sorted_latencies, 95) if sorted_latencies else None,
         "reported_cost": sum(costs) if costs else None,
     }
 

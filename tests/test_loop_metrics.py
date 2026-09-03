@@ -1,4 +1,4 @@
-"""Tests for `attribute_errors` and `rater_agreement`.
+"""Tests for `attribute_errors`, `rater_agreement` and expert workload.
 
 The single most important case here is `test_joint_miss_count_counts_a_reference_all_three_raters_miss`:
 `joint_miss_count` must be counted from the expert's full reference set, never
@@ -20,7 +20,13 @@ from typing import Any
 import pytest
 
 from data_quality_checker.errors import ContractError
-from data_quality_checker.loop_metrics import attribute_errors, rater_agreement
+from data_quality_checker.loop_metrics import (
+    attribute_errors,
+    documents_with_finalized_truth,
+    edit_distance_from_best_candidate,
+    expert_workload,
+    rater_agreement,
+)
 
 
 def ref(**updates: str) -> dict[str, str]:
@@ -331,3 +337,223 @@ def test_rater_agreement_over_no_records_is_empty_but_well_formed() -> None:
     assert metrics["fleiss_kappa"] is None
     for name in ("annotator", "model", "judge"):
         assert metrics["per_rater"][name]["precision"] is None
+
+
+# ---------------------------------------------------------------------------
+# edit_distance_from_best_candidate
+# ---------------------------------------------------------------------------
+
+
+def test_edit_distance_from_best_candidate_picks_the_closer_candidate() -> None:
+    result = edit_distance_from_best_candidate(
+        final=[REF_A, REF_B], annotator=[REF_A], model=[REF_A, REF_B]
+    )
+    assert result == {"available": True, "closest_candidate": "model", "edit_distance": 0}
+
+
+def test_edit_distance_from_best_candidate_counts_added_and_removed_references() -> None:
+    """An "altered" reference costs two units: one for the old identity the
+    expert removed (spurious relative to `final`) and one for the new
+    identity the expert added (missed relative to `final`)."""
+    result = edit_distance_from_best_candidate(
+        final=[REF_A, REF_B], annotator=[REF_A, REF_C], model=None
+    )
+    assert result == {"available": True, "closest_candidate": "annotator", "edit_distance": 2}
+
+
+def test_edit_distance_from_best_candidate_breaks_ties_toward_annotator() -> None:
+    # annotator misses REF_B (distance 1); model misses REF_A (distance 1) -- a genuine tie.
+    result = edit_distance_from_best_candidate(
+        final=[REF_A, REF_B], annotator=[REF_A], model=[REF_B]
+    )
+    assert result == {"available": True, "closest_candidate": "annotator", "edit_distance": 1}
+
+
+def test_edit_distance_from_best_candidate_is_unavailable_with_no_candidates() -> None:
+    result = edit_distance_from_best_candidate(final=[REF_A], annotator=None, model=None)
+    assert result == {"available": False, "closest_candidate": None, "edit_distance": None}
+
+
+# ---------------------------------------------------------------------------
+# documents_with_finalized_truth
+# ---------------------------------------------------------------------------
+
+
+def test_documents_with_finalized_truth_excludes_deferred_and_pending() -> None:
+    finalized = {"status": "finalized", "final": [REF_A]}
+    deferred = {"status": "deferred", "final": None}
+    pending = {"status": "pending", "final": None}
+    result = documents_with_finalized_truth([finalized, deferred, pending])
+    assert result == [finalized]
+
+
+# ---------------------------------------------------------------------------
+# expert_workload
+# ---------------------------------------------------------------------------
+
+
+def _review_row(**updates: Any) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "router_bucket": "RED",
+        "escalated": False,
+        "status": "finalized",
+        "action": "accept_human",
+        "created_at_epoch": 0.0,
+        "updated_at_epoch": 10.0,
+        "annotator": [REF_A],
+        "model": [REF_A],
+        "final": [REF_A],
+    }
+    payload.update(updates)
+    return payload
+
+
+def test_expert_workload_counts_documents_requiring_review() -> None:
+    """Router RED/YELLOW always require review; GREEN only under an active
+    escalation, exactly as `hitl._review_requirements` treats it."""
+    records = [
+        _review_row(router_bucket="RED"),
+        _review_row(router_bucket="YELLOW"),
+        _review_row(
+            router_bucket="GREEN",
+            escalated=False,
+            status="pending",
+            action=None,
+            final=None,
+        ),
+        _review_row(router_bucket="GREEN", escalated=True),
+    ]
+    metrics = expert_workload(records)
+    assert metrics["document_count"] == 4
+    assert metrics["documents_requiring_review_count"] == 3
+    assert metrics["documents_requiring_review_rate"] == pytest.approx(0.75)
+
+
+def test_expert_workload_action_distribution_counts_each_action_and_the_total() -> None:
+    records = [
+        _review_row(action="accept_human"),
+        _review_row(action="accept_model"),
+        _review_row(action="revise", final=[REF_A, REF_B]),
+        _review_row(action="defer", status="deferred", final=None),
+        _review_row(action="judge_override"),
+        _review_row(status="pending", action=None, final=None),
+    ]
+    metrics = expert_workload(records)
+    assert metrics["document_count"] == 6
+    assert metrics["action_distribution"] == {
+        "accept_human": 1,
+        "accept_model": 1,
+        "revise": 1,
+        "defer": 1,
+        "judge_override": 1,
+        "total": 5,
+    }
+
+
+def test_expert_workload_seconds_to_decision_p50_and_p95_exclude_pending_rows() -> None:
+    records = [
+        _review_row(created_at_epoch=0.0, updated_at_epoch=10.0),
+        _review_row(created_at_epoch=0.0, updated_at_epoch=20.0),
+        _review_row(created_at_epoch=0.0, updated_at_epoch=30.0),
+        _review_row(
+            status="pending",
+            action=None,
+            final=None,
+            created_at_epoch=0.0,
+            updated_at_epoch=0.0,
+        ),
+    ]
+    metrics = expert_workload(records)
+    assert metrics["seconds_to_decision_sample_count"] == 3
+    assert metrics["seconds_to_decision_p50"] == pytest.approx(20.0)
+    assert metrics["seconds_to_decision_p95"] == pytest.approx(30.0)
+
+
+def test_expert_workload_edit_distance_only_measures_revise_rows() -> None:
+    records = [
+        _review_row(
+            action="revise",
+            final=[REF_A, REF_B],
+            annotator=[REF_A],
+            model=[REF_A, REF_B, REF_C],
+        ),
+        _review_row(action="accept_human"),
+    ]
+    metrics = expert_workload(records)
+    edit = metrics["edit_distance_from_best_candidate"]
+    assert edit["revise_count"] == 1
+    assert edit["measured_count"] == 1
+    assert edit["edit_distances"] == [1]
+    assert edit["mean_edit_distance"] == pytest.approx(1.0)
+    # annotator misses REF_B (distance 1); model has spurious REF_C (distance 1) -- a tie,
+    # broken toward annotator.
+    assert edit["closest_candidate_counts"] == {"annotator": 1, "model": 0}
+
+
+def test_expert_workload_edit_distance_unmeasured_when_no_candidate_available() -> None:
+    records = [
+        _review_row(action="revise", final=[REF_A], annotator=None, model=None),
+    ]
+    metrics = expert_workload(records)
+    edit = metrics["edit_distance_from_best_candidate"]
+    assert edit["revise_count"] == 1
+    assert edit["measured_count"] == 0
+    assert edit["edit_distances"] == []
+    assert edit["mean_edit_distance"] is None
+    assert edit["total_edit_distance"] is None
+
+
+def test_expert_workload_requires_final_references_when_finalized() -> None:
+    row = _review_row(final=None)
+    with pytest.raises(ContractError, match="final"):
+        expert_workload([row])
+
+
+def test_expert_workload_rejects_a_deferred_status_with_a_non_defer_action() -> None:
+    row = _review_row(status="deferred", action="accept_human")
+    with pytest.raises(ContractError):
+        expert_workload([row])
+
+
+def test_expert_workload_over_no_records_is_empty_but_well_formed() -> None:
+    metrics = expert_workload([])
+    assert metrics["document_count"] == 0
+    assert metrics["documents_requiring_review_count"] == 0
+    assert metrics["documents_requiring_review_rate"] is None
+    assert metrics["seconds_to_decision_sample_count"] == 0
+    assert metrics["seconds_to_decision_p50"] is None
+    assert metrics["seconds_to_decision_p95"] is None
+    assert metrics["edit_distance_from_best_candidate"]["mean_edit_distance"] is None
+
+
+# ---------------------------------------------------------------------------
+# The discriminating case: defer is workload, never truth
+# ---------------------------------------------------------------------------
+
+
+def test_deferred_row_counts_as_workload_but_is_excluded_from_truth() -> None:
+    """A `defer` row is real work performed -- it must show up in every
+    workload count -- but `final_references_json` is stored `null` for it,
+    so it must never be treated as expert truth.
+
+    This was confirmed by hand: `expert_workload`'s edit-distance gate was
+    temporarily widened from `if action == "revise":` to
+    `if action in {"revise", "defer"}:` (i.e. including deferred rows in
+    the truth-bearing set fed to `edit_distance_from_best_candidate`), and
+    this test was rerun. It failed -- not with a wrong number but with an
+    unhandled `ContractError` from `attribute_errors` ("requires the
+    expert's finalized references"), because a deferred row's `final` is
+    `None`. The widening was then reverted and the test passes again.
+    """
+    deferred = _review_row(action="defer", status="deferred", final=None, reason="second opinion")
+    finalized = _review_row(action="accept_human")
+
+    metrics = expert_workload([deferred, finalized])
+    assert metrics["document_count"] == 2
+    assert metrics["deferred_count"] == 1
+    assert metrics["action_distribution"]["defer"] == 1
+    assert metrics["edit_distance_from_best_candidate"]["revise_count"] == 0
+
+    truth_bearing = documents_with_finalized_truth([deferred, finalized])
+    assert deferred not in truth_bearing
+    assert truth_bearing == [finalized]

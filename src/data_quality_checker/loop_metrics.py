@@ -1,4 +1,4 @@
-"""Three-way error attribution and rater agreement over the DQ-loop.
+"""Three-way error attribution, rater agreement and expert workload over the DQ-loop.
 
 Three raters produce a legal-reference list for a document -- the
 scholarship annotator, the fine-tuned model, and the LLM judge -- and a
@@ -15,6 +15,16 @@ to all four sources, regardless of whether the row an input list came from
 had already been filtered upstream (the judge's stored `final_references`
 has; the annotator's and model's raw lists have not). This module composes
 those existing primitives; it does not implement a second comparison.
+
+The paper's claim has two halves: each round of cleaned data improves the
+model *and* reduces expert workload. `attribute_errors`/`rater_agreement`
+above measure the first half; `expert_workload` below measures the second,
+from the `reviews` table -- `documents_requiring_review`, the action mix,
+`seconds_to_decision`, and `edit_distance_from_best_candidate`. A `defer`
+row is the hinge between the two halves: it is real work (it counts toward
+workload) but it is not truth (`final_references_json` is stored `null`,
+so it must never reach an accuracy computation -- see
+`documents_with_finalized_truth`).
 """
 
 from __future__ import annotations
@@ -23,13 +33,16 @@ import itertools
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
 
+from .constants import EXPERT_ACTIONS, REVIEW_STATUSES
 from .errors import ContractError
 from .normalization import compact_references, core_identity
+from .performance import _percentile
 from .reference_policy import apply_reference_policy
 
 Identity = tuple[str, str, str, str]
 
 _RATER_NAMES: tuple[str, str, str] = ("annotator", "model", "judge")
+_FINALIZING_ACTIONS = frozenset(EXPERT_ACTIONS - {"defer"})
 
 
 def _core_identity_set(references: Iterable[Mapping[str, Any]] | None) -> set[Identity] | None:
@@ -345,4 +358,212 @@ def rater_agreement(records: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         "fleiss_kappa": fleiss["fleiss_kappa"],
         "fleiss_kappa_items": fleiss["items"],
         "fleiss_kappa_document_count": fleiss_document_count,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Expert workload (Task 3): the neglected half of the paper's claim
+# ---------------------------------------------------------------------------
+
+
+def edit_distance_from_best_candidate(
+    *,
+    final: Iterable[Mapping[str, Any]],
+    annotator: Iterable[Mapping[str, Any]] | None,
+    model: Iterable[Mapping[str, Any]] | None,
+) -> dict[str, Any]:
+    """How many references the expert added, removed or altered on a `revise`
+    row, relative to whichever candidate -- annotator or model -- was already
+    closest to what the expert kept.
+
+    Reuses `attribute_errors` rather than writing a second comparison:
+    `final` (the expert's own reference list for this row) stands in for
+    `attribute_errors`'s `expert` argument, and `annotator`/`model` are
+    scored against it exactly as any rater would be, so the same
+    core-identity normalization and VUK-213/article-413 policy
+    (`apply_reference_policy`) apply uniformly. A candidate's distance is
+    `len(missed) + len(spurious)`: one unit for each reference the expert
+    added over that candidate (`missed` -- in `final`, not in the
+    candidate) and one for each the expert removed (`spurious` -- in the
+    candidate, not in `final`); a reference the expert altered costs two,
+    since its old identity is spurious and its new identity is missed.
+    Ties are broken toward `"annotator"` for determinism.
+
+    Returns `{"available": False, "closest_candidate": None,
+    "edit_distance": None}` when neither candidate has usable data for this
+    document -- there is nothing to measure the revision against -- else
+    `{"available": True, "closest_candidate": "annotator" | "model",
+    "edit_distance": <int>}`.
+    """
+    attribution = attribute_errors(expert=final, annotator=annotator, model=model, judge=None)
+    distances = {
+        name: len(attribution[name]["missed"]) + len(attribution[name]["spurious"])
+        for name in ("annotator", "model")
+        if attribution[name]["available"]
+    }
+    if not distances:
+        return {"available": False, "closest_candidate": None, "edit_distance": None}
+    closest_candidate = min(distances, key=lambda name: (distances[name], name != "annotator"))
+    return {
+        "available": True,
+        "closest_candidate": closest_candidate,
+        "edit_distance": distances[closest_candidate],
+    }
+
+
+def documents_with_finalized_truth(
+    records: Iterable[Mapping[str, Any]],
+) -> list[Mapping[str, Any]]:
+    """The subset of `expert_workload`'s records usable as expert truth.
+
+    Only a row whose `status` is `"finalized"` carries a real
+    `final_references_json`: `"deferred"` stores it as `null` (real work
+    performed, but not truth) and `"pending"` has no decision at all yet.
+    Handing a `rater_agreement`/`attribute_errors` call the wrong subset
+    would either crash (both require a non-`None` `expert`) or, worse, be
+    made to silently accept `None` as "no references" and manufacture an
+    accuracy number out of a document the loop never actually finished
+    with. This filter is kept in one place so a caller cannot reintroduce a
+    deferred or pending row as if it were expert truth.
+    """
+    return [record for record in records if record.get("status") == "finalized"]
+
+
+def expert_workload(records: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    """Aggregate `reviews`-table workload for one round.
+
+    Each entry in `records` is one document's review row plus the routing
+    and candidate context needed to place it in the workload picture:
+    `router_bucket` (`documents.router_bucket`), `escalated` (whether GREEN
+    escalation is active for this document's batch; default `False` --
+    see `hitl._trigger_green_escalation`), `status` and `action` (the
+    `reviews` row's own values), `created_at_epoch` / `updated_at_epoch`
+    (the row's own epoch timestamps), and -- present only where the
+    corresponding source has data -- `annotator`
+    (`documents.human_references_json`), `model`
+    (`predictions.references_json`) and `final`
+    (`reviews.final_references_json`, parsed; required non-`None` when
+    `status` is `"finalized"`, always `None` when `"deferred"`).
+
+    **`defer` is workload, not truth.** A deferred row means the expert
+    opened and triaged the document -- real work -- so it counts in
+    `document_count`, `action_distribution["defer"]` and
+    `deferred_count`. But its `final_references_json` is `null`, so it is
+    never handed to `edit_distance_from_best_candidate` (which only runs
+    for `"revise"` rows) or to any other accuracy computation; see
+    `documents_with_finalized_truth` for the filter a caller must use
+    before computing `rater_agreement` over the same round. Do not fold
+    `deferred_count` into a completion measure -- it is reported on its
+    own precisely so a deferred document is never mistaken for either a
+    finished one or a merely slow one.
+
+    **`seconds_to_decision` is wall time on an open review, not attention.**
+    An expert can open a document and return to it an hour later; the
+    interval still counts in full. It is reported as p50/p95 over
+    `updated_at_epoch - created_at_epoch`, computed only over rows where a
+    decision was actually reached (`status` is `"finalized"` or
+    `"deferred"`); a `"pending"` row has no decision yet, so its interval
+    would describe how long the document has sat untouched, not a
+    decision, and is excluded.
+
+    Returns a dict with `document_count`, `documents_requiring_review_count`
+    (router `RED`/`YELLOW`, plus `GREEN` under an active escalation) and
+    `documents_requiring_review_rate` (`None` when `document_count` is
+    `0`); `action_distribution` (one count per `EXPERT_ACTIONS` member plus
+    `"total"`, over decided rows only); `deferred_count`;
+    `seconds_to_decision_p50` / `seconds_to_decision_p95` (`None` when no
+    row has reached a decision) and `seconds_to_decision_sample_count`;
+    and `edit_distance_from_best_candidate`, itself
+    `{"revise_count", "measured_count", "edit_distances",
+    "total_edit_distance", "mean_edit_distance",
+    "closest_candidate_counts"}` -- `measured_count` can be less than
+    `revise_count` when neither candidate had usable data for a revised
+    document, in which case the unmeasured row is simply absent from
+    `edit_distances` rather than padded with a fabricated `0`.
+    """
+    document_count = len(records)
+    documents_requiring_review = 0
+    action_counts = {action: 0 for action in EXPERT_ACTIONS}
+    deferred_count = 0
+    decision_seconds: list[float] = []
+    revise_count = 0
+    edit_distances: list[int] = []
+    closest_candidate_counts = {"annotator": 0, "model": 0}
+
+    for record in records:
+        if "router_bucket" not in record:
+            raise ContractError("expert_workload requires a 'router_bucket' entry for every record")
+        if "status" not in record:
+            raise ContractError("expert_workload requires a 'status' entry for every record")
+        router_bucket = record["router_bucket"]
+        escalated = bool(record.get("escalated", False))
+        status = record["status"]
+        if status not in REVIEW_STATUSES:
+            raise ContractError(f"unsupported review status: {status!r}")
+        action = record.get("action")
+        if action is not None and action not in EXPERT_ACTIONS:
+            raise ContractError(f"unsupported review action: {action!r}")
+
+        if router_bucket in {"RED", "YELLOW"} or (escalated and router_bucket == "GREEN"):
+            documents_requiring_review += 1
+
+        if status == "pending":
+            if action is not None:
+                raise ContractError("a pending review must not carry an action")
+            continue
+
+        if action is None:
+            raise ContractError(f"a {status} review must carry an action")
+        if status == "deferred" and action != "defer":
+            raise ContractError("a deferred review's action must be 'defer'")
+        if status == "finalized" and action not in _FINALIZING_ACTIONS:
+            raise ContractError("a finalized review's action must not be 'defer'")
+        if status == "finalized" and record.get("final") is None:
+            raise ContractError("a finalized review must carry final references")
+
+        action_counts[action] += 1
+        if status == "deferred":
+            deferred_count += 1
+
+        decision_seconds.append(
+            float(record["updated_at_epoch"]) - float(record["created_at_epoch"])
+        )
+
+        if action == "revise":
+            revise_count += 1
+            distance = edit_distance_from_best_candidate(
+                final=record.get("final"),
+                annotator=record.get("annotator"),
+                model=record.get("model"),
+            )
+            if distance["available"]:
+                edit_distances.append(distance["edit_distance"])
+                closest_candidate_counts[distance["closest_candidate"]] += 1
+
+    sorted_seconds = sorted(decision_seconds)
+    return {
+        "document_count": document_count,
+        "documents_requiring_review_count": documents_requiring_review,
+        "documents_requiring_review_rate": (
+            documents_requiring_review / document_count if document_count else None
+        ),
+        "action_distribution": {**action_counts, "total": sum(action_counts.values())},
+        "deferred_count": deferred_count,
+        "seconds_to_decision_sample_count": len(decision_seconds),
+        "seconds_to_decision_p50": (
+            round(_percentile(sorted_seconds, 50), 4) if sorted_seconds else None
+        ),
+        "seconds_to_decision_p95": (
+            round(_percentile(sorted_seconds, 95), 4) if sorted_seconds else None
+        ),
+        "edit_distance_from_best_candidate": {
+            "revise_count": revise_count,
+            "measured_count": len(edit_distances),
+            "edit_distances": edit_distances,
+            "total_edit_distance": sum(edit_distances) if edit_distances else None,
+            "mean_edit_distance": (
+                sum(edit_distances) / len(edit_distances) if edit_distances else None
+            ),
+            "closest_candidate_counts": closest_candidate_counts,
+        },
     }

@@ -39,7 +39,13 @@ JUDGE_PROMPT = (
     "Act as a blind legal-reference adjudicator. Compare candidate A and B "
     "only against the Turkish document. Return JSON with verdict (A, B, TIE, "
     "or NEITHER), candidate_errors {A:[],B:[]}, final_references, evidence, "
-    "and reason_codes. Every evidence span must occur in the document.\n\n"
+    "and reason_codes. evidence and reason_codes must both be JSON arrays, "
+    "never prose: each evidence entry is a single span quoted verbatim from "
+    "the document. "
+    "Each final_references entry must keep the same fields as the candidate "
+    "entries it is drawn from, including source_text quoted verbatim from the "
+    "document: a final reference whose source_text is missing, empty, or not a "
+    "literal span of the document is rejected outright.\n\n"
 )
 PILOT_TARGET_PER_BUCKET = 20
 PILOT_MAX_DOCS = 60
@@ -269,7 +275,11 @@ class MlxJudgeProvider:
     """
 
     def __init__(self) -> None:
-        self.max_tokens = int(os.environ.get("MLX_JUDGE_MAX_TOKENS", "2048"))
+        # 2048 truncated a real 18-reference verdict mid-JSON once every
+        # final reference had to carry its own verbatim source_text. A cut-off
+        # verdict is not a cheaper verdict, it is an unusable one, so the
+        # default carries roughly double the observed need.
+        self.max_tokens = int(os.environ.get("MLX_JUDGE_MAX_TOKENS", "4096"))
         self._snapshot = resolve_judge_snapshot()
         self._model: Any = None
         self._tokenizer: Any = None

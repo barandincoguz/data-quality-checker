@@ -346,14 +346,32 @@ def prepare_batch(
                 "doc_ids was supplied but empty; omit it to prepare the whole archive"
             )
         wanted = {str(value) for value in doc_ids}
-        annotations = [
-            record for record in annotations if _record_document_id(record.payload) in wanted
-        ]
-        found = {_record_document_id(record.payload) for record in annotations}
+        filtered: list[ZipRecord] = []
+        found: set[str] = set()
+        for record in annotations:
+            # A record whose evrakId/document_id disagree cannot yield an id
+            # to match against `wanted` at all, so it cannot participate in
+            # subset filtering either way. Skip it here exactly as the main
+            # ingestion loop does below (:394-399) and let quarantine handle
+            # it later - a single unrelated bad record must not abort every
+            # round's subset prepare.
+            try:
+                raw_id = _record_document_id(record.payload)
+            except ContractError:
+                continue
+            if raw_id in wanted:
+                filtered.append(record)
+                found.add(raw_id)
+        annotations = filtered
         missing = sorted(wanted - found)
         if missing:
+            # Report the count and an HMAC-tokenised (not raw) id per missing
+            # document: this message reaches CLI output and logs, which this
+            # project keeps free of raw document identities.
+            tokens = sorted(_public_doc_id(key, raw_id) for raw_id in missing)
             raise ContractError(
-                f"doc_ids names {len(missing)} document(s) absent from the archive: {missing[:5]}"
+                f"doc_ids names {len(missing)} document(s) absent from the archive; "
+                f"public ids: {tokens[:5]}"
             )
     pool_records = [record for record in raw_pool_records if "evrakOid" in record.payload]
     if not annotations:

@@ -484,3 +484,44 @@ def test_a_no_subset_prepare_keeps_todays_fingerprint(tmp_path) -> None:
 
     assert ready["input_fingerprint"] == todays_fingerprint
     assert ready["batch_id"] == f"dq_{todays_fingerprint[:16]}"
+
+
+def test_a_malformed_record_elsewhere_does_not_block_an_unrelated_subset(
+    tmp_path,
+) -> None:
+    """FIX 2 regression: the subset filter used to call `_record_document_id`
+    outside the try/except the main ingestion loop wraps it in, so one record
+    anywhere in the pool whose evrakId/document_id disagree aborted every
+    subset prepare - even one that never asked for that record. Reproduced
+    here with two unrelated documents requested and a third, unrelated,
+    id-disagreeing record present in the same archive."""
+
+    config = make_config(tmp_path)
+    annotations = [
+        {"document_id": "target-a", "current_references": []},
+        {"document_id": "target-b", "current_references": []},
+        {"evrakId": "bad-1", "document_id": "bad-2", "current_references": []},
+    ]
+    pool = [
+        {"evrakOid": "target-a", "pdfText": "text a"},
+        {"evrakOid": "target-b", "pdfText": "text b"},
+        {"evrakOid": "bad-1", "pdfText": "text bad"},
+    ]
+    annotation_zip = tmp_path / "annotations.zip"
+    pool_zip = tmp_path / "pool.zip"
+    write_payload_zip(annotation_zip, "annotations.json", annotations)
+    write_payload_zip(pool_zip, "pool.json", pool)
+
+    ready = prepare_batch(
+        config=config,
+        annotation_zip=annotation_zip,
+        document_pool_zip=pool_zip,
+        batch_id="subset-with-bad-record",
+        hmac_key_file=key_file(tmp_path),
+        doc_ids={"target-a", "target-b"},
+    )
+
+    assert ready["document_count"] == 2
+    with Store(config.database_path) as store:
+        documents = store.list_documents("subset-with-bad-record")
+    assert {row["raw_document_id"] for row in documents} == {"target-a", "target-b"}

@@ -108,7 +108,7 @@ def judge_step(
     config: AppConfig,
     *,
     batch_id: str,
-    generation: str = "G0",
+    generation: str,
     judge_models: tuple[str, ...] | None = None,
     allow_external_judge: bool = False,
     fake_backend: bool = False,
@@ -121,12 +121,13 @@ def judge_step(
     hands.
 
     `generation` names the round whose predictions the judge should look at --
-    without it the judge would silently re-judge G0 no matter which round is
-    actually running.
+    it takes no default because a round's generation is a fact the caller
+    knows and must state; without it the judge would silently re-judge G0 no
+    matter which round is actually running.
     """
 
     def step(state: RoundState) -> str:
-        run_judge_pilot(
+        result = run_judge_pilot(
             config=config,
             batch_id=batch_id,
             allow_external_judge=allow_external_judge,
@@ -134,7 +135,17 @@ def judge_step(
             fake_backend=fake_backend,
             judge_models=judge_models,
         )
-        summary = config.public_root / "batches" / batch_id / "judge_pilot_summary.json"
+        # `run_judge_pilot` takes one of two branches depending on whether a
+        # judge is already locked for this batch: the locked path writes
+        # `judge_production_summary.json` and never touches the pilot
+        # summary, so the file to fingerprint has to be chosen from what the
+        # call actually did, not assumed to always be the pilot summary.
+        filename = (
+            "judge_production_summary.json"
+            if result.get("stage") == "production"
+            else "judge_pilot_summary.json"
+        )
+        summary = config.public_root / "batches" / batch_id / filename
         if not summary.is_file():
             raise ContractError(f"judge pilot wrote no summary at {summary}")
         return sha256_file(summary)

@@ -104,6 +104,146 @@ def test_judge_step_refuses_an_external_call_without_consent(tmp_path: Path) -> 
         )
 
 
+def test_judge_step_requires_the_caller_to_state_a_generation() -> None:
+    """`generation` has no default -- the previous commit removed the same
+    default from `judges.py` precisely because a round's predictions never
+    live under "G0", so a binding-layer default would silently reintroduce
+    the bug it just closed."""
+    import inspect
+
+    signature = inspect.signature(judge_step)
+    assert signature.parameters["generation"].default is inspect.Parameter.empty
+
+
+def test_judge_step_judges_the_rounds_own_predictions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A round's judge must see that round's predictions, not G0's -- predict
+    under both G0 and M003, judge with generation="M003", and confirm the
+    judged candidate references trace back to the M003 prediction.
+
+    The fixture's fake backend echoes the human references regardless of
+    generation, so G0 and M003 predictions would be identical without help;
+    this test gives the M003 prediction distinguishable content directly
+    through the store so the two generations can actually be told apart.
+    """
+    from data_quality_checker import judges as judges_module
+    from data_quality_checker.storage import Store
+
+    config = prepared_fixture(tmp_path, two_docs=False)
+    predict_step(config, batch_id="batch", generation="G0", fake_backend=True)(new_round(1))
+    predict_step(config, batch_id="batch", generation="M003", fake_backend=True)(new_round(1))
+
+    m003_references = [
+        {
+            "kanun_no": "999",
+            "kanun_ad": "M003 Test Kanunu",
+            "madde": "413",
+            "fikra": "",
+            "bent": "",
+            "source_text": "213 sayılı Vergi Usul Kanununun 413. maddesi",
+        }
+    ]
+    with Store(config.database_path) as store:
+        internal_doc_id = store.list_documents("batch")[0]["internal_doc_id"]
+        existing = store.get_prediction("batch", internal_doc_id, "M003")
+        assert existing is not None
+        store.persist_prediction(
+            batch_id="batch",
+            internal_doc_id=internal_doc_id,
+            generation="M003",
+            status="success",
+            references=m003_references,
+            response_path=Path(existing["response_path"]),
+            response_sha256=existing["response_sha256"],
+            input_fingerprint=existing["input_fingerprint"],
+            model_fingerprint=existing["model_fingerprint"],
+            error=None,
+            operational={},
+        )
+
+    # Blind order is otherwise a doc/model hash coin flip unrelated to what
+    # this test checks; force the model candidate to land as "A" so the
+    # fixture's FakeJudgeProvider (which always verdicts for "A") reliably
+    # surfaces it.
+    def forced_model_first(**kwargs: Any) -> tuple[str, list[dict[str, str]], list[dict[str, str]]]:
+        return "A=model,B=human", kwargs["model_references"], kwargs["human_references"]
+
+    monkeypatch.setattr(judges_module, "blind_candidates", forced_model_first)
+
+    judge_step(config, batch_id="batch", generation="M003", fake_backend=True)(new_round(1))
+
+    result_path = (
+        config.sensitive_root
+        / "batches"
+        / "batch"
+        / "judges"
+        / "pilot"
+        / "qwen3_5_397b"
+        / f"{internal_doc_id}.json"
+    )
+    result = json.loads(result_path.read_text(encoding="utf-8"))
+    assert result["blind_mapping"] == "A=model,B=human"
+    final_references = result["result"]["final_references"]
+    assert final_references, "expected the M003 reference to survive policy filtering"
+    assert final_references[0]["kanun_no"] == "999"
+
+
+def test_judge_step_fingerprints_the_summary_the_run_actually_wrote(tmp_path: Path) -> None:
+    """Once a judge is locked for this batch, `run_judge_pilot` takes the
+    locked-coverage branch and writes `judge_production_summary.json`
+    instead of `judge_pilot_summary.json` -- `judge_step` must fingerprint
+    whichever file the run actually produced, not assume the pilot path,
+    or a round's `judged` artifact could certify work this run never did.
+    """
+    from data_quality_checker.judges import lock_judge
+    from data_quality_checker.storage import Store
+
+    config = prepared_fixture(tmp_path, two_docs=False)
+    predict_step(config, batch_id="batch", generation="G0", fake_backend=True)(new_round(1))
+
+    with Store(config.database_path) as store:
+        internal_doc_id = store.list_documents("batch")[0]["internal_doc_id"]
+        store.set_router_bucket("batch", internal_doc_id, "RED")
+
+    # First pass: no judge is locked yet, so this runs (and seals) the pilot.
+    judge_step(config, batch_id="batch", generation="G0", fake_backend=True)(new_round(1))
+
+    with Store(config.database_path) as store:
+        review = store.get_review("batch", internal_doc_id)
+        assert review is not None
+        store.update_review(
+            batch_id="batch",
+            internal_doc_id=internal_doc_id,
+            expected_version=review["row_version"],
+            status="finalized",
+            action="accept_human",
+            final_references=[],
+            reason=None,
+            reviewer="fixture",
+        )
+
+    lock_judge(
+        config=config,
+        batch_id="batch",
+        model="qwen3.5:397b",
+        reason="fixture metrics reviewed",
+    )
+
+    pilot_summary = config.public_root / "batches" / "batch" / "judge_pilot_summary.json"
+    production_summary = config.public_root / "batches" / "batch" / "judge_production_summary.json"
+    pilot_sha_before = sha256_file(pilot_summary)
+
+    artifact = judge_step(config, batch_id="batch", generation="G0", fake_backend=True)(
+        new_round(1)
+    )
+
+    assert production_summary.is_file()
+    assert artifact == sha256_file(production_summary)
+    assert artifact != pilot_sha_before
+    assert artifact != sha256_file(pilot_summary)
+
+
 def test_compose_step_writes_the_round_training_manifest(tmp_path: Path) -> None:
     config = prepared_fixture(tmp_path)
     out = tmp_path / "rounds"

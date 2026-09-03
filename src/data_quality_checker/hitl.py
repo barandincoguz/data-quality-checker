@@ -444,10 +444,11 @@ def _document_for_review(
     batch_id: str,
     internal_doc_id: str,
     imported_attribution: dict[str, Any] | None = None,
+    generation: str = "G0",
 ) -> dict[str, Any]:
     document = store.get_document(batch_id, internal_doc_id)
     review = store.get_review(batch_id, internal_doc_id)
-    prediction = store.get_prediction(batch_id, internal_doc_id, "G0")
+    prediction = store.get_prediction(batch_id, internal_doc_id, generation)
     if document is None or review is None or prediction is None:
         raise KeyError(internal_doc_id)
     human, human_audit = apply_reference_policy(json.loads(document["human_references_json"]))
@@ -617,6 +618,7 @@ def create_hitl_app(
     testing: bool = False,
     session_secret: str | None = None,
     access_token: str | None = None,
+    generation: str = "G0",
 ) -> Flask:
     secret = validate_runtime_secret(
         session_secret or os.environ.get("DQCHECK_SESSION_SECRET"),
@@ -726,6 +728,7 @@ def create_hitl_app(
                     batch_id=batch_id,
                     internal_doc_id=internal_doc_id,
                     imported_attribution=imported_attributions.get(internal_doc_id),
+                    generation=generation,
                 )
             )
 
@@ -741,6 +744,7 @@ def create_hitl_app(
                 batch_id=batch_id,
                 internal_doc_id=internal_doc_id,
                 imported_attribution=imported_attributions.get(internal_doc_id),
+                generation=generation,
             )
             queue = review_queue(config=config, store=store, batch_id=batch_id)
             durability = review_backup_status(
@@ -777,7 +781,7 @@ def create_hitl_app(
                 ) as store,
             ):
                 document = store.get_document(batch_id, internal_doc_id)
-                prediction = store.get_prediction(batch_id, internal_doc_id, "G0")
+                prediction = store.get_prediction(batch_id, internal_doc_id, generation)
                 if document is None or prediction is None:
                     raise KeyError(internal_doc_id)
                 human, _ = apply_reference_policy(json.loads(document["human_references_json"]))

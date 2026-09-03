@@ -130,3 +130,23 @@ Add on top of that method: `verdict`, one of `improved`, `regressed`, `inconclus
 Add `metrics_step(config, *, round_index, ...)` writing `round_metrics.json` under the round's directory, fingerprinted like every other step via `sha256_file`. It runs at the `measured` stage, which is already reachable only from `checkpoint_selected` — so test-split numbers cannot leak into selection. The seal must cover the metrics artifact.
 
 **Test:** mutate one metric value and assert the round's seal changes; a seal that does not cover the metrics certifies nothing.
+
+**The assembler is the whole job.** Tasks 2-4 deliberately left `loop_metrics.py` pure and database-free, so every function takes plain records. This step is what reads the store and builds them, and each earlier task flagged exactly one thing it could not resolve on its own:
+
+- `rater_agreement` takes one record per document shaped
+  `{"expert": ..., "annotator": ..., "model": ..., "judge": ...}`, each a raw
+  reference list or `None`. Build that shape from the four sources in the
+  Task 2 table.
+- `expert_workload` needs two per-record booleans this module cannot derive:
+  `escalated` (does `public_root/batches/<id>/green_escalation.json` exist —
+  one filesystem check per batch, not per document) and
+  `in_green_audit_sample` (is the document in `ensure_green_audit_plan`'s
+  `sample_internal_doc_ids`). Resolve both once per batch and stamp them onto
+  every record.
+- `canonical_evaluate`'s `expected_doc_count` defaults to 50, which is wrong
+  here. The loop's frozen test split is **150**. Pass it explicitly.
+- A `defer` row is not expert truth: exclude it from every accuracy input
+  while keeping it in the workload input.
+- `paired_delta` needs the previous round's per-document scores. Round 1 has
+  no predecessor: emit the round's own metrics with `paired_delta: null` and
+  a stated reason, never a fabricated baseline.

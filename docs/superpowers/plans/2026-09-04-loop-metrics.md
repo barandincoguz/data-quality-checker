@@ -109,7 +109,17 @@ The paper's claim has two halves and this is the neglected one. Derive from `rev
 
 Wrap the repo's own `canonical_evaluate`; do not reimplement scoring. Emit core and full P/R/F1, the docwise distribution the evaluator already computes (`perfect_f1_count`, `zero_f1_count`, min/mean/median/p25/p75), `parse_failure_count`, `truncation_count`, and operational latency p50/p95, tokens and peak memory.
 
-Add `paired_delta(previous, current)`: paired bootstrap over the shared documents returning ΔF1 with a 95% interval, following the method already used for external checkpoint selection. **A round that reports an improvement without an interval is not evidence**; emit `inconclusive` when the interval spans zero.
+Add `paired_delta(previous, current)`: a paired bootstrap over the shared documents returning ΔF1 with a 95% interval. **A round that reports an improvement without an interval is not evidence**; emit `inconclusive` when the interval spans zero.
+
+**Replicate the project's existing method exactly** — it is `paired_core_bootstrap` in `ner-project/scripts/dqcheck_g0_external_selection.py:910`, which produced the only external selection number the project has published. That script lives in another repository, so reimplement rather than import, but keep every parameter identical:
+
+- `samples = 10_000`, `seed = 42` (`random.Random(seed)`), both echoed in the output
+- resample document ids **with replacement** from the shared id universe, `[rng.choice(doc_ids) for _ in doc_ids]`
+- for each resample, sum `tp`/`fp`/`fn` across the sampled ids and compute F1 from the sums — never average per-document F1
+- raise if the two document universes differ; a paired test over mismatched universes is not paired
+- emit `lower_2_5`, `upper_97_5`, `bootstrap_mean`, `probability_delta_gt_zero`, and per-document `challenger_win` / `tie` / `incumbent_win`
+
+Add on top of that method: `verdict`, one of `improved`, `regressed`, `inconclusive` — `inconclusive` whenever the interval spans zero, regardless of the sign of the mean.
 
 ---
 

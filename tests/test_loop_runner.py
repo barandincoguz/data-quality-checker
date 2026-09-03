@@ -135,3 +135,33 @@ def test_a_step_returning_an_empty_artifact_is_a_failure(tmp_path: Path) -> None
         "advance_round's own rejection must keep its meaning, not be relabelled as a step failure"
     )
     assert resume_round(tmp_path, 1).stage == "pending"
+
+
+def test_status_reports_a_round_that_has_not_started(tmp_path: Path) -> None:
+    from data_quality_checker.loop_runner import round_status
+
+    assert round_status(tmp_path, 3) == {
+        "round": 3,
+        "stage": "pending",
+        "artifacts": {},
+        "next_stage": "predicted",
+        "next_is_manual": False,
+    }
+
+
+def test_status_reports_where_a_round_stopped(tmp_path: Path) -> None:
+    from data_quality_checker.loop_runner import round_status
+
+    run_round(tmp_path, 3, steps=_steps("predicted", "routed"))
+    status = round_status(tmp_path, 3)
+    assert status["stage"] == "routed"
+    assert status["artifacts"]["predicted"] == "sha-predicted"
+
+
+def test_status_names_the_next_stage_and_whether_it_is_manual(tmp_path: Path) -> None:
+    from data_quality_checker.loop_runner import round_status
+
+    run_round(tmp_path, 3, steps=_steps("predicted", "routed", "judged"))
+    status = round_status(tmp_path, 3)
+    assert status["next_stage"] == "adjudicated"
+    assert status["next_is_manual"] is True

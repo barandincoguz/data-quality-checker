@@ -85,3 +85,24 @@ def run_round(
         state = advance_round(state, to=nxt, artifact_sha256=artifact)
         write_round_state(state_dir, state)
     return state
+
+
+def round_status(state_dir: Path, round_index: int) -> dict[str, object]:
+    """Where a round is, and what it is waiting for.
+
+    `next_is_manual` is the field an operator actually needs: it distinguishes
+    "this round is blocked on me" from "this round is between automated
+    stages".
+    """
+    state = resume_round(state_dir, round_index)
+    if state.stage == ROUND_STAGES[-1]:
+        next_stage: str | None = None
+    else:
+        next_stage = ROUND_STAGES[ROUND_STAGES.index(state.stage) + 1]
+    return {
+        "round": state.round_index,
+        "stage": state.stage,
+        "artifacts": dict(state.artifacts),
+        "next_stage": next_stage,
+        "next_is_manual": next_stage in MANUAL_STAGES if next_stage else False,
+    }

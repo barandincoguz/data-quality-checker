@@ -87,6 +87,7 @@ def round_training_documents(config: Any, *, batch_ids: Sequence[str]) -> dict[s
     for batch_id in batch_ids:
         directory = Path(config.sensitive_root) / "releases" / batch_id
         found = False
+        batch_document_count = 0
         for name in ("expert_adjudicated", "consensus_clean"):
             path = directory / f"{name}.jsonl"
             if not path.is_file():
@@ -112,9 +113,16 @@ def round_training_documents(config: Any, *, batch_ids: Sequence[str]) -> dict[s
                     raise ContractError(f"{path}:{line_number} ({doc_id}) has no references list")
                 if doc_id in documents:
                     raise ContractError(
-                        f"document {doc_id!r} appears in more than one round's release"
+                        f"document {doc_id!r} is duplicated while assembling "
+                        f"batch {batch_id!r}'s release"
                     )
                 documents[doc_id] = {"text": text, "references": references}
+                batch_document_count += 1
         if not found:
             raise ContractError(f"no release found for batch {batch_id!r} under {directory}")
+        if batch_document_count == 0:
+            raise ContractError(
+                f"batch {batch_id!r} release contains zero training documents "
+                "-- every document was quarantined or excluded"
+            )
     return documents

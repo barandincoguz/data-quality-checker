@@ -155,3 +155,50 @@ def test_a_row_missing_text_or_references_is_rejected(tmp_path: Path) -> None:
     _release(tmp_path, "round1", expert=[{"internal_doc_id": "d1", "references": []}], consensus=[])
     with pytest.raises(ContractError):
         round_training_documents(_Cfg(tmp_path), batch_ids=["round1"])
+
+
+def test_quarantined_documents_are_never_read(tmp_path: Path) -> None:
+    """The reader names its two trustworthy files. A quarantined document sitting
+    in the same release directory must never surface in the returned mapping --
+    even a later refactor toward something like ``glob("*.jsonl")`` must not be
+    able to sneak it in silently.
+    """
+    _release(
+        tmp_path,
+        "round1",
+        expert=[{"internal_doc_id": "d1", "text": "bir", "references": []}],
+        consensus=[{"internal_doc_id": "d2", "text": "iki", "references": []}],
+    )
+    quarantine_path = tmp_path / "releases" / "round1" / "quarantine.jsonl"
+    quarantine_path.write_text(
+        json.dumps({"internal_doc_id": "dQ", "text": "uc", "references": []}) + "\n",
+        encoding="utf-8",
+    )
+    documents = round_training_documents(_Cfg(tmp_path), batch_ids=["round1"])
+    assert set(documents) == {"d1", "d2"}
+    assert "dQ" not in documents
+
+
+def test_a_malformed_line_is_rejected_naming_file_and_line_number(tmp_path: Path) -> None:
+    directory = tmp_path / "releases" / "round1"
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "expert_adjudicated.jsonl").write_text(
+        json.dumps({"internal_doc_id": "d1", "text": "bir", "references": []})
+        + "\n"
+        + "{not json"
+        + "\n",
+        encoding="utf-8",
+    )
+    (directory / "consensus_clean.jsonl").write_text("", encoding="utf-8")
+    with pytest.raises(ContractError) as excinfo:
+        round_training_documents(_Cfg(tmp_path), batch_ids=["round1"])
+    message = str(excinfo.value)
+    assert "expert_adjudicated.jsonl" in message
+    assert ":2" in message
+
+
+def test_an_empty_release_is_rejected_naming_the_batch(tmp_path: Path) -> None:
+    _release(tmp_path, "round1", expert=[], consensus=[])
+    with pytest.raises(ContractError) as excinfo:
+        round_training_documents(_Cfg(tmp_path), batch_ids=["round1"])
+    assert "round1" in str(excinfo.value)

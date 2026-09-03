@@ -178,6 +178,9 @@ def test_sealing_a_round_leaves_the_g0_registry_alone(tmp_path) -> None:
     from data_quality_checker.g0_finalize import seal_g0, seal_round_model
 
     config, snapshot, adapter = _sealing_fixture(tmp_path)
+    # Deliberately distinct from the round's max_sequence_length below: if
+    # seal_round_model ever wrote to G0.json instead of its own registry, the
+    # payload bytes would visibly change and this test would catch it.
     g0_path = seal_g0(
         config=config,
         model_snapshot_path=snapshot,
@@ -190,7 +193,7 @@ def test_sealing_a_round_leaves_the_g0_registry_alone(tmp_path) -> None:
         round_label="M003",
         model_snapshot_path=snapshot,
         adapter_path=adapter,
-        max_sequence_length=12288,
+        max_sequence_length=10240,
     )
     assert g0_path.read_bytes() == before
 
@@ -200,7 +203,7 @@ def test_an_invalid_round_label_is_rejected(tmp_path) -> None:
     from data_quality_checker.g0_finalize import seal_round_model
 
     config, snapshot, adapter = _sealing_fixture(tmp_path)
-    for label in ("M3", "m003", "G0", "M0003", "round-3", ""):
+    for label in ("M3", "m003", "G0", "M0003", "round-3", "", "M003\n"):
         with pytest.raises(ContractError):
             seal_round_model(
                 config=config,

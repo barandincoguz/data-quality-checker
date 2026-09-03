@@ -19,7 +19,7 @@ from .errors import ContractError, GateBlocked
 from .fingerprints import sha256_file
 from .g0 import CheckpointCandidate, final_refit_updates, select_checkpoint
 
-ROUND_LABEL_PATTERN = re.compile(r"^M\d{3}$")
+ROUND_LABEL_PATTERN = re.compile(r"^M\d{3}\Z")
 
 
 def finalize_selection(candidate_root: Path) -> dict[str, Any]:
@@ -149,6 +149,9 @@ def round_registry_path(config: Any, label: str) -> Path:
 def seal_round_model(
     *,
     config: Any,
+    # `round_label` shadows the module-level `round_label()` function within
+    # this scope; an internal call to `round_label(...)` here would bind to
+    # this string and raise `TypeError: 'str' object is not callable`.
     round_label: str,
     model_snapshot_path: Path,
     adapter_path: Path,

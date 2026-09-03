@@ -9,7 +9,7 @@ from types import SimpleNamespace
 import pytest
 
 from data_quality_checker.config import default_config_path, load_config
-from data_quality_checker.errors import GateBlocked
+from data_quality_checker.errors import ContractError, GateBlocked
 from data_quality_checker.fingerprints import fingerprint_json
 from data_quality_checker.preparation import prepare_batch
 from data_quality_checker.processing import (
@@ -271,6 +271,44 @@ def test_reroute_refuses_to_change_queue_after_review_started(tmp_path) -> None:
         )
     with pytest.raises(GateBlocked, match="all reviews to remain pending"):
         reroute_batch(config=config, batch_id="legacy", apply=True)
+
+
+def test_a_round_generation_is_accepted(tmp_path) -> None:
+    config = prepared_fixture(tmp_path)
+    result = process_batch(
+        config=config, batch_id="batch", generation="M003", resume=False, fake_backend=True
+    )
+    assert result["generation"] == "M003"
+
+
+def test_g0_still_works_unchanged(tmp_path) -> None:
+    config = prepared_fixture(tmp_path)
+    result = process_batch(
+        config=config, batch_id="batch", generation="G0", resume=False, fake_backend=True
+    )
+    assert result["generation"] == "G0"
+
+
+def test_an_unknown_generation_is_rejected(tmp_path) -> None:
+    config = prepared_fixture(tmp_path)
+    for generation in ("G1", "m003", "M3", "round3", ""):
+        with pytest.raises(ContractError):
+            process_batch(
+                config=config,
+                batch_id="batch",
+                generation=generation,
+                resume=False,
+                fake_backend=True,
+            )
+
+
+def test_round_predictions_land_under_their_own_generation(tmp_path) -> None:
+    config = prepared_fixture(tmp_path)
+    process_batch(
+        config=config, batch_id="batch", generation="M003", resume=False, fake_backend=True
+    )
+    predictions = config.sensitive_root / "batches" / "batch" / "predictions" / "M003"
+    assert predictions.is_dir()
 
 
 def test_mlx_backend_accepts_an_explicit_isolated_registry_path(monkeypatch, tmp_path) -> None:

@@ -15,6 +15,7 @@ from .contracts import validate_reference_list
 from .errors import ContractError, FingerprintMismatch, GateBlocked, IntegrityError
 from .fingerprints import fingerprint_json, sha256_file, sha256_text
 from .g0 import SYSTEM_PROMPT
+from .g0_finalize import ROUND_LABEL_PATTERN
 from .heartbeat import RunLease
 from .performance import optional_float, optional_int
 from .preparation import validate_ready
@@ -321,14 +322,21 @@ def process_batch(
     resume: bool,
     fake_backend: bool = False,
     backend: PredictionBackend | None = None,
+    registry_path: Path | None = None,
 ) -> dict[str, Any]:
-    if generation != "G0":
-        raise ContractError("only G0 processing is supported")
+    if generation != "G0" and not ROUND_LABEL_PATTERN.match(generation):
+        raise ContractError(
+            f"generation must be 'G0' or a round label like 'M003', got {generation!r}"
+        )
     ready = validate_ready(config, batch_id)
     selected_backend: PredictionBackend = (
         backend
         if backend is not None
-        else (EchoHumanBackend() if fake_backend else MlxG0Backend(config))
+        else (
+            EchoHumanBackend()
+            if fake_backend
+            else MlxG0Backend(config, registry_path=registry_path)
+        )
     )
     model_fingerprint = selected_backend.model_fingerprint
     sensitive_dir = config.sensitive_root / "batches" / batch_id

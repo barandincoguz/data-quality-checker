@@ -647,6 +647,8 @@ git commit -m "feat(loop): bind selection, measurement and sealing to round stag
 
 - **`adjudicated` has no binding, deliberately.** It is where a human expert settles what the router and the judge could not, and `run_round` stops before it. Automating it would remove the only step that makes the cleaned data trustworthy.
 - **`trained` has no binding yet.** `train_bootstrap` raises `only canonical-only G0 is supported in v1` (`g0.py:449`), so it cannot train `M001`..`M012` at all, and training needs the shared GPU. Lifting that restriction is real work — the training export has to accept a round's composed set instead of the canonical 494 — and it deserves its own plan rather than being smuggled into a binding.
+
+  **Update:** a later plan (`2026-09-03-dq-loop-round-training`, Task 3) lifted this. `train_round` in `loop_train.py` composes a round's training set (canonical plus every cleaned round) without touching `train_bootstrap` or `g0.py`, and `train_step` in `loop_bindings.py` now binds it. `train_bootstrap` still refuses anything but canonical-only G0, unchanged — the round path is a separate function, not a widened `train_bootstrap`. `execute=True` still hands off to the existing compute path rather than running a real training job.
 - **No `loop-run` CLI command.** Running a round end to end needs `trained`, and a command that stopped halfway without saying so would mislead.
 - Any GPU run.
 

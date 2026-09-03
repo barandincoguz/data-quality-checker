@@ -129,6 +129,9 @@ def test_a_failure_on_the_very_first_stage_leaves_nothing_claimed(tmp_path: Path
 
 
 def test_a_step_returning_an_empty_artifact_is_a_failure(tmp_path: Path) -> None:
-    with pytest.raises(ContractError):
+    with pytest.raises(ContractError) as caught:
         run_round(tmp_path, 1, steps={"predicted": lambda state: ""})
+    assert not isinstance(caught.value, RoundStepFailed), (
+        "advance_round's own rejection must keep its meaning, not be relabelled as a step failure"
+    )
     assert resume_round(tmp_path, 1).stage == "pending"

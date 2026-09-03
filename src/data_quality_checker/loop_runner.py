@@ -78,6 +78,9 @@ def run_round(
         except ContractError:
             raise
         except Exception as exc:  # noqa: BLE001 - any step failure is a round failure
+            # Failing on the round's very first stage means write_round_state below
+            # never runs, so no state file exists yet; resume_round then reads that
+            # back as an ordinary never-started round, not as a recorded failure.
             raise RoundStepFailed(round_index, nxt, exc) from exc
         state = advance_round(state, to=nxt, artifact_sha256=artifact)
         write_round_state(state_dir, state)

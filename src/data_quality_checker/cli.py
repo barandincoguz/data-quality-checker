@@ -157,6 +157,15 @@ def build_parser() -> argparse.ArgumentParser:
 
     serve = subparsers.add_parser("serve", help="serve the local-only HITL UI")
     serve.add_argument("--batch-id", required=True)
+    serve.add_argument(
+        "--generation",
+        default="G0",
+        help=(
+            "model generation whose predictions the expert adjudicates; "
+            "defaults to G0. A round must pass its own label (M001, M002, ...) "
+            "or the expert reviews the wrong model's output."
+        ),
+    )
     serve.add_argument("--port", type=int, default=5055)
     serve.set_defaults(handler=commands.serve)
 

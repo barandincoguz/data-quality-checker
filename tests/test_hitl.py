@@ -9,7 +9,7 @@ import pytest
 
 from data_quality_checker.cli import main
 from data_quality_checker.config import default_config_path, load_config
-from data_quality_checker.errors import IntegrityError
+from data_quality_checker.errors import GateBlocked, IntegrityError
 from data_quality_checker.fingerprints import sha256_file
 from data_quality_checker.hitl import create_hitl_app
 from data_quality_checker.preparation import prepare_batch
@@ -187,17 +187,33 @@ def test_document_under_a_rounds_generation_is_reviewable_when_generation_is_pas
     assert document["candidate_a"] and document["candidate_b"]
 
 
-def test_reviewing_without_stating_the_generation_cannot_find_the_document(tmp_path) -> None:
-    """Reproduces the failure the fix closes: a batch whose predictions live
-    only under "M003" has no "G0" row, so an app that was not told to look
-    under "M003" cannot find the document to review at all -- confirming
-    `_document_for_review` (and `submit_review`) still default to "G0", so
-    every existing caller that never mentions `generation` keeps working
-    unedited.
+def test_serving_a_generation_the_batch_lacks_is_refused_at_startup(tmp_path) -> None:
+    """A batch predicted only under "M003" cannot be reviewed as "G0".
+
+    The refusal used to arrive one document at a time, as a KeyError from
+    `_document_for_review`, after the expert had already opened the queue.
+    It now arrives before the server starts and names the generations the
+    batch actually has, because an expert who adjudicates against another
+    model's output corrupts the round's training data silently.
     """
     config, _ = fixture(tmp_path, generation="M003")
-    with Store(config.database_path) as store:
-        internal_doc_id = store.list_documents("batch")[0]["internal_doc_id"]
+
+    with pytest.raises(GateBlocked) as exc_info:
+        create_hitl_app(
+            config=config,
+            batch_id="batch",
+            testing=True,
+            session_secret=SECRET,
+            access_token=TOKEN,
+        )
+    message = str(exc_info.value)
+    assert "'G0'" in message
+    assert "M003" in message, "the error must name the generation the expert should have asked for"
+
+
+def test_serving_the_generation_the_batch_has_starts_normally(tmp_path) -> None:
+    """The guard must not block the case it exists to protect."""
+    config, _ = fixture(tmp_path, generation="M003")
 
     app = create_hitl_app(
         config=config,
@@ -205,11 +221,13 @@ def test_reviewing_without_stating_the_generation_cannot_find_the_document(tmp_p
         testing=True,
         session_secret=SECRET,
         access_token=TOKEN,
+        generation="M003",
     )
     client = app.test_client()
     authenticated(client)
-    with pytest.raises(KeyError):
-        client.get(f"/api/documents/{internal_doc_id}")
+    with Store(config.database_path) as store:
+        internal_doc_id = store.list_documents("batch")[0]["internal_doc_id"]
+    assert client.get(f"/api/documents/{internal_doc_id}").status_code == 200
 
 
 def test_successful_review_is_present_in_a_verified_sqlite_backup(tmp_path) -> None:

@@ -638,6 +638,18 @@ def create_hitl_app(
         batch = store.get_batch(batch_id)
         if batch is None or batch["status"] != "processed":
             raise GateBlocked("HITL requires a processed batch")
+        # Fail at startup, not per document. Serving a generation this batch was
+        # never predicted under still fails -- get_prediction returns None and
+        # the review routes raise KeyError -- but it fails one document at a
+        # time, after the expert has already opened the queue. A round that
+        # serves the wrong generation shows the expert another model's output,
+        # so the cheapest place to catch it is before the server starts.
+        if not store.list_predictions(batch_id, generation):
+            available = store.list_prediction_generations(batch_id)
+            raise GateBlocked(
+                f"batch {batch_id} has no predictions for generation {generation!r}; "
+                f"available generations: {available or 'none'}"
+            )
         ensure_green_audit_plan(config=config, store=store, batch_id=batch_id)
         create_review_backup(config=config, store=store, batch_id=batch_id)
 

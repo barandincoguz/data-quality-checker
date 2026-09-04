@@ -438,6 +438,15 @@ class Store:
         ).fetchall()
         return [dict(row) for row in rows]
 
+    def list_prediction_generations(self, batch_id: str) -> list[str]:
+        """Every generation this batch has predictions under, sorted."""
+
+        rows = self.connection.execute(
+            "SELECT DISTINCT generation FROM predictions WHERE batch_id=? ORDER BY generation",
+            (batch_id,),
+        ).fetchall()
+        return [str(row[0]) for row in rows]
+
     def set_router_bucket(self, batch_id: str, internal_doc_id: str, bucket: str) -> None:
         with self.transaction():
             cursor = self.connection.execute(

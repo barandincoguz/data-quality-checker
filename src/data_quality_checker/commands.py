@@ -170,7 +170,7 @@ def judge_lock(args: Namespace, config: AppConfig) -> int:
 def serve(args: Namespace, config: AppConfig) -> int:
     from .hitl import create_hitl_app
 
-    app = create_hitl_app(config=config, batch_id=args.batch_id)
+    app = create_hitl_app(config=config, batch_id=args.batch_id, generation=args.generation)
     app.run(host="127.0.0.1", port=args.port, debug=False, use_reloader=False)
     return 0
 

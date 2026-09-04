@@ -12,17 +12,26 @@ a stage that produced nothing readable cannot advance a round.
 
 from __future__ import annotations
 
+import json
 from collections import Counter
 from pathlib import Path
 from typing import Any
 
 from .atomic import write_json_atomic
 from .config import AppConfig
+from .constants import JUDGE_MODEL_KEY
 from .errors import ContractError
 from .fingerprints import sha256_file
 from .g0 import CheckpointCandidate, select_checkpoint
 from .g0_training import canonical_evaluate
-from .judges import run_judge_pilot
+from .judges import ensure_green_audit_plan, run_judge_pilot
+from .loop_metrics import (
+    documents_with_finalized_truth,
+    expert_workload,
+    model_round_metrics,
+    paired_delta,
+    rater_agreement,
+)
 from .loop_rounds import RoundState
 from .loop_runner import RoundStep
 from .loop_selection import write_selection_record
@@ -294,6 +303,184 @@ def measure_step(
         if not report.is_file():
             raise ContractError(f"evaluator wrote no report at {report}")
         return sha256_file(report)
+
+    return step
+
+
+def metrics_step(
+    config: AppConfig,
+    *,
+    batch_id: str,
+    generation: str,
+    predictions_path: Path,
+    test_doc_ids_path: Path,
+    expected_doc_count: int,
+    output_dir: Path,
+    judge_model: str = JUDGE_MODEL_KEY,
+) -> RoundStep:
+    """Assemble this round's audited metrics and fingerprint the result.
+
+    `loop_metrics.py` is deliberately pure and database-free (Tasks 2-4): every
+    function there takes plain records and computes over them, none of them
+    knows the store exists. This is the one place that reads the store (and
+    the two filesystem facts the store cannot answer) and shapes what those
+    functions expect -- so database access lives in exactly one place rather
+    than being duplicated into a metrics module that is supposed to stay
+    testable without one.
+
+    Runs at the `measured` stage, reachable only from `checkpoint_selected` --
+    the checkpoint is already sealed on validation alone by the time any test
+    number exists, so nothing this step computes can feed back into
+    selection. Writing `round_metrics.json` here, and only here, is also what
+    lets `seal_step` cover it: the seal already serialises `state.artifacts`
+    wholesale, so once this step's sha lands at `artifacts["measured"]`, any
+    later change to this artifact necessarily changes the seal too.
+
+    `expected_doc_count` takes no default, exactly as `measure_step` already
+    requires for the same reason: `canonical_evaluate` defaults it to 50 (the
+    G0 development-validation size), which is the wrong count for the loop's
+    frozen test split (150 documents), and a caller-stated fact must not be
+    silently guessed here either.
+
+    `judge_model` defaults to the project's one pinned judge model constant
+    (`constants.JUDGE_MODEL_KEY`) -- the same default `judge_step` already
+    applies via `judges.JUDGE_MODELS` -- rather than a per-round fact a caller
+    could get wrong; a round that pilots a different judge still states one
+    explicitly and it is used as given.
+    """
+
+    def step(state: RoundState) -> str:
+        with Store(config.database_path, busy_timeout_ms=config.runtime.busy_timeout_ms) as store:
+            documents = store.list_documents(batch_id)
+            if not documents:
+                raise ContractError(f"batch {batch_id!r} holds no documents to measure")
+
+            # Both booleans are batch-wide facts `loop_metrics.expert_workload`
+            # cannot derive on its own -- resolved once per batch, here, and
+            # stamped onto every one of the batch's records below, rather than
+            # re-checked (or re-sampled) once per document.
+            escalated = (
+                config.public_root / "batches" / batch_id / "green_escalation.json"
+            ).is_file()
+            audit = ensure_green_audit_plan(config=config, store=store, batch_id=batch_id)
+            audit_sample = {str(doc_id) for doc_id in audit["sample_internal_doc_ids"]}
+
+            records: list[dict[str, Any]] = []
+            for document in documents:
+                internal_doc_id = document["internal_doc_id"]
+                review = store.get_review(batch_id, internal_doc_id)
+                if review is None:
+                    raise ContractError(f"document {internal_doc_id!r} carries no review row")
+
+                prediction = store.get_prediction(batch_id, internal_doc_id, generation)
+                # A prediction whose status is not "success" produced no
+                # usable output for this document -- that is a rater with
+                # nothing to say, not a rater that reported an empty list.
+                model = (
+                    json.loads(prediction["references_json"])
+                    if prediction is not None and prediction["status"] == "success"
+                    else None
+                )
+
+                judge_row = store.get_judge_result(batch_id, internal_doc_id, judge_model)
+                judge = (
+                    json.loads(judge_row["result_json"]).get("final_references", [])
+                    if judge_row is not None and judge_row["status"] == "valid"
+                    else None
+                )
+
+                final = (
+                    json.loads(review["final_references_json"])
+                    if review["final_references_json"] is not None
+                    else None
+                )
+
+                records.append(
+                    {
+                        "internal_doc_id": internal_doc_id,
+                        "router_bucket": document["router_bucket"],
+                        "escalated": escalated,
+                        "in_green_audit_sample": internal_doc_id in audit_sample,
+                        "status": review["status"],
+                        "action": review["action"],
+                        "created_at_epoch": review["created_at_epoch"],
+                        "updated_at_epoch": review["updated_at_epoch"],
+                        "annotator": json.loads(document["human_references_json"]),
+                        "model": model,
+                        "judge": judge,
+                        "final": final,
+                    }
+                )
+
+        workload = expert_workload(records)
+        # A `defer` row (or a still-`pending` one) is real work but never
+        # expert truth: `documents_with_finalized_truth` is the filter that
+        # keeps such a row counted above, in workload, while excluding it here,
+        # from every accuracy input.
+        agreement = rater_agreement(
+            [
+                {
+                    "expert": record["final"],
+                    "annotator": record["annotator"],
+                    "model": record["model"],
+                    "judge": record["judge"],
+                }
+                for record in documents_with_finalized_truth(records)
+            ]
+        )
+
+        # A round-specific subdirectory, not `output_dir` itself: canonical_evaluate
+        # always names its report "evaluation.json", so reusing `output_dir`
+        # across rounds would let round N+1 silently overwrite round N's report.
+        # The report's content is fully captured inside `round_metrics.json`
+        # below regardless, but the raw evaluator output is still worth
+        # keeping unclobbered for audit.
+        evaluation_dir = output_dir / f"round_{state.round_index:03d}_evaluation"
+        model_metrics = model_round_metrics(
+            config=config,
+            predictions_path=predictions_path,
+            doc_ids_path=test_doc_ids_path,
+            output_dir=evaluation_dir,
+            expected_doc_count=expected_doc_count,
+        )
+
+        paired: dict[str, Any] | None = None
+        if state.round_index <= 1:
+            paired_delta_reason = "round 1 has no predecessor round"
+        else:
+            previous_path = output_dir / f"round_{state.round_index - 1:03d}_metrics.json"
+            if not previous_path.is_file():
+                paired_delta_reason = (
+                    f"no metrics artifact found for the previous round at {previous_path}"
+                )
+            else:
+                previous_payload = json.loads(previous_path.read_text(encoding="utf-8"))
+                # JSON object keys are always strings; `paired_delta` requires
+                # the same document-id universe on both sides, and this
+                # round's own `core_per_document` (produced above, never
+                # round-tripped through JSON) still keys by int.
+                previous_core = {
+                    int(doc_id): counts
+                    for doc_id, counts in previous_payload["model"]["core_per_document"].items()
+                }
+                paired = paired_delta(previous_core, model_metrics["core_per_document"])
+                paired_delta_reason = None
+
+        payload: dict[str, Any] = {
+            "schema_version": 1,
+            "round": state.round_index,
+            "batch_id": batch_id,
+            "generation": generation,
+            "rater_agreement": agreement,
+            "expert_workload": workload,
+            "model": model_metrics,
+            "paired_delta": paired,
+            "paired_delta_reason": paired_delta_reason,
+        }
+        output_dir.mkdir(parents=True, exist_ok=True)
+        path = output_dir / f"round_{state.round_index:03d}_metrics.json"
+        write_json_atomic(path, payload)
+        return sha256_file(path)
 
     return step
 

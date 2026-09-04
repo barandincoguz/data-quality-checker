@@ -8,6 +8,7 @@ import pytest
 from test_loop_train import canonical_fixture, release_fixture
 from test_processing import prepared_fixture
 
+from data_quality_checker.constants import JUDGE_MODEL_KEY
 from data_quality_checker.errors import ContractError, IntegrityError
 from data_quality_checker.fingerprints import sha256_file
 from data_quality_checker.g0 import CheckpointCandidate
@@ -15,13 +16,15 @@ from data_quality_checker.loop_bindings import (
     compose_step,
     judge_step,
     measure_step,
+    metrics_step,
     predict_step,
     route_step,
     seal_step,
     select_step,
 )
-from data_quality_checker.loop_rounds import new_round
+from data_quality_checker.loop_rounds import advance_round, new_round
 from data_quality_checker.loop_train import train_round
+from data_quality_checker.storage import Store
 
 
 def canonical_and_release_fixture(tmp_path: Path) -> Any:
@@ -614,3 +617,339 @@ def test_train_step_requires_the_caller_to_state_every_fact() -> None:
     signature = inspect.signature(train_step)
     for name in ("generation", "split", "cleaned_batch_ids"):
         assert signature.parameters[name].default is inspect.Parameter.empty
+
+
+# ---------------------------------------------------------------------------
+# metrics_step (Task 5): assemble the round's audited metrics artifact
+# ---------------------------------------------------------------------------
+
+_VUK_REFERENCE = {
+    "kanun_no": "213",
+    "kanun_ad": "Vergi Usul Kanunu",
+    "madde": "413",
+    "fikra": "",
+    "bent": "",
+    "source_text": "213 sayılı Vergi Usul Kanununun 413. maddesi",
+}
+
+
+def _metrics_batch_fixture(config: Any) -> tuple[str, str]:
+    """Wire one finalized document and one deferred document directly through
+    the store, bypassing predict/route/judge -- `metrics_step` only reads what
+    those stages would have written, so this exercises that contract
+    directly instead of re-running the whole pipeline.
+
+    Returns ``(finalized_internal_doc_id, deferred_internal_doc_id)``.
+    """
+    with Store(config.database_path, busy_timeout_ms=config.runtime.busy_timeout_ms) as store:
+        documents = store.list_documents("batch")
+        finalized_doc, deferred_doc = documents[0], documents[1]
+        finalized_id = finalized_doc["internal_doc_id"]
+        deferred_id = deferred_doc["internal_doc_id"]
+
+        # `finalized_id`'s bucket (RED) makes it required review on its own;
+        # `deferred_id` is the batch's only GREEN document, so
+        # `ensure_green_audit_plan` samples it deterministically (a
+        # 1-document GREEN pool always yields a 1-document sample) --
+        # exercising `in_green_audit_sample` without faking the sampler.
+        store.set_router_bucket("batch", finalized_id, "RED")
+        store.set_router_bucket("batch", deferred_id, "GREEN")
+
+        for internal_doc_id, references in (
+            (finalized_id, [_VUK_REFERENCE]),
+            (deferred_id, []),
+        ):
+            store.persist_prediction(
+                batch_id="batch",
+                internal_doc_id=internal_doc_id,
+                generation="M001",
+                status="success",
+                references=references,
+                response_path=Path("/dev/null"),
+                response_sha256="0" * 64,
+                input_fingerprint="fp",
+                model_fingerprint="fp",
+                error=None,
+                operational={"latency_seconds": 1.0, "input_tokens": 10, "output_tokens": 5},
+            )
+
+        store.persist_judge_result(
+            batch_id="batch",
+            internal_doc_id=finalized_id,
+            model=JUDGE_MODEL_KEY,
+            blind_mapping="A=model,B=human",
+            status="valid",
+            verdict="A",
+            result={"final_references": [_VUK_REFERENCE]},
+            response_path=None,
+            response_sha256=None,
+            retry_count=0,
+            error=None,
+        )
+        # No judge result at all for `deferred_id` -- the judge is a rater
+        # with nothing to say for it, not one that reported an empty list.
+
+        finalized_review = store.get_review("batch", finalized_id)
+        assert finalized_review is not None
+        store.update_review(
+            batch_id="batch",
+            internal_doc_id=finalized_id,
+            expected_version=finalized_review["row_version"],
+            status="finalized",
+            action="accept_model",
+            final_references=[_VUK_REFERENCE],
+            reason=None,
+            reviewer="fixture",
+        )
+
+        deferred_review = store.get_review("batch", deferred_id)
+        assert deferred_review is not None
+        store.update_review(
+            batch_id="batch",
+            internal_doc_id=deferred_id,
+            expected_version=deferred_review["row_version"],
+            status="deferred",
+            action="defer",
+            final_references=None,
+            reason="fixture defer",
+            reviewer="fixture",
+        )
+
+    escalation_path = config.public_root / "batches" / "batch" / "green_escalation.json"
+    escalation_path.parent.mkdir(parents=True, exist_ok=True)
+    escalation_path.write_text("{}", encoding="utf-8")
+
+    return finalized_id, deferred_id
+
+
+# Real, approved-only ground truth from the reference split (mirrors
+# `test_loop_metrics.py`'s own `_frozen_test_fixture`, trimmed to two
+# documents so the real `canonical_evaluate` subprocess this exercises stays
+# fast): doc 5 the model always gets right, doc 20 it either misses
+# (`miss_status="error"`) or also gets right (`"success"`) -- giving
+# `paired_delta` a genuine, non-fabricated improvement to detect across two
+# rounds sharing the same document universe.
+_PERFECT_DOC_ID = 5
+_MISS_DOC_ID = 20
+
+
+def _frozen_split_fixture(
+    config: Any, tmp_path: Path, *, miss_status: str = "error"
+) -> tuple[Path, Path]:
+    predictions = []
+    for doc_id, status in ((_PERFECT_DOC_ID, "success"), (_MISS_DOC_ID, miss_status)):
+        gold = json.loads(
+            (config.canonical_gt_dir / f"doc_{doc_id}.json").read_text(encoding="utf-8")
+        )
+        approved = [
+            reference
+            for reference in gold["references"]
+            if str(reference.get("status", "approved")).lower() == "approved"
+        ]
+        predictions.append(
+            {
+                "doc_id": doc_id,
+                "status": status,
+                "references": approved if status == "success" else [],
+                "operational": {
+                    "latency_seconds": 1.0,
+                    "input_tokens": 100,
+                    "output_tokens": 20,
+                    "peak_memory_bytes": 1_000_000,
+                    "truncated": False,
+                },
+            }
+        )
+    predictions_path = tmp_path / f"predictions_{miss_status}.json"
+    doc_ids_path = tmp_path / "doc_ids.json"
+    predictions_path.write_text(json.dumps(predictions), encoding="utf-8")
+    doc_ids_path.write_text(json.dumps([_PERFECT_DOC_ID, _MISS_DOC_ID]), encoding="utf-8")
+    return predictions_path, doc_ids_path
+
+
+def test_metrics_step_has_no_default_for_expected_doc_count() -> None:
+    """`canonical_evaluate` defaults `expected_doc_count` to 50 -- the wrong
+    number for the loop's 150-document frozen test split. A default here
+    would silently reintroduce the exact defect `measure_step` already
+    guards against."""
+    import inspect
+
+    signature = inspect.signature(metrics_step)
+    assert signature.parameters["expected_doc_count"].default is inspect.Parameter.empty
+
+
+def test_metrics_step_writes_round_metrics_and_returns_its_sha(tmp_path: Path) -> None:
+    config = prepared_fixture(tmp_path, two_docs=True)
+    _metrics_batch_fixture(config)
+    predictions_path, doc_ids_path = _frozen_split_fixture(config, tmp_path)
+
+    out = tmp_path / "rounds"
+    artifact = metrics_step(
+        config,
+        batch_id="batch",
+        generation="M001",
+        predictions_path=predictions_path,
+        test_doc_ids_path=doc_ids_path,
+        expected_doc_count=2,
+        output_dir=out,
+    )(new_round(1))
+
+    path = out / "round_001_metrics.json"
+    assert artifact == sha256_file(path)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+
+    assert payload["round"] == 1
+    assert payload["batch_id"] == "batch"
+    assert payload["generation"] == "M001"
+
+    # Round 1 has no predecessor: paired_delta is null with a stated reason,
+    # never a fabricated baseline.
+    assert payload["paired_delta"] is None
+    assert payload["paired_delta_reason"] == "round 1 has no predecessor round"
+
+    # The deferred document counts as workload but never as truth.
+    workload = payload["expert_workload"]
+    assert workload["document_count"] == 2
+    assert workload["deferred_count"] == 1
+    assert workload["action_distribution"]["defer"] == 1
+    assert workload["action_distribution"]["accept_model"] == 1
+    # Required regardless of router bucket: the finalized document via RED,
+    # the deferred one via the GREEN audit sample (its escalation file also
+    # exists, so either signal alone would already make it required).
+    assert workload["documents_requiring_review_count"] == 2
+
+    agreement = payload["rater_agreement"]
+    assert agreement["document_count"] == 1  # only the finalized document
+    per_rater = agreement["per_rater"]
+    assert per_rater["model"]["available_document_count"] == 1
+    assert per_rater["judge"]["available_document_count"] == 1
+    assert per_rater["model"]["f1"] == 1.0
+    assert per_rater["judge"]["f1"] == 1.0
+
+    model_metrics = payload["model"]
+    assert model_metrics["document_count"] == 2
+    assert set(model_metrics["core_per_document"]) == {"5", "20"}
+
+
+def test_metrics_step_computes_paired_delta_against_the_previous_round(tmp_path: Path) -> None:
+    config = prepared_fixture(tmp_path, two_docs=True)
+    _metrics_batch_fixture(config)
+    out = tmp_path / "rounds"
+
+    round1_predictions, doc_ids_path = _frozen_split_fixture(config, tmp_path, miss_status="error")
+    metrics_step(
+        config,
+        batch_id="batch",
+        generation="M001",
+        predictions_path=round1_predictions,
+        test_doc_ids_path=doc_ids_path,
+        expected_doc_count=2,
+        output_dir=out,
+    )(new_round(1))
+
+    round2_predictions, _ = _frozen_split_fixture(config, tmp_path, miss_status="success")
+    artifact2 = metrics_step(
+        config,
+        batch_id="batch",
+        generation="M001",
+        predictions_path=round2_predictions,
+        test_doc_ids_path=doc_ids_path,
+        expected_doc_count=2,
+        output_dir=out,
+    )(new_round(2))
+
+    path2 = out / "round_002_metrics.json"
+    assert artifact2 == sha256_file(path2)
+    payload2 = json.loads(path2.read_text(encoding="utf-8"))
+
+    assert payload2["paired_delta_reason"] is None
+    paired = payload2["paired_delta"]
+    assert paired is not None
+    assert paired["document_count"] == 2
+    # Round 2 strictly improves on the miss document and holds the perfect
+    # one steady, so the observed mean delta must be positive -- whether the
+    # bootstrap interval at n=2 calls that "improved" or "inconclusive" is a
+    # separate, legitimate small-sample question this assertion need not
+    # settle.
+    assert paired["bootstrap_mean"] > 0
+    assert paired["verdict"] in {"improved", "inconclusive"}
+
+
+def test_metrics_step_round_two_reports_no_predecessor_when_the_file_is_missing(
+    tmp_path: Path,
+) -> None:
+    """A round whose predecessor never wrote `round_metrics.json` (skipped,
+    or simply absent) must not fabricate a baseline either -- only round 1
+    is exempt from stating a reason by construction."""
+    config = prepared_fixture(tmp_path, two_docs=True)
+    _metrics_batch_fixture(config)
+    predictions_path, doc_ids_path = _frozen_split_fixture(config, tmp_path)
+    out = tmp_path / "rounds"
+
+    artifact = metrics_step(
+        config,
+        batch_id="batch",
+        generation="M001",
+        predictions_path=predictions_path,
+        test_doc_ids_path=doc_ids_path,
+        expected_doc_count=2,
+        output_dir=out,
+    )(new_round(2))
+
+    payload = json.loads((out / "round_002_metrics.json").read_text(encoding="utf-8"))
+    assert payload["paired_delta"] is None
+    assert "round_001_metrics.json" in payload["paired_delta_reason"]
+    assert artifact == sha256_file(out / "round_002_metrics.json")
+
+
+def test_seal_step_seal_changes_when_the_round_metrics_artifact_changes(tmp_path: Path) -> None:
+    """The required proof for Task 5: mutate one value inside
+    `round_metrics.json` and the round's seal must change. A seal that does
+    not cover the metrics artifact -- because the step bound at `measured`
+    never wrote it, or because `seal_step` stopped serialising it -- would
+    certify nothing.
+    """
+    from data_quality_checker.loop_rounds import ROUND_STAGES, RoundState
+
+    config = prepared_fixture(tmp_path, two_docs=True)
+    _metrics_batch_fixture(config)
+    predictions_path, doc_ids_path = _frozen_split_fixture(config, tmp_path)
+
+    rounds_dir = tmp_path / "rounds"
+    metrics_artifact = metrics_step(
+        config,
+        batch_id="batch",
+        generation="M001",
+        predictions_path=predictions_path,
+        test_doc_ids_path=doc_ids_path,
+        expected_doc_count=2,
+        output_dir=rounds_dir,
+    )(new_round(1))
+
+    metrics_path = rounds_dir / "round_001_metrics.json"
+    assert metrics_artifact == sha256_file(metrics_path)
+
+    state = new_round(1)
+    for stage in ROUND_STAGES[1 : ROUND_STAGES.index("measured")]:
+        state = advance_round(state, to=stage, artifact_sha256="sha")
+    state = advance_round(state, to="measured", artifact_sha256=metrics_artifact)
+
+    seal_before = seal_step(config, output_dir=rounds_dir)(state)
+
+    # Mutate one value inside round_metrics.json -- nothing about its shape,
+    # just one number -- and recompute the sha `measured` would have carried
+    # had this been the artifact all along.
+    payload = json.loads(metrics_path.read_text(encoding="utf-8"))
+    payload["expert_workload"]["document_count"] += 1
+    metrics_path.write_text(json.dumps(payload), encoding="utf-8")
+    mutated_artifact = sha256_file(metrics_path)
+    assert mutated_artifact != metrics_artifact
+
+    mutated_state = RoundState(
+        round_index=1,
+        stage="measured",
+        artifacts={**state.artifacts, "measured": mutated_artifact},
+    )
+    seal_after = seal_step(config, output_dir=rounds_dir)(mutated_state)
+
+    assert seal_before != seal_after

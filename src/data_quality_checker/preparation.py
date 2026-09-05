@@ -190,7 +190,20 @@ def _select_channel(
     html_text = html_to_text(pool_record.get("htmlText"))
     pdf_coverage = evidence_coverage(references, pdf_text) if pdf_text else 0.0
     html_coverage = evidence_coverage(references, html_text) if html_text else 0.0
-    if html_text and html_coverage > pdf_coverage:
+    # HTML is the priority channel, so it also takes ties. Measured over the
+    # 983 corpus documents that carry both channels and a completed annotation:
+    # html reaches full evidence coverage on 869 against pdf's 826 and wins
+    # outright on 50 documents to pdf's 2, the other 931 being ties. It is
+    # present for every one of the 17923 documents where pdf covers 85.8%, and
+    # its extraction is cleaner -- 0.30 glued number artefacts per document
+    # against 0.97, the defect behind spans like "Kanununun267". It also omits
+    # the electronic-signature block entirely, which appears in 474 of those
+    # 983 pdf texts and is the source of the VUK 213/413 boilerplate.
+    #
+    # What pdf has and html lacks is the header ("Sayı :", date, subject).
+    # Evidence coverage says that costs nothing: annotator spans do not live
+    # there. A document with a higher pdf coverage still selects pdf.
+    if html_text and html_coverage >= pdf_coverage:
         return html_text, "htmlText", pdf_coverage, html_coverage
     if pdf_text:
         return pdf_text, "pdfText", pdf_coverage, html_coverage

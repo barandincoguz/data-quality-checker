@@ -143,8 +143,12 @@ def test_prepare_selects_highest_evidence_channel_and_never_uses_annotation_text
     assert by_raw_id["secret-oid-html"]["selected_channel"] == "htmlText"
     assert by_raw_id["secret-oid-html"]["text"] == "HTML evidence phrase is present."
     assert "ANNOTATION ZIP TEXT" not in by_raw_id["secret-oid-html"]["text"]
-    assert by_raw_id["secret-oid-tie"]["selected_channel"] == "pdfText"
-    assert by_raw_id["secret-oid-zero"]["selected_channel"] == "pdfText"
+    # Ties go to HTML: it is the priority channel, present for every corpus
+    # document where pdf covers 85.8%, cleaner to extract, and free of the
+    # electronic-signature block. A document with no references at all scores
+    # 0.0 on both channels, which is a tie, so it lands there too.
+    assert by_raw_id["secret-oid-tie"]["selected_channel"] == "htmlText"
+    assert by_raw_id["secret-oid-zero"]["selected_channel"] == "htmlText"
     assert by_raw_id["secret-oid-zero"]["human_references"] == []
     assert by_raw_id["secret-oid-html"]["metadata"]["annotation_attribution"] == {
         "completed_by": {"id": 12, "username": "Irmak Tanrıverdi"},
@@ -531,3 +535,34 @@ def test_a_malformed_record_elsewhere_does_not_block_an_unrelated_subset(
     with Store(config.database_path) as store:
         documents = store.list_documents("subset-with-bad-record")
     assert {row["raw_document_id"] for row in documents} == {"target-a", "target-b"}
+
+
+def test_html_takes_the_tie_and_pdf_still_wins_on_higher_coverage() -> None:
+    """HTML is the priority channel, but coverage still overrules it.
+
+    Ties are the common case -- 931 of 983 corpus documents carrying both
+    channels -- so whoever takes them decides almost every document. HTML earns
+    them: always present, cleaner extraction, no electronic-signature block. A
+    pdf that actually covers more evidence is still selected.
+    """
+    from data_quality_checker.preparation import _select_channel
+
+    reference = {
+        "kanun_no": "213",
+        "kanun_ad": "Vergi Usul Kanunu",
+        "madde": "5",
+        "fikra": "",
+        "bent": "",
+        "source_text": "213 sayılı Vergi Usul Kanununun 5 inci maddesi",
+    }
+    span = reference["source_text"]
+
+    tie = {"pdfText": f"PDF metni {span} devam", "htmlText": f"<p>HTML metni {span} devam</p>"}
+    _, channel, pdf_coverage, html_coverage = _select_channel(tie, [reference])
+    assert pdf_coverage == html_coverage
+    assert channel == "htmlText"
+
+    pdf_richer = {"pdfText": f"PDF metni {span} devam", "htmlText": "<p>Dayanağı olmayan metin</p>"}
+    _, channel, pdf_coverage, html_coverage = _select_channel(pdf_richer, [reference])
+    assert pdf_coverage > html_coverage
+    assert channel == "pdfText"

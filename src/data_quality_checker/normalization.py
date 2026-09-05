@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from collections import defaultdict
 from collections.abc import Iterable
 from typing import Any
@@ -72,6 +73,19 @@ def _ascii_fold(value: str) -> str:
     return value.translate(translation)
 
 
+def _fold(value: str) -> str:
+    """Turkish-aware case fold: also strips combining marks left by NFKD.
+
+    ``str.casefold()`` on Turkish uppercase ``İ`` yields ``i`` followed by
+    U+0307 COMBINING DOT ABOVE, which ``_ascii_fold`` alone does not remove.
+    Decomposing first and dropping combining characters neutralizes that
+    before the existing ASCII-fold/casefold pipeline runs.
+    """
+    decomposed = unicodedata.normalize("NFKD", value)
+    without_marks = "".join(ch for ch in decomposed if not unicodedata.combining(ch))
+    return _ascii_fold(without_marks).casefold()
+
+
 def normalize_law_number(value: Any) -> str:
     text = normalize_text(value)
     match = re.search(r"\d+", text.replace(".", ""))
@@ -81,7 +95,7 @@ def normalize_law_number(value: Any) -> str:
 def normalize_law_name(value: Any, *, law_number: str = "") -> str:
     text = normalize_text(value)
     folded = _SPACE_RE.sub(" ", text.casefold()).strip(" .,:;-'\"")
-    folded_ascii = _ascii_fold(folded)
+    folded_ascii = _fold(folded)
     alias = LAW_NAME_ALIASES.get(folded) or LAW_NAME_ALIASES.get(folded_ascii)
     if alias:
         return alias
@@ -91,7 +105,7 @@ def normalize_law_name(value: Any, *, law_number: str = "") -> str:
         return CANONICAL_LAW_BY_NO[law_number]
     if law_number in CANONICAL_LAW_BY_NO:
         canonical = CANONICAL_LAW_BY_NO[law_number]
-        if _ascii_fold(canonical.casefold()) == folded_ascii:
+        if _fold(canonical) == folded_ascii:
             return canonical
     text = re.sub(r"\bKanunun(?:un|da|dan)?\b", "Kanunu", text, flags=re.IGNORECASE)
     return _SPACE_RE.sub(" ", text).strip()
@@ -135,7 +149,7 @@ def law_identity(reference: dict[str, str]) -> str:
     if reference["kanun_no"]:
         return f"no:{reference['kanun_no']}"
     if reference["kanun_ad"]:
-        return f"name:{_ascii_fold(reference['kanun_ad'].casefold())}"
+        return f"name:{_fold(reference['kanun_ad'])}"
     return "unknown"
 
 
@@ -143,7 +157,7 @@ def core_identity(reference: dict[str, str]) -> tuple[str, str, str, str]:
     return (
         law_identity(reference),
         reference["kanun_no"],
-        _ascii_fold(reference["kanun_ad"].casefold()),
+        _fold(reference["kanun_ad"]),
         reference["madde"],
     )
 
@@ -173,7 +187,7 @@ def conflicting_law_identity(references: Iterable[dict[str, str]]) -> bool:
     numbers_by_name: defaultdict[str, set[str]] = defaultdict(set)
     for reference in references:
         number = reference["kanun_no"]
-        name = _ascii_fold(reference["kanun_ad"].casefold())
+        name = _fold(reference["kanun_ad"])
         if number and name:
             names_by_number[number].add(name)
             numbers_by_name[name].add(number)

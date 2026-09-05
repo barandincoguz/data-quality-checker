@@ -26,6 +26,7 @@ This module implements the replacement semantics:
 from __future__ import annotations
 
 import re
+import unicodedata
 from collections import Counter
 from dataclasses import dataclass
 from typing import Any
@@ -54,9 +55,24 @@ RE_ARTICLE_LETTER_SUFFIX = re.compile(
 RE_NUMERIC_ARTICLE_RANGE = re.compile(r"^(?P<start>\d+)\s*-\s*(?P<end>\d+)$")
 
 
+#: Turkish letters that survive NFKD with no combining mark of their own.
+_TURKISH_FOLD = str.maketrans("ıİşŞğĞçÇöÖüÜ", "iIsSgGcCoOuU")
+
+
 def _fold_article_text(text: str) -> str:
-    """Case-fold an article string and canonicalize its range spelling."""
-    return RE_NUMERIC_ARTICLE_RANGE.sub(r"\g<start> ila \g<end>", text).casefold()
+    """Fold an article string for comparison and canonicalize its range spelling.
+
+    Diacritics are folded as well as case, because a Turkish article qualifier
+    reaches us both ways: "Mükerrer 242" and "mukerrer 242", "geçici 67" and
+    "gecici 67", are each one article written on two keyboards. The number
+    carries the identity, so folding the qualifier's diacritics cannot merge
+    two different articles. data_quality_checker.normalization already folds
+    them; this closes the last case where the two engines disagreed.
+    """
+    canonical = RE_NUMERIC_ARTICLE_RANGE.sub(r"\g<start> ila \g<end>", text)
+    decomposed = unicodedata.normalize("NFKD", canonical)
+    without_marks = "".join(ch for ch in decomposed if not unicodedata.combining(ch))
+    return without_marks.translate(_TURKISH_FOLD).casefold()
 
 
 def split_article_subparagraph(

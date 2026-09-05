@@ -52,8 +52,31 @@ JUDGE_PROMPT = (
     "Each final_references entry must keep the same fields as the candidate "
     "entries it is drawn from, including source_text quoted verbatim from the "
     "document: a final reference whose source_text is missing, empty, or not a "
-    "literal span of the document is rejected outright.\n\n"
+    "literal span of the document is rejected outright. "
+    "Reading the Turkish text: a back-reference such as aynı, anılan, mezkûr "
+    "or söz konusu Kanun means the nearest law named before it, and a section "
+    "heading such as KURUMLAR VERGİSİ KANUNU YÖNÜNDEN opens a new such "
+    "context. Signature blocks, addresses, telephone and fax lines and page "
+    "footers are not legal context and never carry a back-reference across "
+    "them. In an article number, a slash before an uppercase letter marks an "
+    "additional article in its own right (32/A), while a lowercase letter "
+    "marks a sub-part of that article (32/a is bent a of article 32).\n\n"
 )
+
+
+def judge_prompt_fingerprint() -> str:
+    """sha256 of the exact instructions every judge received.
+
+    The judge is meant to be a fixed instrument: a pinned model revision at
+    temperature zero. The prompt is the other half of that instrument and was
+    recorded nowhere, so a wording change would have moved every downstream
+    number invisibly. Rounds carrying different fingerprints were not judged by
+    the same instrument and must not be compared as if they were.
+    """
+
+    return hashlib.sha256(JUDGE_PROMPT.encode("utf-8")).hexdigest()
+
+
 PILOT_TARGET_PER_BUCKET = 20
 PILOT_MAX_DOCS = 60
 
@@ -723,6 +746,7 @@ def _run_pilot_impl(
             "external_consent": bool(allow_external_judge),
             "fake_backend": fake_backend,
             "green_audit": audit,
+            "judge_prompt_sha256": judge_prompt_fingerprint(),
             "production_judge_locked": False,
         }
         write_json_atomic(public_dir / "judge_pilot_summary.json", summary, mode=0o644)

@@ -496,3 +496,28 @@ def test_unknown_judge_model_still_raises(monkeypatch) -> None:
 
     with pytest.raises(ContractError):
         resolve_judge_provider("no-such-judge-model")
+
+
+def test_pilot_summary_records_the_prompt_the_judges_were_given(tmp_path) -> None:
+    """The prompt is half the instrument; a silent edit would move every number.
+
+    A pinned model revision at temperature zero only makes the judge
+    reproducible if the instructions are pinned too. Rounds whose summaries
+    carry different fingerprints were not judged by the same instrument.
+    """
+    import hashlib
+
+    from data_quality_checker.judges import JUDGE_PROMPT, judge_prompt_fingerprint
+
+    config = prepared_processed_fixture(tmp_path)
+    summary = run_judge_pilot(
+        config=config,
+        batch_id="batch",
+        allow_external_judge=True,
+        provider=FakeJudgeProvider(),
+        judge_models=("qwen3.5:397b",),
+    )
+    assert summary["judge_prompt_sha256"] == judge_prompt_fingerprint()
+    assert (
+        summary["judge_prompt_sha256"] == hashlib.sha256(JUDGE_PROMPT.encode("utf-8")).hexdigest()
+    )

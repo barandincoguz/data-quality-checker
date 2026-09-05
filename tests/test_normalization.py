@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from data_quality_checker.normalization import (
     _fold,
+    compact_references,
     core_identity,
     full_identity,
     normalize_article,
@@ -162,3 +163,38 @@ def test_slash_suffix_splits_turkish_lowercase_letter() -> None:
     a = normalize_reference(_ref(madde="7/ç", bent=""))
     b = normalize_reference(_ref(madde="7", bent="ç"))
     assert full_identity(a) == full_identity(b)
+
+
+# ---------------------------------------------------------------------------
+# Task 5: pin the combined effect on a realistic reference pair, so a future
+# regression is caught by the suite rather than by re-running an analysis.
+# ---------------------------------------------------------------------------
+
+
+def test_uppercase_prefixed_law_with_embedded_bent_matches_its_split_twin() -> None:
+    """One row combining every defect this plan fixes."""
+    a = compact_references(
+        [
+            {
+                "kanun_no": "3065",
+                "kanun_ad": "3065 SAYILI KATMA DEĞER VERGİSİ KANUNU",
+                "madde": "6/b",
+                "fikra": "",
+                "bent": "",
+                "source_text": "x",
+            }
+        ]
+    )
+    b = compact_references(
+        [
+            {
+                "kanun_no": "3065",
+                "kanun_ad": "Katma Değer Vergisi Kanunu",
+                "madde": "6",
+                "fikra": "",
+                "bent": "b",
+                "source_text": "y",
+            }
+        ]
+    )
+    assert full_identity(a[0]) == full_identity(b[0])

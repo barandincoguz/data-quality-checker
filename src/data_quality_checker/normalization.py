@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from collections import defaultdict
 from collections.abc import Iterable
 from typing import Any
@@ -49,6 +50,15 @@ _ARTICLE_SUFFIX_RE = re.compile(
     re.IGNORECASE,
 )
 _PARENS_RE = re.compile(r"^[\[(]\s*(.*?)\s*[\])]$")
+_MUTEAKIP_RE = re.compile(r"\s+ve\s+m[uü]teakip(\s+maddeler\w*)?\s*$", re.IGNORECASE)
+# A trailing "/" plus a *lowercase* letter is a sub-part written inline
+# ("6/b"); a trailing "/" plus an *uppercase* letter is part of the
+# article's own name inserted by amendment (e.g. 5520 art. "32/A") and must
+# never be split out. Case is therefore load-bearing in this class, not
+# folded away.
+_EMBEDDED_BENT_RE = re.compile(r"^(?P<madde>.*\S)\s*/\s*(?P<bent>[a-zçğıöşü])$")
+_LAW_NAME_PUNCT = " .,:;-'\""
+_LAW_NUMBER_PREFIX_RE = re.compile(r"^\d+\s*(?:sayılı|sayili)\s*", re.IGNORECASE)
 _ORDINALS = {
     "birinci": "1",
     "ikinci": "2",
@@ -64,6 +74,33 @@ _ORDINALS = {
     "sekizinci": "8",
     "dokuzuncu": "9",
     "onuncu": "10",
+    "onbirinci": "11",
+    "on birinci": "11",
+    "onikinci": "12",
+    "on ikinci": "12",
+    "onüçüncü": "13",
+    "on üçüncü": "13",
+    "onucuncu": "13",
+    "on ucuncu": "13",
+    "ondördüncü": "14",
+    "on dördüncü": "14",
+    "ondorduncu": "14",
+    "on dorduncu": "14",
+    "onbeşinci": "15",
+    "on beşinci": "15",
+    "onbesinci": "15",
+    "on besinci": "15",
+    "onaltıncı": "16",
+    "on altıncı": "16",
+    "onaltinci": "16",
+    "on altinci": "16",
+    "onyedinci": "17",
+    "on yedinci": "17",
+    "onsekizinci": "18",
+    "on sekizinci": "18",
+    "ondokuzuncu": "19",
+    "on dokuzuncu": "19",
+    "yirminci": "20",
 }
 
 
@@ -72,16 +109,38 @@ def _ascii_fold(value: str) -> str:
     return value.translate(translation)
 
 
+def _fold(value: str) -> str:
+    """Turkish-aware case fold: also strips combining marks left by NFKD.
+
+    ``str.casefold()`` on Turkish uppercase ``İ`` yields ``i`` followed by
+    U+0307 COMBINING DOT ABOVE, which ``_ascii_fold`` alone does not remove.
+    Decomposing first and dropping combining characters neutralizes that
+    before the existing ASCII-fold/casefold pipeline runs.
+    """
+    decomposed = unicodedata.normalize("NFKD", value)
+    without_marks = "".join(ch for ch in decomposed if not unicodedata.combining(ch))
+    return _ascii_fold(without_marks).casefold()
+
+
 def normalize_law_number(value: Any) -> str:
     text = normalize_text(value)
     match = re.search(r"\d+", text.replace(".", ""))
-    return match.group(0) if match else text.casefold()
+    if not match:
+        return text.casefold()
+    # Strip leading zeros ("0193" == "193"), but a run of all zeros must
+    # collapse to "0", never to the empty string.
+    return match.group(0).lstrip("0") or "0"
 
 
 def normalize_law_name(value: Any, *, law_number: str = "") -> str:
     text = normalize_text(value)
-    folded = _SPACE_RE.sub(" ", text.casefold()).strip(" .,:;-'\"")
-    folded_ascii = _ascii_fold(folded)
+    # A leading "N sayılı" ("numbered N") restates the law number already
+    # carried by the kanun_no field; strip it before alias lookup so it
+    # cannot defeat matching, and strip it from the returned text too since
+    # it is the same redundant prefix either way.
+    text = _LAW_NUMBER_PREFIX_RE.sub("", text).strip(_LAW_NAME_PUNCT)
+    folded = _SPACE_RE.sub(" ", text.casefold()).strip(_LAW_NAME_PUNCT)
+    folded_ascii = _fold(folded)
     alias = LAW_NAME_ALIASES.get(folded) or LAW_NAME_ALIASES.get(folded_ascii)
     if alias:
         return alias
@@ -91,14 +150,15 @@ def normalize_law_name(value: Any, *, law_number: str = "") -> str:
         return CANONICAL_LAW_BY_NO[law_number]
     if law_number in CANONICAL_LAW_BY_NO:
         canonical = CANONICAL_LAW_BY_NO[law_number]
-        if _ascii_fold(canonical.casefold()) == folded_ascii:
+        if _fold(canonical) == folded_ascii:
             return canonical
     text = re.sub(r"\bKanunun(?:un|da|dan)?\b", "Kanunu", text, flags=re.IGNORECASE)
-    return _SPACE_RE.sub(" ", text).strip()
+    return _SPACE_RE.sub(" ", text).strip(_LAW_NAME_PUNCT)
 
 
 def normalize_article(value: Any) -> str:
     text = normalize_text(value).strip(" .,:;\"'")
+    text = _MUTEAKIP_RE.sub("", text).strip()
     text = _ARTICLE_SUFFIX_RE.sub("", text).strip()
     text = re.sub(r"^(mukerrer|mükerrer)\s*", "mükerrer ", text, flags=re.IGNORECASE)
     text = re.sub(r"^gecici\s*", "geçici ", text, flags=re.IGNORECASE)
@@ -117,6 +177,14 @@ def normalize_extension(value: Any) -> str:
 
 def normalize_reference(raw: dict[str, Any]) -> dict[str, str]:
     validated = validate_reference_list([raw])[0]
+    madde_value = validated["madde"]
+    bent_value = validated["bent"]
+    if not normalize_text(bent_value):
+        # Only when bent is empty: an explicit annotation is never overwritten.
+        embedded = _EMBEDDED_BENT_RE.match(normalize_text(madde_value))
+        if embedded:
+            madde_value = embedded.group("madde")
+            bent_value = embedded.group("bent")
     law_number = normalize_law_number(validated["kanun_no"])
     law_name = normalize_law_name(validated["kanun_ad"], law_number=law_number)
     if not law_number and law_name in CANONICAL_NO_BY_NAME:
@@ -124,9 +192,9 @@ def normalize_reference(raw: dict[str, Any]) -> dict[str, str]:
     return {
         "kanun_no": law_number,
         "kanun_ad": normalize_law_name(law_name, law_number=law_number),
-        "madde": normalize_article(validated["madde"]),
+        "madde": normalize_article(madde_value),
         "fikra": normalize_extension(validated["fikra"]),
-        "bent": normalize_extension(validated["bent"]),
+        "bent": normalize_extension(bent_value),
         "source_text": normalize_text(validated["source_text"]),
     }
 
@@ -135,7 +203,7 @@ def law_identity(reference: dict[str, str]) -> str:
     if reference["kanun_no"]:
         return f"no:{reference['kanun_no']}"
     if reference["kanun_ad"]:
-        return f"name:{_ascii_fold(reference['kanun_ad'].casefold())}"
+        return f"name:{_fold(reference['kanun_ad'])}"
     return "unknown"
 
 
@@ -143,7 +211,7 @@ def core_identity(reference: dict[str, str]) -> tuple[str, str, str, str]:
     return (
         law_identity(reference),
         reference["kanun_no"],
-        _ascii_fold(reference["kanun_ad"].casefold()),
+        _fold(reference["kanun_ad"]),
         reference["madde"],
     )
 
@@ -173,7 +241,7 @@ def conflicting_law_identity(references: Iterable[dict[str, str]]) -> bool:
     numbers_by_name: defaultdict[str, set[str]] = defaultdict(set)
     for reference in references:
         number = reference["kanun_no"]
-        name = _ascii_fold(reference["kanun_ad"].casefold())
+        name = _fold(reference["kanun_ad"])
         if number and name:
             names_by_number[number].add(name)
             numbers_by_name[name].add(number)

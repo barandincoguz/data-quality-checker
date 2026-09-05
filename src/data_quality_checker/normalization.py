@@ -50,6 +50,7 @@ _ARTICLE_SUFFIX_RE = re.compile(
     re.IGNORECASE,
 )
 _PARENS_RE = re.compile(r"^[\[(]\s*(.*?)\s*[\])]$")
+_MUTEAKIP_RE = re.compile(r"\s+ve\s+m[uü]teakip(\s+maddeler\w*)?\s*$", re.IGNORECASE)
 _LAW_NAME_PUNCT = " .,:;-'\""
 _LAW_NUMBER_PREFIX_RE = re.compile(r"^\d+\s*(?:sayılı|sayili)\s*", re.IGNORECASE)
 _ORDINALS = {
@@ -67,6 +68,33 @@ _ORDINALS = {
     "sekizinci": "8",
     "dokuzuncu": "9",
     "onuncu": "10",
+    "onbirinci": "11",
+    "on birinci": "11",
+    "onikinci": "12",
+    "on ikinci": "12",
+    "onüçüncü": "13",
+    "on üçüncü": "13",
+    "onucuncu": "13",
+    "on ucuncu": "13",
+    "ondördüncü": "14",
+    "on dördüncü": "14",
+    "ondorduncu": "14",
+    "on dorduncu": "14",
+    "onbeşinci": "15",
+    "on beşinci": "15",
+    "onbesinci": "15",
+    "on besinci": "15",
+    "onaltıncı": "16",
+    "on altıncı": "16",
+    "onaltinci": "16",
+    "on altinci": "16",
+    "onyedinci": "17",
+    "on yedinci": "17",
+    "onsekizinci": "18",
+    "on sekizinci": "18",
+    "ondokuzuncu": "19",
+    "on dokuzuncu": "19",
+    "yirminci": "20",
 }
 
 
@@ -91,7 +119,11 @@ def _fold(value: str) -> str:
 def normalize_law_number(value: Any) -> str:
     text = normalize_text(value)
     match = re.search(r"\d+", text.replace(".", ""))
-    return match.group(0) if match else text.casefold()
+    if not match:
+        return text.casefold()
+    # Strip leading zeros ("0193" == "193"), but a run of all zeros must
+    # collapse to "0", never to the empty string.
+    return match.group(0).lstrip("0") or "0"
 
 
 def normalize_law_name(value: Any, *, law_number: str = "") -> str:
@@ -120,6 +152,7 @@ def normalize_law_name(value: Any, *, law_number: str = "") -> str:
 
 def normalize_article(value: Any) -> str:
     text = normalize_text(value).strip(" .,:;\"'")
+    text = _MUTEAKIP_RE.sub("", text).strip()
     text = _ARTICLE_SUFFIX_RE.sub("", text).strip()
     text = re.sub(r"^(mukerrer|mükerrer)\s*", "mükerrer ", text, flags=re.IGNORECASE)
     text = re.sub(r"^gecici\s*", "geçici ", text, flags=re.IGNORECASE)

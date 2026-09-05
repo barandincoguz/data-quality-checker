@@ -8,7 +8,14 @@ rather than the returned value), so seeing red first is the only proof.
 
 from __future__ import annotations
 
-from data_quality_checker.normalization import _fold, core_identity, normalize_reference
+from data_quality_checker.normalization import (
+    _fold,
+    core_identity,
+    normalize_article,
+    normalize_extension,
+    normalize_law_number,
+    normalize_reference,
+)
 
 
 def _ref(**updates: str) -> dict[str, str]:
@@ -67,3 +74,52 @@ def test_returned_law_name_has_stray_punctuation_stripped() -> None:
 
 def test_numbered_prefix_negative_distinct_laws_stay_distinct() -> None:
     assert _core("193 sayılı Gelir Vergisi Kanunu") != _core("213 sayılı Vergi Usul Kanunu")
+
+
+# ---------------------------------------------------------------------------
+# Task 3a: "N ve müteakip" ("N and following") reduces to the bare article
+# ---------------------------------------------------------------------------
+
+
+def test_ve_muteakip_suffix_reduces_to_bare_article() -> None:
+    assert normalize_article("229 ve müteakip") == normalize_article("229")
+
+
+def test_ve_muteakip_suffix_negative_distinct_articles_stay_distinct() -> None:
+    assert normalize_article("229") != normalize_article("230")
+
+
+# ---------------------------------------------------------------------------
+# Task 3b: ordinals beyond the tenth, concatenated and space-separated
+# ---------------------------------------------------------------------------
+
+
+def test_ordinal_eleventh_concatenated_and_spaced_match_digit_form() -> None:
+    assert normalize_extension("onbirinci") == "11"
+    assert normalize_extension("on birinci") == "11"
+
+
+def test_ordinal_twentieth_matches_digit_form() -> None:
+    assert normalize_extension("yirminci") == "20"
+
+
+def test_ordinal_negative_distinct_ordinals_stay_distinct() -> None:
+    assert normalize_extension("onbirinci") != normalize_extension("onikinci")
+
+
+# ---------------------------------------------------------------------------
+# Task 3c: leading zeros on the law number
+# ---------------------------------------------------------------------------
+
+
+def test_law_number_strips_leading_zeros() -> None:
+    assert normalize_law_number("0193") == "193"
+
+
+def test_law_number_all_zeros_stays_a_single_zero() -> None:
+    assert normalize_law_number("0000") == "0"
+    assert normalize_law_number("0") == "0"
+
+
+def test_law_number_negative_distinct_numbers_stay_distinct() -> None:
+    assert normalize_law_number("193") != normalize_law_number("1930")

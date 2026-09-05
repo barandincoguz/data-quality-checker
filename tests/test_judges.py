@@ -521,3 +521,51 @@ def test_pilot_summary_records_the_prompt_the_judges_were_given(tmp_path) -> Non
     assert (
         summary["judge_prompt_sha256"] == hashlib.sha256(JUDGE_PROMPT.encode("utf-8")).hexdigest()
     )
+
+
+def test_a_rejected_judge_output_is_kept_for_audit(tmp_path) -> None:
+    """A refusal that keeps no evidence cannot be audited.
+
+    When the contract rejects a judge's answer, only the error message used to
+    survive. That is not enough to tell a judge that really invented a span
+    from a validator that was too strict -- and the difference is exactly what
+    a judge-error metric claims to measure. The rejected text is now kept
+    beside the attempt that produced it.
+    """
+    import json as _json
+
+    from data_quality_checker.judges import JudgeProviderUnavailable  # noqa: F401
+
+    class AlwaysUngrounded:
+        def judge(self, *, model, payload):
+            return (
+                _json.dumps(
+                    {
+                        "verdict": "A",
+                        "candidate_errors": {"A": [], "B": []},
+                        "final_references": [],
+                        "evidence": ["bu parça belgede kesinlikle yok"],
+                        "reason_codes": ["test"],
+                    },
+                    ensure_ascii=False,
+                ),
+                {"latency_seconds": 0.0, "cost": 0.0, "provider": "fake"},
+            )
+
+    config = prepared_processed_fixture(tmp_path)
+    run_judge_pilot(
+        config=config,
+        batch_id="batch",
+        allow_external_judge=True,
+        provider=AlwaysUngrounded(),
+        judge_models=("qwen3.5:397b",),
+    )
+    with Store(config.database_path) as store:
+        rows = store.list_judge_results("batch")
+    assert rows and rows[0]["status"] == "error"
+    response = _json.loads(Path(rows[0]["response_path"]).read_text(encoding="utf-8"))
+    attempts = response["attempts"]
+    assert attempts, "an error must record the attempts that produced it"
+    assert all(a["status"] == "invalid" for a in attempts)
+    for attempt in attempts:
+        assert "bu parça belgede kesinlikle yok" in attempt["rejected_output"]

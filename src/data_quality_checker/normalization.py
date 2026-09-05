@@ -50,6 +50,8 @@ _ARTICLE_SUFFIX_RE = re.compile(
     re.IGNORECASE,
 )
 _PARENS_RE = re.compile(r"^[\[(]\s*(.*?)\s*[\])]$")
+_LAW_NAME_PUNCT = " .,:;-'\""
+_LAW_NUMBER_PREFIX_RE = re.compile(r"^\d+\s*(?:sayılı|sayili)\s*", re.IGNORECASE)
 _ORDINALS = {
     "birinci": "1",
     "ikinci": "2",
@@ -94,7 +96,12 @@ def normalize_law_number(value: Any) -> str:
 
 def normalize_law_name(value: Any, *, law_number: str = "") -> str:
     text = normalize_text(value)
-    folded = _SPACE_RE.sub(" ", text.casefold()).strip(" .,:;-'\"")
+    # A leading "N sayılı" ("numbered N") restates the law number already
+    # carried by the kanun_no field; strip it before alias lookup so it
+    # cannot defeat matching, and strip it from the returned text too since
+    # it is the same redundant prefix either way.
+    text = _LAW_NUMBER_PREFIX_RE.sub("", text).strip(_LAW_NAME_PUNCT)
+    folded = _SPACE_RE.sub(" ", text.casefold()).strip(_LAW_NAME_PUNCT)
     folded_ascii = _fold(folded)
     alias = LAW_NAME_ALIASES.get(folded) or LAW_NAME_ALIASES.get(folded_ascii)
     if alias:
@@ -108,7 +115,7 @@ def normalize_law_name(value: Any, *, law_number: str = "") -> str:
         if _fold(canonical) == folded_ascii:
             return canonical
     text = re.sub(r"\bKanunun(?:un|da|dan)?\b", "Kanunu", text, flags=re.IGNORECASE)
-    return _SPACE_RE.sub(" ", text).strip()
+    return _SPACE_RE.sub(" ", text).strip(_LAW_NAME_PUNCT)
 
 
 def normalize_article(value: Any) -> str:

@@ -51,6 +51,12 @@ _ARTICLE_SUFFIX_RE = re.compile(
 )
 _PARENS_RE = re.compile(r"^[\[(]\s*(.*?)\s*[\])]$")
 _MUTEAKIP_RE = re.compile(r"\s+ve\s+m[uü]teakip(\s+maddeler\w*)?\s*$", re.IGNORECASE)
+# A trailing "/" plus a *lowercase* letter is a sub-part written inline
+# ("6/b"); a trailing "/" plus an *uppercase* letter is part of the
+# article's own name inserted by amendment (e.g. 5520 art. "32/A") and must
+# never be split out. Case is therefore load-bearing in this class, not
+# folded away.
+_EMBEDDED_BENT_RE = re.compile(r"^(?P<madde>.*\S)\s*/\s*(?P<bent>[a-zçğıöşü])$")
 _LAW_NAME_PUNCT = " .,:;-'\""
 _LAW_NUMBER_PREFIX_RE = re.compile(r"^\d+\s*(?:sayılı|sayili)\s*", re.IGNORECASE)
 _ORDINALS = {
@@ -171,6 +177,14 @@ def normalize_extension(value: Any) -> str:
 
 def normalize_reference(raw: dict[str, Any]) -> dict[str, str]:
     validated = validate_reference_list([raw])[0]
+    madde_value = validated["madde"]
+    bent_value = validated["bent"]
+    if not normalize_text(bent_value):
+        # Only when bent is empty: an explicit annotation is never overwritten.
+        embedded = _EMBEDDED_BENT_RE.match(normalize_text(madde_value))
+        if embedded:
+            madde_value = embedded.group("madde")
+            bent_value = embedded.group("bent")
     law_number = normalize_law_number(validated["kanun_no"])
     law_name = normalize_law_name(validated["kanun_ad"], law_number=law_number)
     if not law_number and law_name in CANONICAL_NO_BY_NAME:
@@ -178,9 +192,9 @@ def normalize_reference(raw: dict[str, Any]) -> dict[str, str]:
     return {
         "kanun_no": law_number,
         "kanun_ad": normalize_law_name(law_name, law_number=law_number),
-        "madde": normalize_article(validated["madde"]),
+        "madde": normalize_article(madde_value),
         "fikra": normalize_extension(validated["fikra"]),
-        "bent": normalize_extension(validated["bent"]),
+        "bent": normalize_extension(bent_value),
         "source_text": normalize_text(validated["source_text"]),
     }
 

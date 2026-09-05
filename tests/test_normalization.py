@@ -11,6 +11,7 @@ from __future__ import annotations
 from data_quality_checker.normalization import (
     _fold,
     core_identity,
+    full_identity,
     normalize_article,
     normalize_extension,
     normalize_law_number,
@@ -123,3 +124,41 @@ def test_law_number_all_zeros_stays_a_single_zero() -> None:
 
 def test_law_number_negative_distinct_numbers_stay_distinct() -> None:
     assert normalize_law_number("193") != normalize_law_number("1930")
+
+
+# ---------------------------------------------------------------------------
+# Task 4: sub-part embedded in the article field
+# ---------------------------------------------------------------------------
+
+
+def test_lowercase_slash_suffix_splits_into_empty_bent() -> None:
+    a = normalize_reference(_ref(madde="6/b", bent=""))
+    b = normalize_reference(_ref(madde="6", bent="b"))
+    assert full_identity(a) == full_identity(b)
+
+
+def test_lowercase_slash_suffix_splits_into_empty_bent_30a() -> None:
+    a = normalize_reference(_ref(madde="30/a", bent=""))
+    b = normalize_reference(_ref(madde="30", bent="a"))
+    assert full_identity(a) == full_identity(b)
+
+
+def test_uppercase_slash_suffix_negative_is_not_split() -> None:
+    # 32/A ("İndirimli kurumlar vergisi") is a distinct article inserted by
+    # amendment, not paragraph A of article 32 -- it must never be split.
+    amendment_article = normalize_reference(_ref(madde="32/A", bent=""))
+    split_form = normalize_reference(_ref(madde="32", bent="A"))
+    plain_article = normalize_reference(_ref(madde="32", bent=""))
+    assert full_identity(amendment_article) != full_identity(split_form)
+    assert full_identity(amendment_article) != full_identity(plain_article)
+
+
+def test_slash_suffix_does_not_overwrite_explicit_bent() -> None:
+    reference = normalize_reference(_ref(madde="6/b", bent="c"))
+    assert reference["bent"] == "c"
+
+
+def test_slash_suffix_splits_turkish_lowercase_letter() -> None:
+    a = normalize_reference(_ref(madde="7/ç", bent=""))
+    b = normalize_reference(_ref(madde="7", bent="ç"))
+    assert full_identity(a) == full_identity(b)

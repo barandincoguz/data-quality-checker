@@ -80,6 +80,25 @@ def _numbers_in_span(span: str) -> list[str]:
     return _NUMBER_RUN_RE.findall(span)
 
 
+_ARTICLE_SHAPED_RE = re.compile(
+    r"(\d+)\s*(?:inci|ıncı|uncu|üncü|nci|ncı|ncu|ncü)\s*madde|madde\s*(\d+)",
+    re.IGNORECASE,
+)
+
+
+def _article_shaped_numbers(span: str) -> list[str]:
+    """Numbers that are written as an article, not merely present as digits.
+
+    A bare digit run says very little: a span can carry a paragraph number
+    ("(2) numaralı bendinde"), a year, or an amending law's number without
+    naming any article at all. Only a number written in the article form --
+    "37 nci maddesinde", "madde 37" -- competes with the article field, so
+    only that form is worth a reviewer's attention.
+    """
+
+    return [n for match in _ARTICLE_SHAPED_RE.finditer(span) for n in match.groups() if n]
+
+
 def _number_present_in_span(number: str, span: str) -> bool:
     """Whether `number` occurs in `span` as its own token, not glued to a word.
 
@@ -124,8 +143,24 @@ def _article_absent_finding(reference: Mapping[str, str]) -> dict[str, Any] | No
     if _number_present_in_span(article, span):
         return None
     numbers = _numbers_in_span(span)
-    classification = "other_number_present" if numbers else "anaphoric"
-    return {"article": article, "classification": classification, "numbers_in_span": numbers}
+    article_numbers = _article_shaped_numbers(span)
+    if not numbers:
+        classification = "anaphoric"
+    elif article in article_numbers:
+        # The article IS named in article form, yet `\b` did not find it: the
+        # source PDF glued the digits to the preceding word, as in
+        # "Kanununun267 inci maddesi". Nothing disagrees here.
+        classification = "glued_to_preceding_word"
+    elif article_numbers:
+        classification = "other_article_number"
+    else:
+        classification = "sub_part_number"
+    return {
+        "article": article,
+        "classification": classification,
+        "numbers_in_span": numbers,
+        "article_shaped_numbers": article_numbers,
+    }
 
 
 def _duplicate_groups(

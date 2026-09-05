@@ -174,22 +174,23 @@ def test_article_number_absent_from_span_classifies_glued_number_without_error()
     )
     assert result["article_number_absent_from_span_count"] == 1
     finding = result["findings"]["article_number_absent_from_span"][0]
-    assert finding["classification"] == "other_number_present"
+    # The article is named in article form and equals the field: the source PDF
+    # glued the digits to the preceding word (real case, doc_500). Nothing here
+    # disagrees, and the label must say so rather than implying a rival article.
+    assert finding["classification"] == "glued_to_preceding_word"
     assert finding["numbers_in_span"] == ["267"]
     assert_no_judgment_keys(finding)
     assert result["ungrounded_span_count"] == 0
 
 
-def test_article_number_absent_from_span_classifies_a_bent_reference_as_other_number_present() -> (
-    None
-):
+def test_article_number_absent_from_span_classifies_a_bent_reference_as_a_sub_part() -> None:
     bent_span = "söz konusu fıkranın (2/b) bendinde"
     document_text = f"... {bent_span} ..."
     result = audit_reference_set(
         [row(madde="94", source_text=bent_span)], document_text=document_text
     )
     finding = result["findings"]["article_number_absent_from_span"][0]
-    assert finding["classification"] == "other_number_present"
+    assert finding["classification"] == "sub_part_number"
     assert finding["numbers_in_span"] == ["2"]
     assert_no_judgment_keys(finding)
 
@@ -345,3 +346,49 @@ def test_triage_matched_provision_is_not_double_reported() -> None:
     assert result["candidate_matched_count"] == 1
     assert result["candidate_only_count"] == 0
     assert result["expert_only_count"] == 0
+
+
+def test_sub_part_number_is_not_reported_as_a_competing_article() -> None:
+    """A paragraph number in the span is not another article.
+
+    Real ground truth: article 94 of law 193 annotated from the span
+    "söz konusu fıkranın (2/b) bendinde". A classifier keyed on any digit
+    calls that a competing article number; it is a bent, and lumping the two
+    together makes the label useless for triage.
+    """
+    findings = audit_reference_set(
+        [
+            {
+                "kanun_no": "193",
+                "kanun_ad": "Gelir Vergisi Kanunu",
+                "madde": "94",
+                "fikra": "",
+                "bent": "",
+                "source_text": "söz konusu fıkranın (2/b) bendinde",
+            }
+        ],
+        document_text="Metin söz konusu fıkranın (2/b) bendinde devam eder.",
+    )["findings"]["article_number_absent_from_span"]
+    assert len(findings) == 1
+    assert findings[0]["classification"] == "sub_part_number"
+    assert findings[0]["article_shaped_numbers"] == []
+
+
+def test_a_competing_article_number_is_singled_out() -> None:
+    """A span naming a different article in article form is worth attention."""
+    findings = audit_reference_set(
+        [
+            {
+                "kanun_no": "197",
+                "kanun_ad": "",
+                "madde": "46",
+                "fikra": "",
+                "bent": "",
+                "source_text": "193 sayılı Gelir Vergisi Kanununun 37 nci maddesinde",
+            }
+        ],
+        document_text="Belge 193 sayılı Gelir Vergisi Kanununun 37 nci maddesinde der ki.",
+    )["findings"]["article_number_absent_from_span"]
+    assert len(findings) == 1
+    assert findings[0]["classification"] == "other_article_number"
+    assert "37" in findings[0]["article_shaped_numbers"]

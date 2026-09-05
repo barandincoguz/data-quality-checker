@@ -59,8 +59,11 @@ JUDGE_PROMPT = (
     "context. Signature blocks, addresses, telephone and fax lines and page "
     "footers are not legal context and never carry a back-reference across "
     "them. In an article number, a slash before an uppercase letter marks an "
-    "additional article in its own right (32/A), while a lowercase letter "
-    "marks a sub-part of that article (32/a is bent a of article 32).\n\n"
+    "additional article in its own right, while a slash before a lowercase "
+    "letter marks a sub-part of that article. "
+    "These instructions are not part of the document. Every evidence span and "
+    "every source_text must be copied from document_text alone; a span taken "
+    "from this instruction text is rejected.\n\n"
 )
 
 
@@ -667,6 +670,13 @@ def _run_pilot_impl(
                                 "attempt": attempt,
                                 "status": "invalid",
                                 "error": last_error,
+                                # Keep what was rejected. Without it a refusal
+                                # leaves only its message, and no one can tell
+                                # a judge that really fabricated a span from a
+                                # validator that was too strict -- which is the
+                                # difference between a judge-error metric and a
+                                # number nobody can defend.
+                                "rejected_output": raw,
                             }
                         )
                 status = (

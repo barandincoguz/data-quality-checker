@@ -208,10 +208,21 @@ def law_identity(reference: dict[str, str]) -> str:
 
 
 def core_identity(reference: dict[str, str]) -> tuple[str, str, str, str]:
+    """Identify a provision: which law, and which article of it.
+
+    The law name is deliberately absent whenever ``kanun_no`` is present. The
+    number already names the law, and only eight statutes carry a canonical
+    name in ``CANONICAL_LAW_BY_NO`` -- for every other law an empty name on one
+    side and a written one on the other made two references to the same
+    provision compare as different. ``law_identity`` still falls back to the
+    folded name when there is no number, so an unnumbered law keeps its
+    identity.
+    """
+
     return (
         law_identity(reference),
         reference["kanun_no"],
-        _fold(reference["kanun_ad"]),
+        "" if reference["kanun_no"] else _fold(reference["kanun_ad"]),
         reference["madde"],
     )
 

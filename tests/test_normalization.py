@@ -198,3 +198,102 @@ def test_uppercase_prefixed_law_with_embedded_bent_matches_its_split_twin() -> N
         ]
     )
     assert full_identity(a[0]) == full_identity(b[0])
+
+
+def test_law_name_is_not_part_of_identity_when_the_number_is_present() -> None:
+    """The number identifies the law; the name beside it is redundant.
+
+    Only eight laws sit in CANONICAL_LAW_BY_NO, so for every other statute an
+    empty name on one side and a written name on the other made two references
+    to the same provision compare as different. Measured on real data: three of
+    the eight apparent ground-truth gaps were this and nothing else.
+    """
+    for number, written in (
+        ("506", "506 Sayılı Kanun"),
+        ("1163", "Kooperatifler Kanunu"),
+        ("7194", "7194 sayılı kanun"),
+        ("4857", "İş Kanunu"),
+    ):
+        blank = compact_references(
+            [
+                {
+                    "kanun_no": number,
+                    "kanun_ad": "",
+                    "madde": "60",
+                    "fikra": "",
+                    "bent": "",
+                    "source_text": "x",
+                }
+            ]
+        )
+        named = compact_references(
+            [
+                {
+                    "kanun_no": number,
+                    "kanun_ad": written,
+                    "madde": "60",
+                    "fikra": "",
+                    "bent": "",
+                    "source_text": "y",
+                }
+            ]
+        )
+        assert core_identity(blank[0]) == core_identity(named[0]), number
+
+
+def test_distinct_laws_stay_distinct_without_the_name() -> None:
+    """Dropping the name must not merge two different statutes."""
+    a = compact_references(
+        [
+            {
+                "kanun_no": "506",
+                "kanun_ad": "",
+                "madde": "60",
+                "fikra": "",
+                "bent": "",
+                "source_text": "x",
+            }
+        ]
+    )
+    b = compact_references(
+        [
+            {
+                "kanun_no": "1163",
+                "kanun_ad": "",
+                "madde": "60",
+                "fikra": "",
+                "bent": "",
+                "source_text": "x",
+            }
+        ]
+    )
+    assert core_identity(a[0]) != core_identity(b[0])
+
+
+def test_the_name_still_identifies_a_law_that_carries_no_number() -> None:
+    """With kanun_no empty, law_identity falls back to the name -- keep that."""
+    a = compact_references(
+        [
+            {
+                "kanun_no": "",
+                "kanun_ad": "Kooperatifler Kanunu",
+                "madde": "93",
+                "fikra": "",
+                "bent": "",
+                "source_text": "x",
+            }
+        ]
+    )
+    b = compact_references(
+        [
+            {
+                "kanun_no": "",
+                "kanun_ad": "İş Kanunu",
+                "madde": "93",
+                "fikra": "",
+                "bent": "",
+                "source_text": "x",
+            }
+        ]
+    )
+    assert core_identity(a[0]) != core_identity(b[0])

@@ -173,6 +173,7 @@ def normalize_kanun_no(value: str) -> str:
         return ""
     cleaned = RE_NON_NO_CHARS.sub("", collapse_ws(str(value)))
     cleaned = cleaned.strip("/-")
+    cleaned = re.sub(r"\b0+(\d)", r"\1", cleaned)
     return collapse_ws(cleaned)
 
 

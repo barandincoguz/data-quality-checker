@@ -30,7 +30,11 @@ from collections import Counter
 from dataclasses import dataclass
 from typing import Any
 
-from annotator.reference.common import GENERIC_LAW_NAMES, normalize_reference
+from annotator.reference.common import (
+    GENERIC_LAW_NAMES,
+    _normalize_turkish_key,
+    normalize_reference,
+)
 
 #: A single letter after ``/`` at the end of an article number. Its *case*
 #: decides what it means in Turkish legal citation:
@@ -375,7 +379,13 @@ def law_identity_compatible(gold_ref: dict[str, str], pred_ref: dict[str, str]) 
     agreed = False
     for gold_value, pred_value in (
         (gold_no, pred_no),
-        (effective_law_name(gold_ref), effective_law_name(pred_ref)),
+        # Folded, so a name decides which law it is and not how it was typed:
+        # "KOOPERATİFLER KANUNU" and "Kooperatifler Kanunu" are one law. The
+        # displayed value is untouched; only the comparison folds.
+        (
+            _normalize_turkish_key(effective_law_name(gold_ref)),
+            _normalize_turkish_key(effective_law_name(pred_ref)),
+        ),
     ):
         if gold_value and pred_value:
             if gold_value != pred_value:

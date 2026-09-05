@@ -201,7 +201,11 @@ def normalize_kanun_adi(text: str, kanun_no: str = "") -> str:
 
     value = re.sub(r"[\u2018\u2019`´]", "'", raw)
     value = re.sub(r"\((?:kdv|ötv|otv)\)", "", value, flags=re.IGNORECASE)
-    value = collapse_ws(value.strip(" ,;:.()[]{}"))
+    # "193 sayılı Gelir Vergisi Kanunu" names the same law as "Gelir Vergisi
+    # Kanunu"; the prefix only restates kanun_no and otherwise defeats the
+    # alias lookup below.
+    value = re.sub(r"^\d+\s*say[ıi]l[ıi]\s+", "", value, flags=re.IGNORECASE)
+    value = collapse_ws(value.strip(" ,;:.()[]{}\"'«»“”"))
     value = re.sub(
         r"Kanun(?:unun|unda|una|undan|uyla|udaki|la|daki|da|a)(?:'?(?:nun|n[u\u00fc]n|na|nda))?$",
         "Kanunu",
@@ -265,8 +269,14 @@ def normalize_madde(value: str) -> str:
     raw = collapse_ws(value)
     raw = re.sub(r"[\u2018\u2019`´]", "'", raw)
     raw = re.sub(r"^madd\w*\s+", "", raw, flags=re.IGNORECASE)
-    raw = re.sub(rf"\s+{ORDINAL_SUFFIX_RE}$", "", raw, flags=re.IGNORECASE)
+    # "229 ve müteakip maddelerinde" cites article 229 onwards; the article
+    # is 229 and the trailing phrase is prose.
+    raw = re.sub(r"\s+ve\s+m[üu]teakip(\s+madd\w*)?$", "", raw, flags=re.IGNORECASE)
+    # The article word must go first. "37 nci maddesinde" ends in
+    # "maddesinde", so an ordinal strip anchored to the end could never fire
+    # and what survived was "37 nci" -- an article that matches nothing.
     raw = re.sub(r"\s*madd\w*$", "", raw, flags=re.IGNORECASE)
+    raw = re.sub(rf"\s+{ORDINAL_SUFFIX_RE}$", "", raw, flags=re.IGNORECASE)
     raw = raw.strip(" .()")
     raw = re.sub(r"\s+", " ", raw)
     if re.match(r"(?i)^ek\s+madde\s+\d+$", raw):

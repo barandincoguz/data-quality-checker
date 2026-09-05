@@ -152,6 +152,7 @@ def empty_optimal_diagnostics() -> dict[str, int]:
         "matched_with_missing_pred_kanun_ad_count": 0,
         "matched_with_extra_pred_kanun_no_count": 0,
         "matched_with_extra_pred_kanun_ad_count": 0,
+        "matched_with_conflicting_kanun_ad_count": 0,
         "deduplicated_gold_rows": 0,
         "deduplicated_prediction_rows": 0,
     }
@@ -354,10 +355,26 @@ def law_identity_compatible(gold_ref: dict[str, str], pred_ref: dict[str, str]) 
     such field agrees. This is symmetric, so a prediction that omits ``kanun_no``
     but names the law correctly is no longer punished, and neither is one that
     supplies a number the gold row left blank.
+
+    **The number has priority.** When both sides carry a ``kanun_no`` it alone
+    decides, because the number *is* the law's identifier and the name beside it
+    only restates it. Letting the name veto an agreeing number made identity
+    depend on spelling: "KOOPERATİFLER KANUNU" against "Kooperatifler Kanunu",
+    or a written name against a blank field, split one provision into two.
+    Measured over 47 documents annotated independently of the ground truth, that
+    veto cost seven matches -- core F1 0.706 against 0.736.
+
+    The name still decides on its own when at least one side has no number, so a
+    row identified only by name keeps its identity.
     """
+    gold_no = gold_ref.get("kanun_no", "")
+    pred_no = pred_ref.get("kanun_no", "")
+    if gold_no and pred_no:
+        return gold_no == pred_no
+
     agreed = False
     for gold_value, pred_value in (
-        (gold_ref.get("kanun_no", ""), pred_ref.get("kanun_no", "")),
+        (gold_no, pred_no),
         (effective_law_name(gold_ref), effective_law_name(pred_ref)),
     ):
         if gold_value and pred_value:
@@ -501,6 +518,17 @@ def _accumulate_identity_diagnostics(
             diagnostics[f"matched_with_missing_pred_{label}_count"] += 1
         elif pred_ref.get(field, "") and not gold_ref.get(field, ""):
             diagnostics[f"matched_with_extra_pred_{label}_count"] += 1
+    # Two names both stated and disagreeing is neither missing nor extra, and
+    # the number now decides the pairing, so without this the contradiction
+    # would leave no trace at all: a row reading "213 sayılı Gelir Vergisi
+    # Kanunu" would match VUK article 5 silently. The pairing is still correct
+    # -- 213 is the identifier -- but the mislabelling is worth counting.
+    if (
+        effective_law_name(gold_ref)
+        and effective_law_name(pred_ref)
+        and effective_law_name(gold_ref) != effective_law_name(pred_ref)
+    ):
+        diagnostics["matched_with_conflicting_kanun_ad_count"] += 1
 
 
 def evaluate_doc_optimal(

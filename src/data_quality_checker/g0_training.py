@@ -39,6 +39,16 @@ PILOT_LEARNING_RATES = {
     "lr2.5e-5-warm42-cos850": 2.5e-5,
     "lr5e-5": 5e-5,
     "lr1e-4": 1e-4,
+    # Every DQ-Loop round trains with this one. G0's full-epoch run showed the
+    # deliverable regime is "one pass over the training view, cosine annealed
+    # across the whole of it" (best checkpoint at update 800 of 850). A round's
+    # view grows as cleaned batches are folded in, so the horizon is left to
+    # default to that round's own epoch and warmup to the contract's 5% of it:
+    # the LR shape is then identical from M0 to M12 and the only thing that
+    # differs between rounds is how much data there is. A pinned horizon would
+    # not survive the growth -- 850 would anneal M0 to its end LR a third of
+    # the way through its 506-update epoch, and barely anneal M12 at all.
+    "loop-lr2.5e-5-full-epoch": 2.5e-5,
 }
 # Candidates whose cosine LR schedule anneals over an explicit horizon instead
 # of the full training-view epoch (ceil(rows / grad_accum) = 850). Flat-LR

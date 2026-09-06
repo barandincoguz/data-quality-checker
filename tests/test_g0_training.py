@@ -526,3 +526,64 @@ def test_resume_discovers_latest_verified_time_checkpoint(tmp_path: Path) -> Non
         )
     ]
     assert any(entry.get("checkpoint_update") == 17 for entry in result["recovery_history"])
+
+
+def test_the_loop_candidate_anneals_over_the_round_s_own_epoch() -> None:
+    """Each DQ-Loop round trains on more documents than the last, so its
+    training view has its own epoch length. The round candidate therefore
+    declares no fixed cosine horizon: the horizon is the view's own epoch and
+    warmup stays at the contract's 5% of it, so the LR *shape* is identical
+    from round to round while the amount of data is the only thing that moves.
+    A pinned horizon (G0's 850) would anneal M0 to its end learning rate a
+    third of the way through its epoch and anneal M12 barely at all.
+    """
+    from data_quality_checker.g0_training import (
+        PILOT_LEARNING_RATES,
+        PILOT_SCHEDULE_OVERRIDES,
+        PILOT_WARMUP_OVERRIDES,
+        _candidate_training_config,
+    )
+
+    candidate = "loop-lr2.5e-5-full-epoch"
+    assert PILOT_LEARNING_RATES[candidate] == 2.5e-5
+    assert candidate not in PILOT_SCHEDULE_OVERRIDES
+    assert candidate not in PILOT_WARMUP_OVERRIDES
+
+    m0 = _candidate_training_config(
+        peak_learning_rate=PILOT_LEARNING_RATES[candidate],
+        sequence_length=1536,
+        training_rows=2022,
+        schedule_total_updates=PILOT_SCHEDULE_OVERRIDES.get(candidate),
+        warmup_updates_override=PILOT_WARMUP_OVERRIDES.get(candidate),
+    )
+    assert m0.total_updates == 506  # ceil(2022 / gradient_accumulation 4)
+    assert m0.warmup_updates == 25  # round(506 * 0.05)
+    assert m0.peak_learning_rate == 2.5e-5
+    assert m0.end_learning_rate == 1e-5
+    # The configuration that must not drift between rounds, so a round-over-round
+    # difference can only mean "more data".
+    assert (m0.seed, m0.rank, m0.num_layers, m0.batch_size, m0.gradient_accumulation) == (
+        42,
+        8,
+        16,
+        1,
+        4,
+    )
+
+    later_round = _candidate_training_config(
+        peak_learning_rate=PILOT_LEARNING_RATES[candidate],
+        sequence_length=1536,
+        training_rows=8000,
+        schedule_total_updates=PILOT_SCHEDULE_OVERRIDES.get(candidate),
+        warmup_updates_override=PILOT_WARMUP_OVERRIDES.get(candidate),
+    )
+    assert later_round.total_updates == 2000
+    assert later_round.warmup_updates == 100
+    # Same shape, up to the rounding of a whole update.
+    assert (
+        abs(
+            later_round.warmup_updates / later_round.total_updates
+            - m0.warmup_updates / m0.total_updates
+        )
+        < 0.002
+    )

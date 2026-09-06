@@ -22,8 +22,14 @@ DENSE_REPLAY_SAMPLE_NAMESPACE = "dense-replay-half-v1"
 DENSE_REPLAY_SAMPLE_THRESHOLD = 256
 
 
-def _include_dense_replay(doc_id: int) -> bool:
-    """Select a stable, order-independent replay subset."""
+def _include_dense_replay(doc_id: int | str) -> bool:
+    """Select a stable, order-independent replay subset.
+
+    The id is hashed exactly as written. A canonical document is an integer
+    here and in G0's own view, so its membership is identical across
+    generations; a round-cleaned document carries its own string id and joins
+    the sample on the same rule.
+    """
 
     digest = hashlib.sha256(f"{DENSE_REPLAY_SAMPLE_NAMESPACE}:{doc_id}".encode()).digest()
     return digest[0] < DENSE_REPLAY_SAMPLE_THRESHOLD
@@ -304,7 +310,7 @@ def build_context_window_view(
         raise ContractError("tokenizer exposes no offset-capable backend")
 
     output_rows: list[dict[str, Any]] = []
-    output_doc_ids: list[int] = []
+    output_doc_ids: list[int | str] = []
     chunks: list[dict[str, Any]] = []
     native_documents = 0
     windowed_documents = 0
@@ -330,7 +336,16 @@ def build_context_window_view(
             or [message.get("role") for message in messages] != ["system", "user", "assistant"]
         ):
             raise ContractError(f"unexpected chat contract at source row {row_index}")
-        doc_id = int(raw_doc_id)
+        # The id is a key, not a number. Canonical documents are integers
+        # because the ground-truth directory resolves them that way
+        # (`doc_<id>.json`); documents cleaned by a DQ-Loop round arrive as
+        # strings like `d000001`. Coercing either into the other would break
+        # one of the two, so it is carried through exactly as given.
+        if not isinstance(raw_doc_id, int | str) or (
+            isinstance(raw_doc_id, str) and not raw_doc_id
+        ):
+            raise ContractError(f"source row {row_index} has an unusable document id")
+        doc_id = raw_doc_id
         references = _compact_references(messages[2]["content"])
         original_reference_count += len(references)
         full_tokens = _rendered_token_count(tokenizer, messages)

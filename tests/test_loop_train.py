@@ -224,7 +224,7 @@ def test_test_documents_never_appear_in_train_or_valid_files(tmp_path: Path) -> 
     train_ids = json.loads((data_dir / "train_doc_ids.json").read_text(encoding="utf-8"))
     valid_ids = json.loads((data_dir / "valid_doc_ids.json").read_text(encoding="utf-8"))
     test_ids = json.loads((data_dir / "test_doc_ids.json").read_text(encoding="utf-8"))
-    assert set(test_ids) == {"canonical:20", "canonical:21"}
+    assert set(test_ids) == {20, 21}
     assert set(test_ids) & set(train_ids) == set()
     assert set(test_ids) & set(valid_ids) == set()
 
@@ -261,3 +261,32 @@ def test_the_scaffolding_does_not_fabricate_a_training_view(tmp_path: Path) -> N
     assert "training_view" not in run_config, (
         "the windowed view does not exist yet; claiming one would train on the flat file"
     )
+
+
+def test_the_preflight_carries_the_gates_and_the_round_s_own_document_counts(
+    tmp_path: Path,
+) -> None:
+    """The compute preflight reads this file; a thin one stops the run dead.
+
+    `run_compute_acceptance_preflight` writes into `preflight["compute_gates"]`
+    straight away, so a preflight without that block fails with a KeyError
+    before any window is built. And the training contract inside it must state
+    the round's own split -- a bare `TrainingContract()` claims 394 train and 50
+    test documents, which is G0's geometry, not a round's.
+    """
+    config = canonical_fixture(tmp_path)
+    result = train_round(config, generation="M000", split=SPLIT, cleaned_batch_ids=[])
+    preflight = json.loads(Path(result["preflight_path"]).read_text(encoding="utf-8"))
+
+    assert "compute_gates" in preflight
+    contract = preflight["training_contract"]
+    assert contract["train_documents"] == len(SPLIT["train"])
+    assert contract["validation_documents"] == len(SPLIT["valid"])
+    assert contract["test_documents"] == len(SPLIT["test"])
+    # Capacity and optimisation stay fixed across generations, or a round-over-
+    # round difference stops meaning "more data".
+    assert contract["lora_rank"] == 8
+    assert contract["lora_layers"] == 16
+    assert contract["batch_size"] == 1
+    assert contract["gradient_accumulation"] == 4
+    assert contract["seed"] == 42

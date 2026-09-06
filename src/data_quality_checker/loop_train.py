@@ -36,13 +36,16 @@ from typing import Any
 
 from .atomic import write_json_atomic
 from .config import AppConfig
-from .errors import ContractError
+from .constants import MINIMUM_MLX_LM
+from .errors import ContractError, GateBlocked
 from .fingerprints import fingerprint_json, sha256_text
 from .g0 import (
     EXAMPLE_BANK_SHA256,
     PROMPT_VARIANT,
     SYSTEM_PROMPT,
     TRAINING_VIEW_POLICY,
+    TrainingContract,
+    environment_preflight,
     validate_canonical_sources,
     write_training_data,
 )
@@ -55,7 +58,12 @@ from .g0_training import (
     WorkerRunner,
     run_development,
 )
-from .loop_training import CANONICAL_PREFIX, compose_round_training_ids, round_training_documents
+from .loop_training import compose_round_training_ids, round_training_documents
+
+# A round trains on the loop split, not on G0's. The label goes into the
+# fingerprint-adjacent record so a run can never be mistaken for a G0 run
+# that happened to see fewer documents.
+LOOP_SPLIT_POLICY = "loop-300-50-150"
 
 
 def _write_round_scaffolding(
@@ -66,6 +74,10 @@ def _write_round_scaffolding(
     run_fingerprint: str,
     data_dir: Path,
     data_manifest: dict[str, Any],
+    composed: dict[str, list[str]],
+    prompt: dict[str, Any],
+    source_summary: dict[str, Any],
+    execute: bool,
 ) -> tuple[Path, Path]:
     """Write exactly what `g0_training._base_run_context` demands of a run.
 
@@ -105,12 +117,46 @@ def _write_round_scaffolding(
         "recovery": {"long_run_allowed": False},
     }
     write_json_atomic(run_dir / "run_config.json", run_config)
+    # The contract states this round's own split. A bare TrainingContract()
+    # claims G0's geometry -- 394 train and 50 test documents -- and the
+    # optimizer-update ceiling is derived from it. Capacity and optimisation
+    # stay at their defaults on purpose: if they moved between rounds, a
+    # round-over-round difference would stop meaning "more data".
+    training_contract = TrainingContract(
+        train_documents=len(composed["train"]),
+        validation_documents=len(composed["valid"]),
+        test_documents=len(composed["test"]),
+    )
+    environment = environment_preflight(config)
+    if execute and not environment["mlx_lm_version_ok"]:
+        raise GateBlocked(
+            f"mlx-lm>={MINIMUM_MLX_LM} is required; observed {environment['packages']['mlx-lm']}"
+        )
     preflight = {
         "schema_version": 1,
         "run_id": run_id,
         "generated_at": datetime.now(UTC).isoformat(),
         "status": "software_preflight_passed_compute_pending",
         "long_run_started": False,
+        "prompt": prompt,
+        "training_view_policy": TRAINING_VIEW_POLICY,
+        "split_policy": LOOP_SPLIT_POLICY,
+        "source": {key: value for key, value in source_summary.items() if key != "split"},
+        "environment": environment,
+        "training_contract": asdict(training_contract),
+        "data_manifest": data_manifest,
+        # The compute preflight flips each of these as its gate passes. It
+        # writes into this dict immediately, so the keys must exist first.
+        "compute_gates": {
+            "exact_model_snapshot": environment["model_cached"],
+            "tokenizer_chat_template": False,
+            "thinking_disabled": False,
+            "sequence_length_memory_smoke": False,
+            "two_step_training": False,
+            "one_document_generation": False,
+            "adapter_load": False,
+            "real_full_state_failure_resume": False,
+        },
     }
     write_json_atomic(preflight_path, preflight, mode=0o644)
     return run_dir, preflight_path
@@ -145,8 +191,12 @@ def train_round(
     source_summary = source["summary"]
 
     cleaned_batches: list[list[str]] = []
-    documents: dict[str, dict[str, Any]] = {
-        f"{CANONICAL_PREFIX}{doc_id}": {
+    # Canonical documents keep their integer id: that is what the ground-truth
+    # directory and the evaluator resolve, and what G0's own training data
+    # used. Round-cleaned documents keep their own `d000001`-shaped id, so the
+    # two kinds stay distinguishable without decorating either.
+    documents: dict[int | str, dict[str, Any]] = {
+        doc_id: {
             "text": payload["text"],
             "references": payload["references"],
         }
@@ -191,6 +241,10 @@ def train_round(
         run_fingerprint=run_fingerprint,
         data_dir=data_dir,
         data_manifest=data_manifest,
+        composed=composed,
+        prompt=prompt,
+        source_summary=source_summary,
+        execute=execute,
     )
 
     result: dict[str, Any] = {

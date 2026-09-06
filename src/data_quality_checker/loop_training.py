@@ -17,24 +17,37 @@ from .atomic import write_json_atomic
 from .errors import ContractError
 from .fingerprints import sha256_file
 
-CANONICAL_PREFIX = "canonical:"
-
-
-def _canonical_ids(doc_ids: Sequence[int]) -> list[str]:
-    return [f"{CANONICAL_PREFIX}{doc_id}" for doc_id in doc_ids]
-
 
 def compose_round_training_ids(
     split: dict[str, list[int]], cleaned_rounds: Sequence[Sequence[str]]
-) -> dict[str, list[str]]:
-    train = _canonical_ids(split["train"])
-    seen = set(train)
+) -> dict[str, list[int | str]]:
+    """Compose the round's three splits, each document keeping its own identity.
+
+    A canonical document is an integer here, everywhere downstream, and in G0's
+    own training data, because that is the identity the ground-truth directory
+    resolves (`doc_<id>.json`) and the identity the evaluator matches a
+    prediction against. A document cleaned by a DQ-Loop round is a string like
+    `d000001`. The two can never be confused, so the type itself records where
+    a training document came from -- no decorated key is needed, and none is
+    used, because a decorated key would stop the evaluator finding the
+    document's ground truth.
+
+    A cleaned document whose id reads as a bare integer is refused for exactly
+    that reason: it would be indistinguishable from canonical document `id`.
+    """
+    train: list[int | str] = list(split["train"])
+    seen: set[int | str] = set(train)
     for round_index, batch in enumerate(cleaned_rounds, start=1):
         for doc_id in batch:
-            if doc_id.startswith(CANONICAL_PREFIX):
+            if isinstance(doc_id, int) or (
+                isinstance(doc_id, str) and doc_id.strip().lstrip("+-").isdigit()
+            ):
                 raise ContractError(
-                    f"round {round_index} document {doc_id!r} uses the reserved canonical prefix"
+                    f"round {round_index} document {doc_id!r} reads as a canonical "
+                    "document id; a cleaned document must carry a non-numeric id"
                 )
+            if not isinstance(doc_id, str) or not doc_id:
+                raise ContractError(f"round {round_index} has an unusable document id {doc_id!r}")
             if doc_id in seen:
                 raise ContractError(
                     f"round {round_index} document {doc_id!r} is already in the training set"
@@ -43,8 +56,8 @@ def compose_round_training_ids(
             train.append(doc_id)
     return {
         "train": train,
-        "valid": _canonical_ids(split["valid"]),
-        "test": _canonical_ids(split["test"]),
+        "valid": list(split["valid"]),
+        "test": list(split["test"]),
     }
 
 

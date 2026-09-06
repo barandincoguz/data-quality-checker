@@ -138,19 +138,23 @@ def test_refit_split_keeps_every_document_in_train() -> None:
     assert refit_split(split) == {"train": [1, 2, 3, 4], "valid": [3], "test": [4]}
 
 
-def test_write_training_data_accepts_string_ids(tmp_path: Path) -> None:
+def test_write_training_data_accepts_mixed_integer_and_string_ids(tmp_path: Path) -> None:
+    """A DQ-Loop round trains on canonical documents (integer ids) alongside
+    documents a round cleaned (`d000304`). Both must pass through unchanged.
+    """
     from data_quality_checker.g0 import write_training_data
 
     documents = {
-        "canonical:1": {"text": "birinci belge", "references": []},
+        1: {"text": "birinci belge", "references": []},
         "d000304": {"text": "ikinci belge", "references": []},
-        "canonical:2": {"text": "ucuncu belge", "references": []},
+        2: {"text": "ucuncu belge", "references": []},
     }
-    split = {"train": ["canonical:1", "d000304"], "valid": ["canonical:2"], "test": []}
+    split = {"train": [1, "d000304"], "valid": [2], "test": []}
     result = write_training_data(output_dir=tmp_path, documents=documents, split=split)
     assert result["files"]["train"]["count"] == 2
     assert result["files"]["valid"]["count"] == 1
     assert result["files"]["test"]["count"] == 0
+    assert json.loads((tmp_path / "train_doc_ids.json").read_text()) == [1, "d000304"]
 
 
 def test_system_prompt_does_not_name_source_text() -> None:

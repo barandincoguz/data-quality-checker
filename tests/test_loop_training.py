@@ -17,21 +17,14 @@ SPLIT = {"train": [1, 2, 3], "valid": [10, 11], "test": [20, 21, 22]}
 
 def test_round_zero_is_canonical_train_only() -> None:
     composition = compose_round_training_ids(SPLIT, [])
-    assert composition["train"] == ["canonical:1", "canonical:2", "canonical:3"]
-    assert composition["valid"] == ["canonical:10", "canonical:11"]
-    assert composition["test"] == ["canonical:20", "canonical:21", "canonical:22"]
+    assert composition["train"] == [1, 2, 3]
+    assert composition["valid"] == [10, 11]
+    assert composition["test"] == [20, 21, 22]
 
 
 def test_each_round_appends_its_cleaned_batch() -> None:
     composition = compose_round_training_ids(SPLIT, [["dA", "dB"], ["dC"]])
-    assert composition["train"] == [
-        "canonical:1",
-        "canonical:2",
-        "canonical:3",
-        "dA",
-        "dB",
-        "dC",
-    ]
+    assert composition["train"] == [1, 2, 3, "dA", "dB", "dC"]
 
 
 def test_validation_and_test_never_grow() -> None:
@@ -46,9 +39,25 @@ def test_a_cleaned_document_may_not_enter_twice() -> None:
         compose_round_training_ids(SPLIT, [["dA"], ["dA"]])
 
 
-def test_a_cleaned_document_may_not_collide_with_a_canonical_id() -> None:
-    with pytest.raises(ContractError):
-        compose_round_training_ids(SPLIT, [["canonical:1"]])
+def test_a_cleaned_document_may_not_read_as_a_canonical_id() -> None:
+    """A canonical document is identified by its integer id, so a cleaned
+    document whose id is a bare number would be indistinguishable from one --
+    and would send the evaluator to the wrong ground-truth file.
+    """
+    for offender in ("1", "0007", 1, " 42 ", "-3"):
+        with pytest.raises(ContractError):
+            compose_round_training_ids(SPLIT, [[offender]])
+
+
+def test_a_canonical_document_stays_an_integer_so_ground_truth_resolves() -> None:
+    """Pin the identity itself: the evaluator reads `doc_<id>.json` and matches
+    predictions by this key, so any decoration here would silently evaluate the
+    round against nothing.
+    """
+    composition = compose_round_training_ids(SPLIT, [["dA"]])
+    assert all(isinstance(doc_id, int) for doc_id in composition["valid"])
+    assert all(isinstance(doc_id, int) for doc_id in composition["test"])
+    assert composition["train"][:3] == [1, 2, 3]
 
 
 def test_manifest_records_the_round_and_the_split_seal(tmp_path: Path) -> None:

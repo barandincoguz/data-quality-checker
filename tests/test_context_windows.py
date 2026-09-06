@@ -153,3 +153,35 @@ def test_native_document_row_strips_source_text_from_assistant_target(
             "bent": "",
         }
     ]
+
+
+def test_a_string_document_id_survives_the_view_unchanged(tmp_path: Path) -> None:
+    """The DQ-Loop trains on canonical documents (integer ids, resolvable in the
+    ground-truth directory) mixed with round-cleaned documents whose ids look
+    like ``d000001``. The view only ever needs a stable key -- for the replay
+    sample and for the per-chunk record -- so it must carry whatever id it was
+    given through untouched rather than force it to be a number.
+    """
+    source = tmp_path / "train.jsonl"
+    doc_ids = tmp_path / "train_doc_ids.json"
+    output = tmp_path / "train_context.jsonl"
+    output_ids = tmp_path / "train_context_doc_ids.json"
+    manifest_path = tmp_path / "train_context_manifest.json"
+    rows = [_row("kısa metin", []), _row("baska kısa metin", [])]
+    source.write_text(
+        "\n".join(json.dumps(row, ensure_ascii=False) for row in rows) + "\n", encoding="utf-8"
+    )
+    doc_ids.write_text('[7, "d000001"]\n', encoding="utf-8")
+
+    build_context_window_view(
+        source_path=source,
+        source_doc_ids_path=doc_ids,
+        output_path=output,
+        output_doc_ids_path=output_ids,
+        manifest_path=manifest_path,
+        tokenizer=_Tokenizer(),
+        model_fingerprint="d" * 64,
+        max_sequence_length=64,
+    )
+
+    assert json.loads(output_ids.read_text(encoding="utf-8")) == [7, "d000001"]

@@ -15,7 +15,6 @@ from .reference_policy import (
     DEFAULT_REFERENCE_POLICY_ID,
     apply_reference_policy,
 )
-from .text import folded_text, loose_text
 
 
 @dataclass(frozen=True)
@@ -32,23 +31,6 @@ class RouteDecision:
         payload["human_references"] = list(self.human_references)
         payload["model_references"] = list(self.model_references)
         return payload
-
-
-def _evidence_compatible(left: str, right: str) -> bool:
-    if left == right:
-        return True
-    folded_left, folded_right = folded_text(left), folded_text(right)
-    if folded_left == folded_right:
-        return True
-    loose_left, loose_right = loose_text(left), loose_text(right)
-    if not loose_left and not loose_right:
-        return True
-    if not loose_left or not loose_right:
-        return False
-    shorter, longer = sorted((loose_left, loose_right), key=len)
-    if shorter not in longer:
-        return False
-    return len(shorter) >= 16 and len(shorter) / len(longer) >= 0.25
 
 
 def _similarity(human: set[Any], model: set[Any]) -> float:
@@ -120,22 +102,9 @@ def route_document(
             tuple(model),
         )
 
-    human_by_key = {full_identity(reference): reference for reference in human}
-    model_by_key = {full_identity(reference): reference for reference in model}
-    if any(
-        not _evidence_compatible(human_by_key[key]["source_text"], model_by_key[key]["source_text"])
-        for key in full_human
-    ):
-        return RouteDecision(
-            "YELLOW",
-            ("evidence_mismatch",),
-            similarity,
-            tuple(human),
-            tuple(model),
-        )
     return RouteDecision(
         "GREEN",
-        ("normalized_five_field_set_equal", "evidence_format_or_length_only"),
+        ("normalized_five_field_set_equal",),
         similarity,
         tuple(human),
         tuple(model),

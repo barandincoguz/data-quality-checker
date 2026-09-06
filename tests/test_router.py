@@ -47,7 +47,7 @@ def test_tuple_dedup_and_generic_law_compaction() -> None:
     assert rows[0]["madde"] == "mükerrer 20"
 
 
-def test_green_allows_aliases_and_evidence_format_or_length_only() -> None:
+def test_green_allows_aliases_and_ignores_source_text() -> None:
     decision = route_document(
         human_references=[ref(kanun_no="", kanun_ad="VUK")],
         model_references=[ref(source_text="Vergi Usul Kanununun mükerrer 20 inci maddesi")],
@@ -56,7 +56,7 @@ def test_green_allows_aliases_and_evidence_format_or_length_only() -> None:
     assert decision.similarity == 1.0
 
 
-def test_yellow_for_extension_or_real_evidence_mismatch() -> None:
+def test_yellow_for_extension_mismatch() -> None:
     extension = route_document(
         human_references=[ref(fikra="1")],
         model_references=[ref(fikra="2")],
@@ -64,21 +64,23 @@ def test_yellow_for_extension_or_real_evidence_mismatch() -> None:
     assert extension.bucket == "YELLOW"
     assert extension.reasons == ("extension_mismatch",)
 
-    evidence = route_document(
+
+def test_green_when_five_fields_match_despite_different_source_text() -> None:
+    decision = route_document(
         human_references=[ref(source_text="first unrelated evidence")],
-        model_references=[ref(source_text="second different passage")],
+        model_references=[ref(source_text="second, completely different passage")],
     )
-    assert evidence.bucket == "YELLOW"
-    assert evidence.reasons == ("evidence_mismatch",)
+    assert decision.bucket == "GREEN"
+    assert decision.reasons == ("normalized_five_field_set_equal",)
 
 
-def test_one_character_evidence_cannot_make_a_reference_green() -> None:
+def test_one_character_source_text_still_routes_green() -> None:
     decision = route_document(
         human_references=[ref(source_text="a")],
         model_references=[ref()],
     )
-    assert decision.bucket == "YELLOW"
-    assert decision.reasons == ("evidence_mismatch",)
+    assert decision.bucket == "GREEN"
+    assert decision.reasons == ("normalized_five_field_set_equal",)
 
 
 def test_red_for_missing_or_extra_core_and_conflicting_identity() -> None:

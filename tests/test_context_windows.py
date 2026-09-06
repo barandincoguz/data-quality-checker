@@ -86,6 +86,14 @@ def test_context_window_view_is_lossless_bounded_and_idempotent(
         for row, doc_id in zip(rendered_rows, rendered_doc_ids, strict=True)
         if doc_id == 20
     )
+    # source_text locates a reference inside the ruling while a window is
+    # chosen, but every assistant target actually served to the model -
+    # native or windowed - must come out with the field stripped.
+    assert all(
+        "source_text" not in reference
+        for row in rendered_rows
+        for reference in json.loads(row["messages"][-1]["content"])
+    )
     assert (
         build_context_window_view(
             source_path=source,
@@ -99,3 +107,49 @@ def test_context_window_view_is_lossless_bounded_and_idempotent(
         )
         == manifest
     )
+
+
+def test_native_document_row_strips_source_text_from_assistant_target(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "train.jsonl"
+    doc_ids = tmp_path / "train_doc_ids.json"
+    output = tmp_path / "train_context.jsonl"
+    output_ids = tmp_path / "train_context_doc_ids.json"
+    manifest_path = tmp_path / "train_context_manifest.json"
+    reference = {
+        "kanun_no": "213",
+        "kanun_ad": "Vergi Usul Kanunu",
+        "madde": "mükerrer 20",
+        "fikra": "",
+        "bent": "",
+        "source_text": "mükerrer 20 nci maddesi",
+    }
+    row = _row("kısa metin mükerrer 20 nci maddesi", [reference])
+    source.write_text(json.dumps(row, ensure_ascii=False) + "\n", encoding="utf-8")
+    doc_ids.write_text("[7]\n", encoding="utf-8")
+
+    manifest = build_context_window_view(
+        source_path=source,
+        source_doc_ids_path=doc_ids,
+        output_path=output,
+        output_doc_ids_path=output_ids,
+        manifest_path=manifest_path,
+        tokenizer=_Tokenizer(),
+        model_fingerprint="c" * 64,
+        max_sequence_length=64,
+    )
+
+    assert manifest["native_document_count"] == 1
+    rendered_rows = [json.loads(line) for line in output.read_text().splitlines()]
+    assert len(rendered_rows) == 1
+    target = json.loads(rendered_rows[0]["messages"][-1]["content"])
+    assert target == [
+        {
+            "kanun_no": "213",
+            "kanun_ad": "Vergi Usul Kanunu",
+            "madde": "mükerrer 20",
+            "fikra": "",
+            "bent": "",
+        }
+    ]

@@ -41,7 +41,7 @@ SYSTEM_PROMPT = (
     "(ozelgeler).\n\n"
     "Return one flat JSON array and include ALL references in the document. "
     "Each item has exactly these string fields: kanun_no, kanun_ad, madde, "
-    "fikra, bent, source_text. Use an empty string when a field is absent. "
+    "fikra, bent. Use an empty string when a field is absent. "
     "Resolve locally supported anaphora; retain table/cetvel/list references "
     "in the same contract; never invent a law identity or evidence. Deduplicate "
     "the same legal tuple and suppress a generic law-only row when that law has "
@@ -59,10 +59,9 @@ SYSTEM_PROMPT = (
     "Compact demonstration:\n"
     "Input: 488 sayılı Damga Vergisi Kanununun 3 üncü ve 9 uncu maddeleri\n"
     'Output: [{"kanun_no":"488","kanun_ad":"Damga Vergisi Kanunu",'
-    '"madde":"3","fikra":"","bent":"","source_text":"488 sayılı '
-    'Damga Vergisi Kanununun 3 üncü maddesi"},{"kanun_no":"488",'
+    '"madde":"3","fikra":"","bent":""},{"kanun_no":"488",'
     '"kanun_ad":"Damga Vergisi Kanunu","madde":"9","fikra":"",'
-    '"bent":"","source_text":"9 uncu maddesi"}]'
+    '"bent":""}]'
 )
 
 SEQUENCE_LENGTH_CANDIDATES = (8192, 10240, 12288, 16384, 32768)
@@ -241,6 +240,10 @@ def validate_canonical_sources(config: AppConfig) -> dict[str, Any]:
 
 
 def _training_example(document: dict[str, Any]) -> dict[str, Any]:
+    # Keep source_text in this flat per-document row: context_windows.py reads
+    # it back from this same JSON to locate each reference inside the ruling
+    # when it decides which passage goes in a training window. It strips
+    # source_text from the assistant target it actually serves to the model.
     target = json.dumps(document["references"], ensure_ascii=False, separators=(",", ":"))
     return {
         "messages": [

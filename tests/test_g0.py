@@ -9,6 +9,7 @@ from data_quality_checker.config import default_config_path, load_config
 from data_quality_checker.constants import CANONICAL_GT_MANIFEST_SHA256, EXEMPLAR_DOC_IDS
 from data_quality_checker.errors import GateBlocked
 from data_quality_checker.g0 import (
+    SYSTEM_PROMPT,
     CheckpointCandidate,
     TrainingContract,
     assert_test_improves_base,
@@ -109,9 +110,12 @@ def test_refit_scaling_and_base_improvement_gate() -> None:
 
 
 def test_bootstrap_run_id_is_unchanged_for_development(tmp_path: Path) -> None:
-    # Regression lock: the winning recall-v2 development run must keep its id.
+    # Regression lock: pins the development run id to today's SYSTEM_PROMPT.
+    # source_text left the model's field list and few-shot examples, which is
+    # a deliberate change to the sealed prompt fingerprint (see Task 4: this
+    # is exactly why a new model is trained rather than reusing deployed G0).
     result = train_bootstrap(config=isolated_config(tmp_path), generation="G0")
-    assert result["run_id"] == "dqcheck_g0_qwen3_5_9b_955f5a14e275"
+    assert result["run_id"] == "dqcheck_g0_qwen3_5_9b_458edd8b15f9"
 
 
 def test_refit_bootstrap_trains_on_all_494_with_its_own_run_id(tmp_path: Path) -> None:
@@ -147,6 +151,43 @@ def test_write_training_data_accepts_string_ids(tmp_path: Path) -> None:
     assert result["files"]["train"]["count"] == 2
     assert result["files"]["valid"]["count"] == 1
     assert result["files"]["test"]["count"] == 0
+
+
+def test_system_prompt_does_not_name_source_text() -> None:
+    # source_text is the annotators' free prose; the model must never be
+    # told to emit it, in the field list or in the few-shot demonstration.
+    assert "source_text" not in SYSTEM_PROMPT
+
+
+def test_flat_training_row_keeps_source_text_for_context_window_placement(
+    tmp_path: Path,
+) -> None:
+    # g0.py's own flat per-document row still carries source_text: it is the
+    # only place context_windows.py can read it from to locate a reference
+    # inside the ruling when choosing which passage goes in a window. The
+    # windowed rows context_windows.py actually serves to the model strip it.
+    from data_quality_checker.g0 import write_training_data
+
+    documents = {
+        1: {
+            "text": "213 sayılı Vergi Usul Kanununun mükerrer 20 inci maddesi",
+            "references": [
+                {
+                    "kanun_no": "213",
+                    "kanun_ad": "Vergi Usul Kanunu",
+                    "madde": "mükerrer 20",
+                    "fikra": "",
+                    "bent": "",
+                    "source_text": "213 sayılı Vergi Usul Kanununun mükerrer 20 inci maddesi",
+                }
+            ],
+        }
+    }
+    split = {"train": [1], "valid": [], "test": []}
+    write_training_data(output_dir=tmp_path, documents=documents, split=split)
+    row = json.loads((tmp_path / "train.jsonl").read_text(encoding="utf-8").splitlines()[0])
+    target = json.loads(row["messages"][-1]["content"])
+    assert target[0]["source_text"] == documents[1]["references"][0]["source_text"]
 
 
 def test_select_checkpoint_honours_a_custom_validation_size() -> None:

@@ -84,6 +84,17 @@ def _compact_references(value: str) -> list[dict[str, Any]]:
     return references
 
 
+def _without_source_text(reference: dict[str, Any]) -> dict[str, Any]:
+    """Drop annotator source_text before it reaches the assistant target.
+
+    source_text still locates a reference inside the ruling while a window
+    is being built; it must never appear in what the model is trained to
+    emit, so every assistant-content JSON dump strips it here first.
+    """
+
+    return {field: value for field, value in reference.items() if field != "source_text"}
+
+
 def _rendered_token_count(tokenizer: Any, messages: list[dict[str, str]]) -> int:
     tokens = tokenizer.apply_chat_template(
         messages,
@@ -123,7 +134,11 @@ def _window_row(
         {"role": "user", "content": text.rstrip()},
         {
             "role": "assistant",
-            "content": json.dumps(visible, ensure_ascii=False, separators=(",", ":")),
+            "content": json.dumps(
+                [_without_source_text(reference) for reference in visible],
+                ensure_ascii=False,
+                separators=(",", ":"),
+            ),
         },
     ]
     row = {"messages": messages}
@@ -161,7 +176,7 @@ def _dense_replay_rows(
             {
                 "role": "assistant",
                 "content": json.dumps(
-                    replay_references,
+                    [_without_source_text(reference) for reference in replay_references],
                     ensure_ascii=False,
                     separators=(",", ":"),
                 ),
@@ -321,7 +336,21 @@ def build_context_window_view(
         full_tokens = _rendered_token_count(tokenizer, messages)
         if full_tokens <= max_sequence_length:
             native_documents += 1
-            output_rows.append(row)
+            native_row = {
+                "messages": [
+                    messages[0],
+                    messages[1],
+                    {
+                        "role": "assistant",
+                        "content": json.dumps(
+                            [_without_source_text(reference) for reference in references],
+                            ensure_ascii=False,
+                            separators=(",", ":"),
+                        ),
+                    },
+                ]
+            }
+            output_rows.append(native_row)
             output_doc_ids.append(doc_id)
             chunk_reference_count += len(references)
             maximum_tokens = max(maximum_tokens, full_tokens)
@@ -451,7 +480,11 @@ def build_context_window_view(
                 {"role": "user", "content": source_text},
                 {
                     "role": "assistant",
-                    "content": json.dumps([reference], ensure_ascii=False, separators=(",", ":")),
+                    "content": json.dumps(
+                        [_without_source_text(reference)],
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                    ),
                 },
             ]
             rescue_tokens = _rendered_token_count(tokenizer, rescue_messages)

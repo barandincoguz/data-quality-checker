@@ -6,11 +6,12 @@ from pathlib import Path
 import pytest
 
 from data_quality_checker.constants import EXEMPLAR_DOC_IDS
-from data_quality_checker.errors import ContractError
+from data_quality_checker.errors import ContractError, FingerprintMismatch
 from data_quality_checker.loop_split import (
     LOOP_SPLIT_SEED,
     LoopSplitSizes,
     build_loop_split,
+    read_loop_split_manifest,
     write_loop_split_manifest,
 )
 
@@ -110,3 +111,44 @@ def payload_sha(tmp_path: Path) -> str:
     from data_quality_checker.fingerprints import sha256_file
 
     return sha256_file(tmp_path / "loop_split_manifest.json")
+
+
+def test_the_written_split_round_trips_with_exact_sizes_and_no_overlap(tmp_path: Path) -> None:
+    sizes = LoopSplitSizes()
+    split = build_loop_split(ALL_CANONICAL, sizes=sizes, seed=LOOP_SPLIT_SEED)
+    write_loop_split_manifest(tmp_path, split, sizes=sizes, seed=LOOP_SPLIT_SEED)
+
+    read_back = read_loop_split_manifest(tmp_path)
+    assert len(read_back["train"]) == 300
+    assert len(read_back["valid"]) == 50
+    assert len(read_back["test"]) == 150
+    train, valid, test = set(read_back["train"]), set(read_back["valid"]), set(read_back["test"])
+    assert train & valid == set()
+    assert train & test == set()
+    assert valid & test == set()
+    assert read_back == split
+
+
+def test_a_tampered_id_makes_the_reader_raise(tmp_path: Path) -> None:
+    sizes = LoopSplitSizes()
+    split = build_loop_split(ALL_CANONICAL, sizes=sizes, seed=LOOP_SPLIT_SEED)
+    write_loop_split_manifest(tmp_path, split, sizes=sizes, seed=LOOP_SPLIT_SEED)
+
+    manifest_path = tmp_path / "loop_split_manifest.json"
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    # Swap one train id for one not in any split -- the fingerprint sealed at
+    # write time no longer matches, so the reader must refuse this file rather
+    # than silently hand back a split that was edited after the fact.
+    tampered_id = next(doc_id for doc_id in ALL_CANONICAL if doc_id not in split["train"])
+    payload["splits"]["train"][0] = tampered_id
+    manifest_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(FingerprintMismatch):
+        read_loop_split_manifest(tmp_path)
+
+
+def test_a_missing_manifest_is_rejected(tmp_path: Path) -> None:
+    from data_quality_checker.errors import IntegrityError
+
+    with pytest.raises(IntegrityError):
+        read_loop_split_manifest(tmp_path)

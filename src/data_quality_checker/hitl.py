@@ -42,7 +42,6 @@ from .review_backup import (
     review_backup_status,
 )
 from .storage import Store
-from .text import evidence_match_mode
 from .web import create_app, validate_runtime_secret
 
 LOGIN_TEMPLATE = """
@@ -554,11 +553,6 @@ def validate_final_references(references: Any, *, document_text: str) -> list[di
     for index, reference in enumerate(validated):
         if not reference["kanun_no"] and not reference["kanun_ad"]:
             raise ContractError(f"final reference[{index}] has no law identity")
-        if (
-            not reference["source_text"]
-            or evidence_match_mode(reference["source_text"], document_text) is None
-        ):
-            raise ContractError(f"final reference[{index}] evidence is absent from document")
     return validated
 
 

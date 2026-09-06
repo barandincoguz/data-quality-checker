@@ -9,7 +9,7 @@ import pytest
 
 from data_quality_checker.cli import main
 from data_quality_checker.config import default_config_path, load_config
-from data_quality_checker.errors import GateBlocked, IntegrityError
+from data_quality_checker.errors import ContractError, GateBlocked, IntegrityError
 from data_quality_checker.fingerprints import sha256_file
 from data_quality_checker.hitl import create_hitl_app
 from data_quality_checker.preparation import prepare_batch
@@ -479,14 +479,23 @@ def test_review_backup_create_and_verify_cli_are_explicit_operations(tmp_path, c
     assert verified["snapshot_sha256"] == created["snapshot_sha256"]
 
 
-def test_invalid_evidence_and_defer_without_reason_are_rejected(tmp_path) -> None:
+def test_a_reference_without_a_law_identity_and_defer_without_reason_are_rejected(
+    tmp_path,
+) -> None:
+    """What the review endpoint still refuses.
+
+    A source_text that does not appear in the ruling is no longer one of them:
+    the field is the project owner's material for annotator error analysis and
+    decides nothing, so an expert may summarise the passage. A reference naming
+    no law at all remains meaningless, and a deferral still needs its reason.
+    """
     _, app = fixture(tmp_path)
     client = app.test_client()
     csrf = authenticated(client)
     doc_id = client.get("/api/queue").get_json()["queue"][0]["internal_doc_id"]
-    bad_reference = {
-        "kanun_no": "999",
-        "kanun_ad": "Uydurma Kanun",
+    no_law = {
+        "kanun_no": "",
+        "kanun_ad": "",
         "madde": "1",
         "fikra": "",
         "bent": "",
@@ -494,7 +503,7 @@ def test_invalid_evidence_and_defer_without_reason_are_rejected(tmp_path) -> Non
     }
     response = client.post(
         f"/api/reviews/{doc_id}",
-        json={"action": "revise", "references": [bad_reference], "row_version": 0},
+        json={"action": "revise", "references": [no_law], "row_version": 0},
         headers={"X-CSRF-Token": csrf},
     )
     assert response.status_code == 400
@@ -602,3 +611,46 @@ def test_green_membership_change_escalates_all_remaining_green(tmp_path) -> None
     assert len(queue_after) == 34
     assert any(row["internal_doc_id"] not in sampled_ids for row in queue_after)
     assert (config.public_root / "batches" / "batch" / "green_escalation.json").is_file()
+
+
+def test_the_expert_may_paraphrase_the_supporting_passage(tmp_path) -> None:
+    """An expert's own source_text is not checked against the ruling.
+
+    The field is the project owner's material for annotator error analysis; it
+    decides nothing in the pipeline. Requiring it to appear verbatim would stop
+    a human from finalizing a correct reference merely because they summarised
+    the passage or stitched it from two places -- which is exactly what the
+    annotators do, and what this rule was retired from the router and the judge
+    for. The law identity itself is still checked.
+    """
+    from data_quality_checker.hitl import validate_final_references
+
+    document_text = "Belge metni 193 sayılı Gelir Vergisi Kanununun 37 nci maddesinden söz eder."
+    paraphrased = [
+        {
+            "kanun_no": "193",
+            "kanun_ad": "Gelir Vergisi Kanunu",
+            "madde": "37",
+            "fikra": "",
+            "bent": "",
+            "source_text": "belgede birebir geçmeyen, uzmanın kendi özeti",
+        }
+    ]
+    result = validate_final_references(paraphrased, document_text=document_text)
+    assert result[0]["madde"] == "37"
+    assert result[0]["source_text"] == "belgede birebir geçmeyen, uzmanın kendi özeti"
+
+    with pytest.raises(ContractError):
+        validate_final_references(
+            [
+                {
+                    "kanun_no": "",
+                    "kanun_ad": "",
+                    "madde": "37",
+                    "fikra": "",
+                    "bent": "",
+                    "source_text": "x",
+                }
+            ],
+            document_text=document_text,
+        )

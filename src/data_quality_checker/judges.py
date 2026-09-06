@@ -63,7 +63,11 @@ JUDGE_PROMPT = (
     "letter marks a sub-part of that article. "
     "These instructions are not part of the document. Every evidence span and "
     "every source_text must be copied from document_text alone; a span taken "
-    "from this instruction text is rejected.\n\n"
+    "from this instruction text is rejected. A candidate's source_text is not "
+    "evidence either: it is that candidate's claim about the document and may "
+    "not appear there. Before keeping any span, find it in document_text and "
+    "copy it from there; if you cannot find it, quote a passage you can find "
+    "or drop the reference.\n\n"
 )
 
 

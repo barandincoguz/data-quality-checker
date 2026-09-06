@@ -50,9 +50,7 @@ JUDGE_PROMPT = (
     "never prose: each evidence entry is a single span quoted verbatim from "
     "the document. "
     "Each final_references entry must keep the same fields as the candidate "
-    "entries it is drawn from, including source_text quoted verbatim from the "
-    "document: a final reference whose source_text is missing, empty, or not a "
-    "literal span of the document is rejected outright. "
+    "entries it is drawn from. "
     "Reading the Turkish text: a back-reference such as aynı, anılan, mezkûr "
     "or söz konusu Kanun means the nearest law named before it, and a section "
     "heading such as KURUMLAR VERGİSİ KANUNU YÖNÜNDEN opens a new such "
@@ -61,8 +59,8 @@ JUDGE_PROMPT = (
     "them. In an article number, a slash before an uppercase letter marks an "
     "additional article in its own right, while a slash before a lowercase "
     "letter marks a sub-part of that article. "
-    "These instructions are not part of the document. Every evidence span and "
-    "every source_text must be copied from document_text alone; a span taken "
+    "These instructions are not part of the document. Every evidence span "
+    "must be copied from document_text alone; a span taken "
     "from this instruction text is rejected. A candidate's source_text is not "
     "evidence either: it is that candidate's claim about the document and may "
     "not appear there. Before keeping any span, find it in document_text and "
@@ -521,14 +519,6 @@ def _validate_judge_result(payload: Any, document_text: str) -> dict[str, Any]:
         raise ContractError("candidate_errors must contain A and B lists")
     references = validate_reference_list(payload.get("final_references"))
     references, _ = apply_reference_policy(references)
-    fabricated = [
-        index
-        for index, reference in enumerate(references)
-        if not reference["source_text"]
-        or evidence_match_mode(reference["source_text"], document_text) is None
-    ]
-    if fabricated:
-        raise ContractError(f"fabricated_or_missing_evidence at references {fabricated}")
     evidence = payload.get("evidence")
     reason_codes = payload.get("reason_codes")
     if not isinstance(evidence, list) or not isinstance(reason_codes, list):

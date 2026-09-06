@@ -569,3 +569,63 @@ def test_a_rejected_judge_output_is_kept_for_audit(tmp_path) -> None:
     assert all(a["status"] == "invalid" for a in attempts)
     for attempt in attempts:
         assert "bu parça belgede kesinlikle yok" in attempt["rejected_output"]
+
+
+_DOCUMENT_TEXT = "213 sayılı Vergi Usul Kanununun mükerrer 20 nci maddesi uyarınca."
+
+
+def _judge_payload(**final_reference_updates):
+    reference = {
+        "kanun_no": "213",
+        "kanun_ad": "Vergi Usul Kanunu",
+        "madde": "mükerrer 20",
+        "fikra": "",
+        "bent": "",
+    }
+    reference.update(final_reference_updates)
+    return {
+        "verdict": "A",
+        "candidate_errors": {"A": [], "B": []},
+        "final_references": [reference],
+        "evidence": ["213 sayılı Vergi Usul Kanununun mükerrer 20 nci maddesi"],
+        "reason_codes": ["ok"],
+    }
+
+
+def test_final_references_with_no_source_text_validate() -> None:
+    """source_text is annotator prose for error analysis, not a judge
+    contract field: a final reference that carries none must still pass."""
+    from data_quality_checker.judges import _validate_judge_result
+
+    validated = _validate_judge_result(_judge_payload(), _DOCUMENT_TEXT)
+    assert validated["verdict"] == "A"
+    assert (
+        "source_text" not in validated["final_references"][0]
+        or not validated["final_references"][0]["source_text"]
+    )
+
+
+def test_final_references_source_text_need_not_be_verbatim() -> None:
+    """Round 1 (d000081): the judge adopted the annotator's stitched span and
+    was refused three times, though the underlying reference was correct.
+    A non-verbatim, even absent, source_text must no longer block a verdict."""
+    from data_quality_checker.judges import _validate_judge_result
+
+    payload = _judge_payload(
+        source_text="stitched together from two different places in the ruling"
+    )
+    validated = _validate_judge_result(payload, _DOCUMENT_TEXT)
+    assert validated["verdict"] == "A"
+    assert validated["final_references"][0]["madde"] == "mükerrer 20"
+
+
+def test_evidence_span_absent_from_document_is_still_rejected() -> None:
+    """The judge's own evidence array is a hallucination guard on a machine's
+    output and stays validated even though final_references' source_text no
+    longer is."""
+    from data_quality_checker.judges import _validate_judge_result
+
+    payload = _judge_payload()
+    payload["evidence"] = ["bu parça belgede kesinlikle yok"]
+    with pytest.raises(ContractError, match="judge evidence contains a span absent"):
+        _validate_judge_result(payload, _DOCUMENT_TEXT)

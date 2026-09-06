@@ -1,0 +1,60 @@
+from __future__ import annotations
+
+import pytest
+
+from data_quality_checker.cli import build_parser
+
+
+@pytest.mark.parametrize(
+    ("command", "argv"),
+    [
+        ("process", ["process", "--prepared-batch", "M01", "--generation", "M000"]),
+        ("reroute", ["reroute", "--batch-id", "M01", "--generation", "M000"]),
+        ("serve", ["serve", "--batch-id", "M01", "--generation", "M000"]),
+    ],
+)
+def test_a_round_model_can_be_named_on_the_command_line(command: str, argv: list[str]) -> None:
+    """Every DQ-Loop round predicts, reroutes and is adjudicated with its own
+    model. `process_batch` and `reroute_batch` have always accepted a round
+    label; only the parser refused one, which would have forced round 1 to be
+    cleaned by G0 -- the design violation this loop exists to avoid.
+    """
+    args = build_parser().parse_args(argv)
+    assert args.generation == "M000"
+
+
+@pytest.mark.parametrize("command", ["process", "reroute", "serve"])
+def test_g0_remains_the_default_generation(command: str) -> None:
+    argv = (
+        ["process", "--prepared-batch", "M01"]
+        if command == "process"
+        else [command, "--batch-id", "M01"]
+    )
+    assert build_parser().parse_args(argv).generation == "G0"
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["process", "--prepared-batch", "M01", "--generation", "M1"],
+        ["process", "--prepared-batch", "M01", "--generation", "g0"],
+        ["reroute", "--batch-id", "M01", "--generation", "M0001"],
+        ["reroute", "--batch-id", "M01", "--generation", "round1"],
+    ],
+)
+def test_a_generation_that_is_neither_g0_nor_a_round_label_is_refused(argv: list[str]) -> None:
+    """A typo here silently reads another model's predictions -- or none --
+    so it must fail at the parser rather than halfway through a batch.
+    """
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(argv)
+
+
+@pytest.mark.parametrize("bad", ["round1", "M1", "m000", ""])
+def test_serve_refuses_a_generation_the_expert_could_not_be_shown(bad: str) -> None:
+    """`serve` decides which model's output the expert adjudicates. It used to
+    take any string, so a typo would have shown an empty review queue -- or
+    silently the wrong generation -- with no error anywhere.
+    """
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["serve", "--batch-id", "M01", "--generation", bad])

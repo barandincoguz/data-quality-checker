@@ -10,7 +10,21 @@ from pathlib import Path
 from . import commands
 from .config import default_config_path, load_config
 from .errors import DQCheckError
+from .g0_finalize import ROUND_LABEL_PATTERN
 from .reference_policy import DEFAULT_REFERENCE_POLICY_ID
+
+
+def _generation(value: str) -> str:
+    """Accept the bootstrap model or one round's model, and nothing else.
+
+    Every round predicts, reroutes and is adjudicated with its own model:
+    batch 1 is cleaned by M000, batch 2 by M001, and so on. Naming the
+    wrong one reads another model's predictions -- or none at all -- so a
+    typo has to fail here rather than halfway through a batch.
+    """
+    if value == "G0" or ROUND_LABEL_PATTERN.match(value):
+        return value
+    raise argparse.ArgumentTypeError(f"{value!r} is neither 'G0' nor a round label like 'M003'")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -42,7 +56,7 @@ def build_parser() -> argparse.ArgumentParser:
     attribution.set_defaults(handler=commands.import_attribution)
 
     train = subparsers.add_parser("train-bootstrap", help="build or run canonical-only G0")
-    train.add_argument("--generation", choices=["G0"], default="G0")
+    train.add_argument("--generation", type=_generation, default="G0")
     train.add_argument(
         "--execute",
         action="store_true",
@@ -116,7 +130,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     process = subparsers.add_parser("process", help="run resumable G0 inference and routing")
     process.add_argument("--prepared-batch", required=True)
-    process.add_argument("--generation", choices=["G0"], default="G0")
+    process.add_argument("--generation", type=_generation, default="G0")
     process.add_argument("--resume", action="store_true")
     process.add_argument("--fake-backend", action="store_true", help=argparse.SUPPRESS)
     process.set_defaults(handler=commands.process)
@@ -125,7 +139,7 @@ def build_parser() -> argparse.ArgumentParser:
         "reroute", help="preflight or atomically apply a reference-policy reroute"
     )
     reroute.add_argument("--batch-id", required=True)
-    reroute.add_argument("--generation", choices=["G0"], default="G0")
+    reroute.add_argument("--generation", type=_generation, default="G0")
     reroute.add_argument(
         "--reference-policy",
         default=DEFAULT_REFERENCE_POLICY_ID,
@@ -159,6 +173,7 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--batch-id", required=True)
     serve.add_argument(
         "--generation",
+        type=_generation,
         default="G0",
         help=(
             "model generation whose predictions the expert adjudicates; "

@@ -28,7 +28,7 @@ separate, later step -- exactly as it is for G0, where `train_bootstrap` and
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
@@ -87,7 +87,6 @@ def _write_round_scaffolding(
     """
     run_dir = config.training_runs_root / run_id
     preflight_path = config.public_root / "g0" / run_id / "preflight.json"
-    train_path = data_dir / "train.jsonl"
     run_config = {
         "schema_version": 1,
         "run_id": run_id,
@@ -96,11 +95,13 @@ def _write_round_scaffolding(
         "config_fingerprint": config.fingerprint,
         "model": asdict(config.model),
         "data_manifest": data_manifest,
-        "training_view": {
-            "jsonl_path": str(train_path),
-            "jsonl_sha256": data_manifest["files"]["train"]["jsonl_sha256"],
-            "row_count": data_manifest["files"]["train"]["count"],
-        },
+        # No `training_view` here on purpose. The trainer reads that key as the
+        # file it trains on, and the file it must train on is the windowed view
+        # that the compute acceptance preflight builds from train.jsonl with the
+        # tokenizer -- for G0 that turned 394 documents into 3399 windows.
+        # Naming the flat train.jsonl instead would train on untruncated
+        # documents whose targets still carry `source_text`, a field the system
+        # prompt no longer mentions. The preflight writes the real view.
         "recovery": {"long_run_allowed": False},
     }
     write_json_atomic(run_dir / "run_config.json", run_config)
@@ -125,6 +126,7 @@ def train_round(
     candidate_id: str | None = None,
     target_updates: int = PILOT_TARGET_UPDATES,
     resume: bool = False,
+    compute_preflight_runner: Callable[..., dict[str, Any]] | None = None,
     worker_runner: WorkerRunner | None = None,
     evaluator_runner: EvaluatorRunner | None = None,
     checkpoint_verifier: CheckpointVerifier | None = None,
@@ -206,6 +208,20 @@ def train_round(
         return result
 
     assert candidate_id is not None  # guarded above
+    # Build the windowed training view before the trainer looks for it. This is
+    # the same order train_bootstrap follows for G0: scaffolding, then compute
+    # acceptance preflight, then development.
+    if compute_preflight_runner is None:
+        from .mlx_compute import run_compute_acceptance_preflight as compute_preflight_runner_
+
+        compute_preflight_runner = compute_preflight_runner_
+
+    compute_preflight_runner(
+        config=config,
+        run_dir=run_dir,
+        data_dir=data_dir,
+        preflight_path=preflight_path,
+    )
     development = run_development(
         config=config,
         run_id=run_id,

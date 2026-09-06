@@ -97,19 +97,29 @@ def test_an_invalid_generation_is_rejected(tmp_path: Path) -> None:
             train_round(config, generation=generation, split=SPLIT, cleaned_batch_ids=[])
 
 
-def test_execute_false_scaffolding_validates_against_base_run_context(tmp_path: Path) -> None:
-    """The run_config.json/preflight.json `train_round` writes even when it
-    never executes must already be exactly what `run_development`'s entry gate
-    (`_base_run_context`) demands, so a later `execute=True` call has nothing
-    left to assemble -- only real compute preflight left to pass."""
+def test_the_entry_gate_refuses_until_the_windowed_view_exists(tmp_path: Path) -> None:
+    """Scaffolding alone is not enough to start training, and must not be.
+
+    `_base_run_context` reads `training_view.jsonl_path` and hands it to the
+    trainer as the file it trains on. That file is the windowed view the
+    compute acceptance preflight builds from train.jsonl with the tokenizer.
+    Until it exists the gate must refuse, because the only way to pass it
+    earlier is to name the flat train.jsonl instead -- which trains on
+    untruncated documents whose targets still carry `source_text`.
+    """
+    from data_quality_checker.errors import GateBlocked
     from data_quality_checker.g0_training import _base_run_context
 
     config = canonical_fixture(tmp_path)
     result = train_round(config, generation="M000", split=SPLIT, cleaned_batch_ids=[])
-    context = _base_run_context(config, result["run_id"])
-    assert context["run_config"]["run_id"] == result["run_id"]
-    assert context["preflight"]["run_id"] == result["run_id"]
-    assert context["data_dir"] == Path(result["data_dir"])
+    run_config = json.loads(Path(result["run_config_path"]).read_text(encoding="utf-8"))
+    assert run_config["run_id"] == result["run_id"]
+    assert (
+        json.loads(Path(result["preflight_path"]).read_text(encoding="utf-8"))["run_id"]
+        == (result["run_id"])
+    )
+    with pytest.raises(GateBlocked):
+        _base_run_context(config, result["run_id"])
 
 
 def test_execute_true_without_a_candidate_id_is_rejected(tmp_path: Path) -> None:
@@ -173,6 +183,13 @@ def test_execute_true_reaches_run_development_with_the_injected_fake_runner(
     def fake_worker_runner(**kwargs):  # pragma: no cover - never actually called
         raise AssertionError("real compute must never run from a test")
 
+    preflights: list[dict] = []
+
+    def fake_compute_preflight(**kwargs):
+        """The real one loads a tokenizer and windows the corpus; not in a test."""
+        preflights.append(kwargs)
+        return {"status": "fake_preflight"}
+
     result = train_round(
         config,
         generation="M000",
@@ -181,9 +198,13 @@ def test_execute_true_reaches_run_development_with_the_injected_fake_runner(
         execute=True,
         candidate_id="lr1e-5",
         target_updates=25,
+        compute_preflight_runner=fake_compute_preflight,
         worker_runner=fake_worker_runner,
     )
 
+    # The windowed view must be built before the trainer is asked for it.
+    assert len(preflights) == 1
+    assert preflights[0]["run_dir"].name == result["run_id"]
     assert len(calls) == 1
     call = calls[0]
     assert call["run_id"] == result["run_id"]
@@ -219,3 +240,24 @@ def test_round_run_directory_is_pinned_to_the_loop_namespace(tmp_path: Path) -> 
     g0_root = Path(config.sensitive_root) / "g0"
     assert loop_root in data_dir.parents
     assert g0_root not in data_dir.parents
+
+
+def test_the_scaffolding_does_not_fabricate_a_training_view(tmp_path: Path) -> None:
+    """A round must not claim a training view before the window is built.
+
+    `_base_run_context` reads `training_view.jsonl_path` and hands it to the
+    trainer as the training input. The windowed view is built by the compute
+    acceptance preflight, from `train.jsonl`, with the tokenizer -- for G0 it
+    turned 394 documents into 3399 windows. Pointing the view at the flat file
+    instead would train the model on untruncated documents whose targets still
+    carry `source_text`, a field the system prompt no longer even mentions.
+
+    So the scaffolding leaves the view out, and `execute=True` runs the compute
+    preflight before the trainer.
+    """
+    config = canonical_fixture(tmp_path)
+    result = train_round(config, generation="M000", split=SPLIT, cleaned_batch_ids=[])
+    run_config = json.loads(Path(result["run_config_path"]).read_text(encoding="utf-8"))
+    assert "training_view" not in run_config, (
+        "the windowed view does not exist yet; claiming one would train on the flat file"
+    )

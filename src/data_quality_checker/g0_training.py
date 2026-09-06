@@ -72,7 +72,15 @@ WINDOW_FALLBACK_OVERLAP_TOKENS = 256
 WINDOW_FALLBACK_MAX_GENERATION_TOKENS = 1024
 REFERENCE_POSTPROCESS = "canonical_set"
 CORE_REFERENCE_VIEW = "row"
-RUN_ID_PATTERN = re.compile(r"dqcheck_g0_qwen3_5_9b_[0-9a-f]{12}\Z")
+# `_base_run_context` is the one gate both G0's historical run and every
+# DQ-Loop round run pass through -- there is only one compute driver
+# (`run_development`), not one per generation. The constraint this pattern
+# enforces is really about the base model (both trains the same Qwen3.5-9B),
+# not about which pipeline produced the run, so a loop round's run_id is
+# admitted explicitly rather than forced to masquerade as a G0 run_id: the
+# two prefixes stay textually distinct (`g0_qwen3_5_9b` vs `loop`) so a reader
+# can always tell which pipeline produced a given run from the id alone.
+RUN_ID_PATTERN = re.compile(r"dqcheck_(?:g0_qwen3_5_9b|loop)_[0-9a-f]{12}\Z")
 
 WorkerRunner = Callable[..., dict[str, Any]]
 EvaluatorRunner = Callable[..., dict[str, Any]]
@@ -178,7 +186,7 @@ def _candidate_training_config(
 
 def _base_run_context(config: AppConfig, run_id: str) -> dict[str, Any]:
     if not RUN_ID_PATTERN.fullmatch(run_id):
-        raise GateBlocked(f"invalid canonical G0 run_id: {run_id!r}")
+        raise GateBlocked(f"invalid run_id (must be a G0 or DQ-Loop round run): {run_id!r}")
     run_dir = (config.training_runs_root / run_id).resolve()
     if run_dir.parent != config.training_runs_root.resolve():
         raise GateBlocked("G0 run path escapes the configured training root")

@@ -10,6 +10,7 @@ from data_quality_checker.config import default_config_path, load_config
 from data_quality_checker.errors import GateBlocked
 from data_quality_checker.fingerprints import sha256_file
 from data_quality_checker.g0_training import (
+    RUN_ID_PATTERN,
     canonical_evaluate,
     run_development,
     validation_milestones,
@@ -126,6 +127,30 @@ def _evaluation(update: int) -> dict[str, Any]:
             }
         ]
     }
+
+
+def test_run_id_pattern_admits_both_g0_and_a_loop_round_run() -> None:
+    """The pattern was widened to admit a DQ-Loop round run explicitly --
+    the constraint is about the base model both trains, not about which
+    pipeline produced the run -- rather than forcing a loop run to masquerade
+    as a G0 run. A reader must still be able to tell the two apart from the
+    id's prefix alone.
+    """
+    assert RUN_ID_PATTERN.fullmatch("dqcheck_g0_qwen3_5_9b_aaaaaaaaaaaa")
+    assert RUN_ID_PATTERN.fullmatch("dqcheck_loop_aaaaaaaaaaaa")
+
+
+def test_run_id_pattern_still_refuses_a_malformed_id() -> None:
+    for bad in (
+        "dqcheck_g0_qwen3_5_9b_ZZZZZZZZZZZZ",  # not hex
+        "dqcheck_g0_qwen3_5_9b_aaaaaaaaaaa",  # 11 hex chars, not 12
+        "dqcheck_loop_aaaaaaaaaaaaa",  # 13 hex chars, not 12
+        "dqcheck_loopy_aaaaaaaaaaaa",  # not the "loop" prefix
+        "dqcheck_g0_aaaaaaaaaaaa",  # missing the model marker
+        "dqcheck_g0_qwen3_5_9b_aaaaaaaaaaaa\nextra",  # trailing content
+        "",
+    ):
+        assert not RUN_ID_PATTERN.fullmatch(bad), bad
 
 
 def test_validation_milestones_preserve_25_update_boundaries_and_final_295() -> None:

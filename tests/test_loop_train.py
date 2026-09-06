@@ -97,13 +97,115 @@ def test_an_invalid_generation_is_rejected(tmp_path: Path) -> None:
             train_round(config, generation=generation, split=SPLIT, cleaned_batch_ids=[])
 
 
-def test_execute_true_raises_instead_of_silently_no_opping(tmp_path: Path) -> None:
-    """`execute` is accepted but the body never reads it -- a caller passing
-    `execute=True` must get a loud rejection, not silent no-op with no compute
-    launched and no error raised."""
+def test_execute_false_scaffolding_validates_against_base_run_context(tmp_path: Path) -> None:
+    """The run_config.json/preflight.json `train_round` writes even when it
+    never executes must already be exactly what `run_development`'s entry gate
+    (`_base_run_context`) demands, so a later `execute=True` call has nothing
+    left to assemble -- only real compute preflight left to pass."""
+    from data_quality_checker.g0_training import _base_run_context
+
     config = canonical_fixture(tmp_path)
-    with pytest.raises(ContractError, match="does not launch compute"):
+    result = train_round(config, generation="M000", split=SPLIT, cleaned_batch_ids=[])
+    context = _base_run_context(config, result["run_id"])
+    assert context["run_config"]["run_id"] == result["run_id"]
+    assert context["preflight"]["run_id"] == result["run_id"]
+    assert context["data_dir"] == Path(result["data_dir"])
+
+
+def test_execute_true_without_a_candidate_id_is_rejected(tmp_path: Path) -> None:
+    """`execute=True` used to be an unconditional refusal; now that it hands
+    off to real compute, the caller must state which LR candidate to run --
+    exactly the same "no guessed facts" rule every other round-step binding in
+    this codebase already follows."""
+    config = canonical_fixture(tmp_path)
+    with pytest.raises(ContractError, match="candidate_id"):
         train_round(config, generation="M000", split=SPLIT, cleaned_batch_ids=[], execute=True)
+    with pytest.raises(ContractError, match="candidate_id"):
+        train_round(
+            config,
+            generation="M000",
+            split=SPLIT,
+            cleaned_batch_ids=[],
+            execute=True,
+            candidate_id="not-a-real-candidate",
+        )
+
+
+def test_execute_true_still_refuses_g0_and_requires_a_round_label(tmp_path: Path) -> None:
+    config = canonical_fixture(tmp_path)
+    with pytest.raises(ContractError):
+        train_round(
+            config,
+            generation="G0",
+            split=SPLIT,
+            cleaned_batch_ids=[],
+            execute=True,
+            candidate_id="lr1e-5",
+        )
+    with pytest.raises(ContractError):
+        train_round(
+            config,
+            generation="round1",
+            split=SPLIT,
+            cleaned_batch_ids=[],
+            execute=True,
+            candidate_id="lr1e-5",
+        )
+
+
+def test_execute_true_reaches_run_development_with_the_injected_fake_runner(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`execute=True` must call the compute driver instead of raising. No
+    compute may run from a test, so the driver itself is replaced with a fake
+    that records its call and never touches real compute; a `worker_runner`
+    is still threaded through untouched, exactly as a caller would inject one
+    to keep a *real* call to `run_development` from launching real training."""
+    config = canonical_fixture(tmp_path)
+    calls: list[dict] = []
+
+    def fake_run_development(**kwargs):
+        calls.append(kwargs)
+        return {"status": "fake_completed", "run_id": kwargs["run_id"]}
+
+    monkeypatch.setattr("data_quality_checker.loop_train.run_development", fake_run_development)
+
+    def fake_worker_runner(**kwargs):  # pragma: no cover - never actually called
+        raise AssertionError("real compute must never run from a test")
+
+    result = train_round(
+        config,
+        generation="M000",
+        split=SPLIT,
+        cleaned_batch_ids=[],
+        execute=True,
+        candidate_id="lr1e-5",
+        target_updates=25,
+        worker_runner=fake_worker_runner,
+    )
+
+    assert len(calls) == 1
+    call = calls[0]
+    assert call["run_id"] == result["run_id"]
+    assert call["candidate_id"] == "lr1e-5"
+    assert call["target_updates"] == 25
+    assert call["execute"] is True
+    assert call["worker_runner"] is fake_worker_runner
+    assert result["development"] == {"status": "fake_completed", "run_id": result["run_id"]}
+
+
+def test_test_documents_never_appear_in_train_or_valid_files(tmp_path: Path) -> None:
+    """The 150 (here: 2) frozen test documents must never leak into what the
+    model actually trains or is selected on."""
+    config = canonical_fixture(tmp_path)
+    result = train_round(config, generation="M000", split=SPLIT, cleaned_batch_ids=[])
+    data_dir = Path(result["data_dir"])
+    train_ids = json.loads((data_dir / "train_doc_ids.json").read_text(encoding="utf-8"))
+    valid_ids = json.loads((data_dir / "valid_doc_ids.json").read_text(encoding="utf-8"))
+    test_ids = json.loads((data_dir / "test_doc_ids.json").read_text(encoding="utf-8"))
+    assert set(test_ids) == {"canonical:20", "canonical:21"}
+    assert set(test_ids) & set(train_ids) == set()
+    assert set(test_ids) & set(valid_ids) == set()
 
 
 def test_round_run_directory_is_pinned_to_the_loop_namespace(tmp_path: Path) -> None:

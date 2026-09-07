@@ -25,18 +25,36 @@ class TestEarlyStop:
     references both times, so every token after the third copy bought nothing.
     """
 
-    def test_a_run_of_identical_tuples_stops_generation(self) -> None:
-        text = "[" + _objects(("488", "1"), ("488", "6"), ("488", "6"), ("488", "6"))
+    def test_a_run_at_the_threshold_stops_generation(self) -> None:
+        text = "[" + _objects(("488", "1"), *((("488", "6"),) * REPETITION_STOP_RUN_LENGTH))
         assert terminal_duplicate_run_reached(text) is True
 
-    def test_two_identical_tuples_are_not_enough(self) -> None:
-        """A pair can still be followed by different references, and the
-        pipeline deduplicates anyway, so a pair is not evidence of a loop. A
-        run of three has no legitimate reading.
+    def test_a_run_shorter_than_the_threshold_is_not_enough(self) -> None:
+        """The threshold comes from the data. Across 1,248 normally-terminating
+        generations the longest run of identical consecutive references was 5,
+        so anything at or below that must pass -- d000052 emitted four in a row
+        and then produced eleven more distinct references.
         """
-        text = "[" + _objects(("488", "1"), ("488", "6"), ("488", "6"))
+        for run in range(2, 6):
+            text = "[" + _objects(("488", "1"), *((("488", "6"),) * run))
+            assert terminal_duplicate_run_reached(text) is False, run
+        assert REPETITION_STOP_RUN_LENGTH == 12
+
+    def test_the_real_false_positive_that_set_the_threshold(self) -> None:
+        """d000052, reduced to its shape: a run of four mid-list, then recovery.
+
+        The first threshold stopped here and cut the document from eighteen
+        references to seven. Nothing about this output is a loop.
+        """
+        text = "[" + _objects(
+            ("213", "396"),
+            ("213", "396"),
+            ("213", "396"),
+            ("213", "396"),
+            ("4631", "4"),
+            ("488", "1"),
+        )
         assert terminal_duplicate_run_reached(text) is False
-        assert REPETITION_STOP_RUN_LENGTH == 3
 
     def test_distinct_references_never_stop_generation(self) -> None:
         text = "[" + _objects(("488", "1"), ("488", "3"), ("488", "4"), ("193", "9"))
@@ -46,11 +64,11 @@ class TestEarlyStop:
         """The run must be at the end. An earlier triple that the model has
         already moved past is history, not a loop in progress.
         """
-        text = "[" + _objects(("488", "6"), ("488", "6"), ("488", "6"), ("193", "9"))
+        text = "[" + _objects(*((("488", "6"),) * REPETITION_STOP_RUN_LENGTH), ("193", "9"))
         assert terminal_duplicate_run_reached(text) is False
 
     def test_an_incomplete_trailing_object_is_ignored(self) -> None:
-        text = "[" + _objects(("488", "6"), ("488", "6"), ("488", "6")) + ',{"kanun_no":"48'
+        text = "[" + _objects(*((("488", "6"),) * REPETITION_STOP_RUN_LENGTH)) + ',{"kanun_no":"48'
         assert terminal_duplicate_run_reached(text) is True
 
     def test_a_short_or_empty_output_never_stops(self) -> None:
@@ -68,9 +86,11 @@ class TestSalvage:
     """
 
     def test_a_terminal_duplicate_loop_is_salvaged_to_its_unique_prefix(self) -> None:
-        raw = "[" + _objects(
-            ("488", "1"), ("488", "3"), ("488", "6"), ("488", "6"), ("488", "6")
-        ) + ',{"kanun_no":"48'
+        raw = (
+            "["
+            + _objects(("488", "1"), ("488", "3"), ("488", "6"), ("488", "6"), ("488", "6"))
+            + ',{"kanun_no":"48'
+        )
         result = salvage_repeated_json_prefix(raw)
         assert result is not None
         assert [reference["madde"] for reference in result["references"]] == ["1", "3", "6"]
@@ -155,9 +175,11 @@ def _object(no: str, madde: str) -> str:
 
 def test_predict_stops_a_tuple_loop_and_returns_the_unique_references(monkeypatch) -> None:
     from data_quality_checker import processing
+    from data_quality_checker.processing import REPETITION_STOP_RUN_LENGTH
 
-    chunks = ["[", _object("488", "1"), ",", _object("488", "6"), ",", _object("488", "6"),
-              ",", _object("488", "6"), ",", _object("488", "6")]
+    chunks = ["[", _object("488", "1")]
+    for _ in range(REPETITION_STOP_RUN_LENGTH + 2):
+        chunks += [",", _object("488", "6")]
     backend = _backend(monkeypatch, chunks, "length", processing)
     result = backend.predict({"text": "belge"})
 

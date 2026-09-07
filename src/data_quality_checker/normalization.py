@@ -232,12 +232,45 @@ def full_identity(reference: dict[str, str]) -> tuple[str, str, str, str, str, s
 
 
 def compact_references(references: Iterable[dict[str, Any]]) -> list[dict[str, str]]:
+    """Drop rows that another row in the same set already accounts for.
+
+    Two levels of the same rule. A row naming only a law goes when any article
+    of that law is named; a row naming only an article goes when any paragraph
+    or subparagraph of that article is named. `193/51` beside `193/51/1-8` is
+    not a second claim about the ruling -- it is the same claim, written twice
+    at two depths.
+
+    Only the law-level half existed before, so a model that named both depths
+    disagreed with an annotator who named one, and the document was routed
+    YELLOW: a judge call and expert attention spent on a row that adds nothing.
+    The measurement engine had already settled the question the other way --
+    `benchmark.reference.matching.prepare_reference_set` collapses rows sharing
+    (kanun_no, kanun_ad, madde), so on d000017 it reduced the model's seven rows
+    to the annotator's exact six and scored a perfect match while the router
+    called the same document a mismatch.
+
+    Both decisions are computed against the whole input set rather than a
+    running survivor, so the result cannot depend on row order -- a bucket
+    depends on this, and a bucket that moved when its input was shuffled would
+    not be a measurement.
+    """
     normalized = [normalize_reference(reference) for reference in references]
     specific_laws = {law_identity(reference) for reference in normalized if reference["madde"]}
+    specific_articles = {
+        core_identity(reference)
+        for reference in normalized
+        if reference["fikra"] or reference["bent"]
+    }
     compacted: list[dict[str, str]] = []
     seen: set[tuple[str, str, str, str, str, str]] = set()
     for reference in normalized:
         if not reference["madde"] and law_identity(reference) in specific_laws:
+            continue
+        if (
+            not reference["fikra"]
+            and not reference["bent"]
+            and core_identity(reference) in specific_articles
+        ):
             continue
         identity = full_identity(reference)
         if identity in seen:

@@ -68,13 +68,20 @@ class EchoHumanBackend:
 
 
 LEGAL_TUPLE_FIELDS = ("kanun_no", "kanun_ad", "madde", "fikra", "bent")
-# A pair of identical references proves nothing: the pipeline deduplicates, and
-# a pair can still be followed by different references. A run of three has no
-# legitimate reading -- d000021 emitted the same reference 259 times before the
-# 8192-token ceiling cut it off after 166 seconds, and doubling the ceiling to
-# 16384 produced 524 copies in 334 seconds with the same five unique
-# references. Every token after the third copy buys nothing.
-REPETITION_STOP_RUN_LENGTH = 3
+# Chosen from the data, not from intuition. Across 1,248 generations that
+# terminated normally -- 98 from M01 under M000, 100 from M01 under G0, and
+# 1,050 M000 validation generations -- the longest run of identical consecutive
+# references was 5, and d000052 shows why the tail is real: it emitted the same
+# reference four times in a row, then recovered and produced eleven more
+# distinct ones. A threshold of 3 truncated it and threw those eleven away.
+#
+# The runaway this guard exists for sits two orders of magnitude away: 260
+# copies at the 8192-token ceiling and 524 at 16384. So the threshold is set
+# well above the observed maximum rather than close to it. The two errors are
+# not symmetric -- stopping too early destroys real references, while stopping
+# too late costs a few seconds -- and this is a performance guard, not a
+# correctness one: the salvage below recovers the same references either way.
+REPETITION_STOP_RUN_LENGTH = 12
 
 
 def deduplicate_legal_tuples(references: list[dict[str, Any]]) -> list[dict[str, Any]]:

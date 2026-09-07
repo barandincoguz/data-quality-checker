@@ -41,10 +41,20 @@ def config_for(tmp_path: Path):
     return load_config(path)
 
 
-def prepared_processed_fixture(tmp_path: Path, *, count: int = 1, generation: str = "G0"):
+def prepared_processed_fixture(
+    tmp_path: Path,
+    *,
+    count: int = 1,
+    generation: str = "G0",
+    references: list[dict[str, str]] | None = None,
+):
     config = config_for(tmp_path)
     annotations = [
-        {"document_id": f"private-id-{index}", "current_references": []} for index in range(count)
+        {
+            "document_id": f"private-id-{index}",
+            "current_references": [dict(row) for row in (references or [])],
+        }
+        for index in range(count)
     ]
     pool = [
         {"evrakOid": f"private-id-{index}", "pdfText": f"Güvenli belge metni {index}."}
@@ -144,7 +154,26 @@ def test_run_judge_pilot_raises_naming_the_missing_generation(tmp_path) -> None:
 
 
 def test_blind_pilot_sends_only_text_and_candidates_and_persists_both_models(tmp_path) -> None:
-    config = prepared_processed_fixture(tmp_path)
+    config = prepared_processed_fixture(
+        tmp_path,
+        references=[
+            {
+                # madde is 353, not the task-example 413: kanun_no 213 /
+                # madde 413 is exactly DEFAULT_REFERENCE_POLICY_ID's ignored
+                # VUK boilerplate identity (reference_policy.py), so that row
+                # is filtered to an empty candidate list before blinding and
+                # makes the guard assertion below fail vacuously the other
+                # way. 353 is a real, non-boilerplate VUK article and survives
+                # apply_reference_policy so the loop actually executes.
+                "kanun_no": "213",
+                "kanun_ad": "Vergi Usul Kanunu",
+                "madde": "353",
+                "fikra": "",
+                "bent": "",
+                "source_text": "Güvenli belge metni",
+            }
+        ],
+    )
     provider = FakeJudgeProvider()
     summary = run_judge_pilot(
         config=config,
@@ -168,6 +197,10 @@ def test_blind_pilot_sends_only_text_and_candidates_and_persists_both_models(tmp
         # every candidate. The five fields are written out rather than read
         # from REFERENCE_DECISION_FIELDS, so this assertion still fails if
         # that tuple ever regains source_text.
+        # Guard against this assertion going vacuous again: it previously sat
+        # in a test whose fixture carried no references at all, so the loop
+        # below never ran and could not have failed however broken the code.
+        assert payload["candidate_a"] and payload["candidate_b"]
         for candidate in (payload["candidate_a"], payload["candidate_b"]):
             for reference in candidate:
                 assert set(reference) == {"kanun_no", "kanun_ad", "madde", "fikra", "bent"}

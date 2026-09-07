@@ -16,14 +16,18 @@ CANONICAL_GT_MANIFEST_SHA256 = "5367d50e3a9ff56f1253a54fe0d76d4ca2812939c1835951
 EXAMPLE_BANK_SHA256 = "89281d9b15bd522da835d8d30924323375ddd3f6a6207ea010eaa8f600b36f05"
 EXEMPLAR_DOC_IDS = frozenset({1, 10, 16, 18, 36, 77})
 
-REFERENCE_FIELDS = (
+# The five fields a verdict, a router bucket, or a metric may rest on.
+# `source_text` is deliberately absent: it is the annotators' prose about a
+# document, clipped from several places in it, and it identified the human
+# side of every blind comparison in round 1's judge pilot.
+REFERENCE_DECISION_FIELDS = (
     "kanun_no",
     "kanun_ad",
     "madde",
     "fikra",
     "bent",
-    "source_text",
 )
+REFERENCE_FIELDS = (*REFERENCE_DECISION_FIELDS, "source_text")
 
 ROUTER_BUCKETS = frozenset({"GREEN", "YELLOW", "RED", "QUARANTINE"})
 REVIEW_STATUSES = frozenset({"pending", "deferred", "finalized"})

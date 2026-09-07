@@ -17,7 +17,12 @@ from typing import Any, Protocol
 
 from .atomic import write_json_atomic
 from .config import AppConfig
-from .constants import JUDGE_MODEL_KEY, JUDGE_MODEL_REVISION, MODEL_ID
+from .constants import (
+    JUDGE_MODEL_KEY,
+    JUDGE_MODEL_REVISION,
+    MODEL_ID,
+    REFERENCE_DECISION_FIELDS,
+)
 from .contracts import validate_reference_list
 from .errors import ContractError, DQCheckError, GateBlocked, IntegrityError
 from .fingerprints import fingerprint_json, sha256_file
@@ -61,11 +66,9 @@ JUDGE_PROMPT = (
     "letter marks a sub-part of that article. "
     "These instructions are not part of the document. Every evidence span "
     "must be copied from document_text alone; a span taken "
-    "from this instruction text is rejected. A candidate's source_text is not "
-    "evidence either: it is that candidate's claim about the document and may "
-    "not appear there. Before keeping any span, find it in document_text and "
-    "copy it from there; if you cannot find it, quote a passage you can find "
-    "or drop the reference.\n\n"
+    "from this instruction text is rejected. Before keeping any span, find "
+    "it in document_text and copy it from there; if you cannot find it, "
+    "quote a passage you can find or drop the reference.\n\n"
 )
 
 
@@ -215,6 +218,28 @@ def ensure_green_audit_plan(*, config: AppConfig, store: Store, batch_id: str) -
     return payload
 
 
+def _decision_fields_only(references: list[dict[str, str]]) -> list[dict[str, str]]:
+    """Project a candidate onto the five fields a verdict may rest on.
+
+    A positive projection, not a `source_text` blacklist, so a field added to
+    the reference schema later cannot leak into a comparison by default.
+
+    Round 1 measured why this is not optional. Across all 60 pilot documents
+    the annotator's 494 rows carried `source_text` and M000's 610 carried
+    none, with identical key sets on both sides -- the field's value alone
+    named the human. In the GREEN bucket, where the five decision fields are
+    identical by construction and `source_text` is therefore the only
+    difference, the judge chose the annotator in 17 of 18 decisive verdicts.
+    An instruction cannot close that gap: JUDGE_PROMPT already told the judge
+    a candidate's source_text is not evidence.
+    """
+
+    return [
+        {field: reference.get(field, "") for field in REFERENCE_DECISION_FIELDS}
+        for reference in references
+    ]
+
+
 def blind_candidates(
     *,
     batch_id: str,
@@ -224,9 +249,11 @@ def blind_candidates(
     model_references: list[dict[str, str]],
 ) -> tuple[str, list[dict[str, str]], list[dict[str, str]]]:
     bit = int(_hash_order(batch_id, internal_doc_id, salt=f"blind:{model}"), 16) & 1
+    human_blind = _decision_fields_only(human_references)
+    model_blind = _decision_fields_only(model_references)
     if bit:
-        return "A=model,B=human", model_references, human_references
-    return "A=human,B=model", human_references, model_references
+        return "A=model,B=human", model_blind, human_blind
+    return "A=human,B=model", human_blind, model_blind
 
 
 class FakeJudgeProvider:
@@ -236,12 +263,20 @@ class FakeJudgeProvider:
     def judge(self, *, model: str, payload: dict[str, Any]) -> tuple[Any, dict[str, Any]]:
         self.payloads.append(payload)
         references = payload["candidate_a"]
+        # Evidence is quoted from the document, exactly as a real judge's
+        # must be. This fixture used to build it from the candidates'
+        # `source_text`, which both crashed once candidates were blinded
+        # (`KeyError: 'source_text'`, uncaught by the pilot's per-document
+        # clause) and kept 24 call sites testing the very shortcut the
+        # blinded judge no longer has.
+        document_text = str(payload.get("document_text", ""))
+        lines = [line for line in document_text.splitlines() if line.strip()]
         return (
             {
                 "verdict": "A",
                 "candidate_errors": {"A": [], "B": ["not_selected"]},
                 "final_references": references,
-                "evidence": [ref["source_text"] for ref in references if ref["source_text"]],
+                "evidence": lines[:1],
                 "reason_codes": ["fixture_prefers_a"],
             },
             {"latency_seconds": 0.0, "cost": 0.0, "provider": "fake"},

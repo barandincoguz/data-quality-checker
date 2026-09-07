@@ -163,6 +163,14 @@ def test_blind_pilot_sends_only_text_and_candidates_and_persists_both_models(tmp
             "instructions",
         }
         assert "private-id" not in json.dumps(payload)
+        # The keys were always right; the contents were not. Round 1 shipped
+        # a judge pilot through this test with the annotator's source_text on
+        # every candidate. The five fields are written out rather than read
+        # from REFERENCE_DECISION_FIELDS, so this assertion still fails if
+        # that tuple ever regains source_text.
+        for candidate in (payload["candidate_a"], payload["candidate_b"]):
+            for reference in candidate:
+                assert set(reference) == {"kanun_no", "kanun_ad", "madde", "fikra", "bent"}
     with Store(config.database_path) as store:
         results = store.list_judge_results("batch")
     assert len(results) == 2

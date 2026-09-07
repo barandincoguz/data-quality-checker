@@ -218,8 +218,13 @@ def test_native_decision_ignores_the_source_text_it_is_about_to_strip(
         output_doc_ids_path=tmp_path / "view_doc_ids.json",
         manifest_path=tmp_path / "view_manifest.json",
         tokenizer=_Tokenizer(),
+        # 15 is chosen, not arbitrary: this row renders to 19 tokens with
+        # `source_text` in the assistant target and 12 without it. Any limit
+        # from 12 to 18 therefore separates the two; at 19 or above the
+        # document fits either way and the test passes without measuring
+        # anything. 22 was the original value and was exactly that mistake.
+        max_sequence_length=15,
         model_fingerprint="a" * 64,
-        max_sequence_length=22,
     )
     assert manifest["native_document_count"] == 1
     assert manifest["windowed_document_count"] == 0

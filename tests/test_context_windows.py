@@ -185,3 +185,41 @@ def test_a_string_document_id_survives_the_view_unchanged(tmp_path: Path) -> Non
     )
 
     assert json.loads(output_ids.read_text(encoding="utf-8")) == [7, "d000001"]
+
+
+def test_native_decision_ignores_the_source_text_it_is_about_to_strip(
+    tmp_path: Path,
+) -> None:
+    """A document is windowed only if what the model is served is too long.
+
+    The sizing count used to include `source_text`, a field the very next
+    statement strips. On the sealed 300-document split that spent a median
+    132 tokens per document on text the model never sees and fragmented 7
+    documents that fit whole.
+    """
+    reference = {
+        "kanun_no": "213",
+        "kanun_ad": "Vergi Usul Kanunu",
+        "madde": "5",
+        "fikra": "",
+        "bent": "",
+        "source_text": "w0 w1 w2 w3 w4 w5 w6 w7",
+    }
+    row = _row("w0 w1 w2 w3 w4 w5 w6 w7", [reference])
+    source = tmp_path / "train.jsonl"
+    source.write_text(json.dumps(row, ensure_ascii=False) + "\n", encoding="utf-8")
+    doc_ids = tmp_path / "train_doc_ids.json"
+    doc_ids.write_text("[1]\n", encoding="utf-8")
+
+    manifest = build_context_window_view(
+        source_path=source,
+        source_doc_ids_path=doc_ids,
+        output_path=tmp_path / "view.jsonl",
+        output_doc_ids_path=tmp_path / "view_doc_ids.json",
+        manifest_path=tmp_path / "view_manifest.json",
+        tokenizer=_Tokenizer(),
+        model_fingerprint="a" * 64,
+        max_sequence_length=22,
+    )
+    assert manifest["native_document_count"] == 1
+    assert manifest["windowed_document_count"] == 0

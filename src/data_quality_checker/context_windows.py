@@ -348,24 +348,27 @@ def build_context_window_view(
         doc_id = raw_doc_id
         references = _compact_references(messages[2]["content"])
         original_reference_count += len(references)
-        full_tokens = _rendered_token_count(tokenizer, messages)
+        # Size the row on exactly what the model is served. `source_text` is
+        # stripped from every assistant target below, so counting it here
+        # spent budget on a field the model never sees -- a median 132 tokens
+        # per document on the sealed 300-document split, which pushed 7 of
+        # them out of a whole-document row and into windows.
+        served_messages = [
+            messages[0],
+            messages[1],
+            {
+                "role": "assistant",
+                "content": json.dumps(
+                    [_without_source_text(reference) for reference in references],
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                ),
+            },
+        ]
+        full_tokens = _rendered_token_count(tokenizer, served_messages)
         if full_tokens <= max_sequence_length:
             native_documents += 1
-            native_row = {
-                "messages": [
-                    messages[0],
-                    messages[1],
-                    {
-                        "role": "assistant",
-                        "content": json.dumps(
-                            [_without_source_text(reference) for reference in references],
-                            ensure_ascii=False,
-                            separators=(",", ":"),
-                        ),
-                    },
-                ]
-            }
-            output_rows.append(native_row)
+            output_rows.append({"messages": served_messages})
             output_doc_ids.append(doc_id)
             chunk_reference_count += len(references)
             maximum_tokens = max(maximum_tokens, full_tokens)

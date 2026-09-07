@@ -146,6 +146,7 @@ def pilot_judges(args: Namespace, config: AppConfig) -> int:
     result = run_judge_pilot(
         config=config,
         batch_id=args.batch_id,
+        generation=args.generation,
         allow_external_judge=args.allow_external_judge,
         fake_backend=args.fake_backend,
         judge_models=judge_models,

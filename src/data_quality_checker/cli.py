@@ -154,6 +154,16 @@ def build_parser() -> argparse.ArgumentParser:
 
     pilot = subparsers.add_parser("pilot-judges", help="run the bounded blind judge pilot")
     pilot.add_argument("--batch-id", required=True)
+    pilot.add_argument(
+        "--generation",
+        type=_generation,
+        default="G0",
+        help=(
+            "model generation whose predictions the judge compares against the "
+            "annotator; a round must pass its own label or the judge reads the "
+            "wrong model's output"
+        ),
+    )
     pilot.add_argument("--allow-external-judge", action="store_true")
     pilot.add_argument(
         "--judge-models",

@@ -58,3 +58,14 @@ def test_serve_refuses_a_generation_the_expert_could_not_be_shown(bad: str) -> N
     """
     with pytest.raises(SystemExit):
         build_parser().parse_args(["serve", "--batch-id", "M01", "--generation", bad])
+
+
+def test_the_judge_can_be_pointed_at_a_round_s_predictions() -> None:
+    """`run_judge_pilot` has always taken a generation; the parser offered none,
+    so a round's judge would have compared the annotator against G0's output.
+    """
+    args = build_parser().parse_args(["pilot-judges", "--batch-id", "M01", "--generation", "M000"])
+    assert args.generation == "M000"
+    assert build_parser().parse_args(["pilot-judges", "--batch-id", "M01"]).generation == "G0"
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["pilot-judges", "--batch-id", "M01", "--generation", "M1"])

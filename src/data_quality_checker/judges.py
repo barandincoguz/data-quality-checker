@@ -537,6 +537,33 @@ def _validate_judge_result(payload: Any, document_text: str) -> dict[str, Any]:
     }
 
 
+def judged_prediction_provenance(prediction: dict[str, Any]) -> dict[str, str]:
+    """Name the exact model output a verdict was formed against.
+
+    `judge_results` is keyed by (batch_id, internal_doc_id, model): no
+    generation. Within the loop that is sound -- a batch is judged against one
+    generation -- but the stored verdict named no generation either, so a
+    verdict could not be traced to what it judged. M01 already holds verdicts
+    formed against G0's predictions and is now judged against M000's; without
+    this, the two would be indistinguishable in the record.
+
+    Refuses a prediction it cannot identify. A verdict whose subject is unknown
+    is worse than no verdict: it looks like evidence.
+    """
+    required = ("generation", "model_fingerprint", "response_sha256")
+    missing = [field for field in required if not prediction.get(field)]
+    if missing:
+        raise IntegrityError(
+            f"prediction cannot be identified for a judge verdict; missing {missing}"
+        )
+    return {
+        "generation": str(prediction["generation"]),
+        "model_fingerprint": str(prediction["model_fingerprint"]),
+        "prediction_sha256": str(prediction["response_sha256"]),
+        "input_fingerprint": str(prediction.get("input_fingerprint", "")),
+    }
+
+
 def _safe_model_name(model: str) -> str:
     return "".join(char if char.isalnum() or char in "-_" else "_" for char in model)
 
@@ -679,12 +706,16 @@ def _run_pilot_impl(
                     else ("unavailable" if unavailable else "error")
                 )
                 result_payload = {
-                    "schema_version": 1,
+                    "schema_version": 2,
                     "batch_id": batch_id,
                     "internal_doc_id": internal_doc_id,
                     "model": model,
                     "blind_mapping": mapping,
                     "status": status,
+                    # Which model output this verdict was formed against. The
+                    # store's key does not carry it, so without this a verdict
+                    # cannot be traced to its subject.
+                    "judged_prediction": judged_prediction_provenance(prediction),
                     "result": validated or {},
                     "attempts": attempts,
                     "operational": operational,
@@ -783,6 +814,10 @@ def _run_locked_judge_coverage(
         lease.beat(stage="judge-production", expected_units=len(targets), completed_units=0)
         for index, document in enumerate(targets, 1):
             internal_doc_id = document["internal_doc_id"]
+            prediction = store.get_prediction(batch_id, internal_doc_id, generation)
+            if prediction is None:
+                raise IntegrityError(f"missing {generation} prediction for {internal_doc_id}")
+            provenance = judged_prediction_provenance(prediction)
             existing = store.get_judge_result(batch_id, internal_doc_id, model)
             if existing is not None and existing["status"] == "valid":
                 result_path = Path(existing["response_path"])
@@ -791,12 +826,21 @@ def _run_locked_judge_coverage(
                     or sha256_file(result_path) != existing["response_sha256"]
                 ):
                     raise IntegrityError(f"judge result file is missing or corrupt: {result_path}")
+                # Resume must not hand back a verdict formed against another
+                # generation's output. The store's key cannot tell them apart,
+                # so the stored payload is asked directly; a verdict written
+                # before provenance was recorded names nothing and is refused
+                # rather than silently trusted.
+                stored = json.loads(result_path.read_text(encoding="utf-8"))
+                if stored.get("judged_prediction") != provenance:
+                    raise IntegrityError(
+                        f"existing judge verdict for {internal_doc_id} was formed against "
+                        f"{stored.get('judged_prediction', {}).get('generation', 'an unrecorded')}"
+                        f" prediction, not {generation}; re-judge or clear it"
+                    )
                 counts["valid"] += 1
                 lease.beat(completed_units=index, last_successful_unit=internal_doc_id)
                 continue
-            prediction = store.get_prediction(batch_id, internal_doc_id, generation)
-            if prediction is None:
-                raise IntegrityError(f"missing {generation} prediction for {internal_doc_id}")
             human, _ = apply_reference_policy(json.loads(document["human_references_json"]))
             model_references, _ = apply_reference_policy(json.loads(prediction["references_json"]))
             mapping, candidate_a, candidate_b = blind_candidates(
@@ -840,13 +884,14 @@ def _run_locked_judge_coverage(
                 "valid" if validated is not None else ("unavailable" if unavailable else "error")
             )
             result_payload = {
-                "schema_version": 1,
+                "schema_version": 2,
                 "batch_id": batch_id,
                 "internal_doc_id": internal_doc_id,
                 "model": model,
                 "stage": "production",
                 "blind_mapping": mapping,
                 "status": status,
+                "judged_prediction": judged_prediction_provenance(prediction),
                 "result": validated or {},
                 "attempts": attempts,
                 "operational": operational,

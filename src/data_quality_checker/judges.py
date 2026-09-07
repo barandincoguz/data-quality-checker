@@ -85,6 +85,34 @@ def judge_prompt_fingerprint() -> str:
     return hashlib.sha256(JUDGE_PROMPT.encode("utf-8")).hexdigest()
 
 
+CANDIDATE_PAYLOAD_CONTRACT = "decision_fields_only_v1"
+
+
+def judge_instrument() -> dict[str, str]:
+    """Name the whole instrument a verdict came from, not half of it.
+
+    `judge_prompt_fingerprint` covered the instructions. The other half is
+    the shape of the payload those instructions describe, and it was recorded
+    nowhere. Round 1's pilot ran with `source_text` on every annotator
+    candidate and recorded prompt sha `aa887e10…` -- the same sha a correctly
+    blinded run with an unchanged prompt would have recorded, so the invalid
+    verdicts and their replacements would have been indistinguishable in the
+    record, while HANDOFF's rule that rounds carrying different fingerprints
+    must not be compared quietly relied on that sha.
+    """
+
+    return {
+        "prompt_sha256": judge_prompt_fingerprint(),
+        "candidate_payload_contract": CANDIDATE_PAYLOAD_CONTRACT,
+    }
+
+
+def _instrument_matches(stored: dict[str, Any]) -> bool:
+    """True when a stored verdict was produced by this exact instrument."""
+
+    return stored.get("judge_instrument") == judge_instrument()
+
+
 PILOT_TARGET_PER_BUCKET = 20
 PILOT_MAX_DOCS = 60
 
@@ -655,6 +683,8 @@ def _run_pilot_impl(
         total_cost: dict[str, float] = {model: 0.0 for model in models}
         document_by_id = {row["internal_doc_id"]: row for row in documents}
         providers_by_model: dict[str, JudgeProvider] = {}
+        instrument = judge_instrument()
+        stale_by_model: dict[str, int] = {model: 0 for model in models}
 
         for selection_index, internal_doc_id in enumerate(selection.internal_doc_ids, 1):
             document = document_by_id[internal_doc_id]
@@ -676,8 +706,18 @@ def _run_pilot_impl(
                         raise IntegrityError(
                             f"judge result file is missing or corrupt: {response_path}"
                         )
-                    counts_by_model[model]["valid"] += 1
-                    continue
+                    stored = json.loads(response_path.read_text(encoding="utf-8"))
+                    # A pilot is the run you redo when the instrument moves,
+                    # so a verdict from another instrument is re-judged rather
+                    # than refused -- but it is counted, because the rerun that
+                    # silently reused 57 valid verdicts is exactly how round 1
+                    # spent a pilot reproducing its own invalid conclusions.
+                    if _instrument_matches(stored) and stored.get(
+                        "judged_prediction"
+                    ) == judged_prediction_provenance(prediction):
+                        counts_by_model[model]["valid"] += 1
+                        continue
+                    stale_by_model[model] += 1
                 mapping, candidate_a, candidate_b = blind_candidates(
                     batch_id=batch_id,
                     internal_doc_id=internal_doc_id,
@@ -741,11 +781,12 @@ def _run_pilot_impl(
                     else ("unavailable" if unavailable else "error")
                 )
                 result_payload = {
-                    "schema_version": 2,
+                    "schema_version": 3,
                     "batch_id": batch_id,
                     "internal_doc_id": internal_doc_id,
                     "model": model,
                     "blind_mapping": mapping,
+                    "judge_instrument": instrument,
                     "status": status,
                     # Which model output this verdict was formed against. The
                     # store's key does not carry it, so without this a verdict
@@ -810,6 +851,7 @@ def _run_pilot_impl(
                     "total_latency_seconds": total_latency[model],
                     "reported_cost": total_cost[model],
                     "expert_metrics": "pending",
+                    "stale_verdicts_rejudged": stale_by_model[model],
                 }
                 for model in models
             },
@@ -817,6 +859,7 @@ def _run_pilot_impl(
             "fake_backend": fake_backend,
             "green_audit": audit,
             "judge_prompt_sha256": judge_prompt_fingerprint(),
+            "judge_instrument": instrument,
             "production_judge_locked": False,
         }
         write_json_atomic(public_dir / "judge_pilot_summary.json", summary, mode=0o644)
@@ -867,6 +910,11 @@ def _run_locked_judge_coverage(
                 # before provenance was recorded names nothing and is refused
                 # rather than silently trusted.
                 stored = json.loads(result_path.read_text(encoding="utf-8"))
+                if not _instrument_matches(stored):
+                    raise IntegrityError(
+                        f"existing judge verdict for {internal_doc_id} was formed by a "
+                        f"different judge instrument than the locked one; re-judge or clear it"
+                    )
                 if stored.get("judged_prediction") != provenance:
                     raise IntegrityError(
                         f"existing judge verdict for {internal_doc_id} was formed against "
@@ -919,12 +967,13 @@ def _run_locked_judge_coverage(
                 "valid" if validated is not None else ("unavailable" if unavailable else "error")
             )
             result_payload = {
-                "schema_version": 2,
+                "schema_version": 3,
                 "batch_id": batch_id,
                 "internal_doc_id": internal_doc_id,
                 "model": model,
                 "stage": "production",
                 "blind_mapping": mapping,
+                "judge_instrument": judge_instrument(),
                 "status": status,
                 "judged_prediction": judged_prediction_provenance(prediction),
                 "result": validated or {},

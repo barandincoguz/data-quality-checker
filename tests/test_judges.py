@@ -10,10 +10,12 @@ import pytest
 from data_quality_checker.commands import pilot_judges
 from data_quality_checker.config import default_config_path, load_config
 from data_quality_checker.errors import ContractError, DQCheckError, GateBlocked, IntegrityError
+from data_quality_checker.fingerprints import sha256_file
 from data_quality_checker.judges import (
     FakeJudgeProvider,
     JudgeProviderUnavailable,
     ensure_green_audit_plan,
+    judge_instrument,
     lock_judge,
     run_judge_pilot,
     select_pilot_documents,
@@ -672,3 +674,80 @@ def test_evidence_span_absent_from_document_is_still_rejected() -> None:
     payload["evidence"] = ["bu parça belgede kesinlikle yok"]
     with pytest.raises(ContractError, match="judge evidence contains a span absent"):
         _validate_judge_result(payload, _DOCUMENT_TEXT)
+
+
+def test_judge_instrument_names_the_payload_shape_not_only_the_prompt() -> None:
+    from data_quality_checker.judges import CANDIDATE_PAYLOAD_CONTRACT, judge_instrument
+
+    instrument = judge_instrument()
+    assert set(instrument) == {"prompt_sha256", "candidate_payload_contract"}
+    assert instrument["candidate_payload_contract"] == CANDIDATE_PAYLOAD_CONTRACT
+    # Round 1's invalid pilot recorded this sha. A run that changed only the
+    # payload would otherwise have been indistinguishable from it.
+    assert instrument["prompt_sha256"] != (
+        "aa887e106fd908222c4afe368b5a598695ff31ca86fd35ccdbce0097760b3d74"
+    )
+
+
+def test_pilot_rejudges_a_verdict_formed_by_another_instrument(tmp_path) -> None:
+    """The invalid round-1 pilot left 57 verdicts at status='valid'. A rerun
+    that trusted them would have spent 35 minutes reproducing them."""
+    import json as _json
+
+    from data_quality_checker.judges import run_judge_pilot
+
+    config = prepared_processed_fixture(tmp_path)
+    first = run_judge_pilot(
+        config=config,
+        batch_id="batch",
+        allow_external_judge=True,
+        provider=FakeJudgeProvider(),
+        judge_models=("qwen3.5:397b",),
+    )
+    assert first["models"]["qwen3.5:397b"]["valid"] == 1
+    assert first["models"]["qwen3.5:397b"]["stale_verdicts_rejudged"] == 0
+
+    with Store(config.database_path) as store:
+        row = store.list_judge_results("batch")[0]
+    path = Path(row["response_path"])
+    stored = _json.loads(path.read_text(encoding="utf-8"))
+    stored["judge_instrument"] = {
+        "prompt_sha256": "0" * 64,
+        "candidate_payload_contract": "spans_included_v0",
+    }
+    path.write_text(_json.dumps(stored, ensure_ascii=False), encoding="utf-8")
+    with Store(config.database_path) as store:
+        store.persist_judge_result(
+            batch_id="batch",
+            internal_doc_id=row["internal_doc_id"],
+            model="qwen3.5:397b",
+            blind_mapping=row["blind_mapping"],
+            status="valid",
+            verdict=row["verdict"],
+            result=_json.loads(row["result_json"]),
+            response_path=path,
+            response_sha256=sha256_file(path),
+            retry_count=0,
+            error=None,
+        )
+
+    second = run_judge_pilot(
+        config=config,
+        batch_id="batch",
+        allow_external_judge=True,
+        provider=FakeJudgeProvider(),
+        judge_models=("qwen3.5:397b",),
+    )
+    assert second["models"]["qwen3.5:397b"]["stale_verdicts_rejudged"] == 1
+    assert second["models"]["qwen3.5:397b"]["valid"] == 1
+    assert second["judge_instrument"] == judge_instrument()
+
+
+def test_locked_coverage_refuses_a_verdict_from_another_instrument(tmp_path) -> None:
+    """Production coverage is one instrument by definition, so a foreign
+    verdict is an error there rather than something to redo silently."""
+    from data_quality_checker.judges import _instrument_matches, judge_instrument
+
+    assert _instrument_matches({"judge_instrument": judge_instrument()}) is True
+    assert _instrument_matches({"judge_instrument": {"prompt_sha256": "0" * 64}}) is False
+    assert _instrument_matches({}) is False

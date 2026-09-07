@@ -67,6 +67,134 @@ class EchoHumanBackend:
         )
 
 
+LEGAL_TUPLE_FIELDS = ("kanun_no", "kanun_ad", "madde", "fikra", "bent")
+# A pair of identical references proves nothing: the pipeline deduplicates, and
+# a pair can still be followed by different references. A run of three has no
+# legitimate reading -- d000021 emitted the same reference 259 times before the
+# 8192-token ceiling cut it off after 166 seconds, and doubling the ceiling to
+# 16384 produced 524 copies in 334 seconds with the same five unique
+# references. Every token after the third copy buys nothing.
+REPETITION_STOP_RUN_LENGTH = 3
+
+
+def deduplicate_legal_tuples(references: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    unique: list[dict[str, Any]] = []
+    seen: set[tuple[str, ...]] = set()
+    for reference in references:
+        identity = tuple(str(reference.get(field, "")) for field in LEGAL_TUPLE_FIELDS)
+        if identity in seen:
+            continue
+        seen.add(identity)
+        unique.append(reference)
+    return unique
+
+
+def _last_complete_objects(text: str, count: int) -> list[str] | None:
+    """Return the last `count` complete `{...}` objects, newest last.
+
+    Scans backwards from the end so the cost does not grow with the output --
+    this runs once per generated token. A trailing incomplete object is
+    ignored, which is the normal state mid-stream.
+    """
+    objects: list[str] = []
+    end = len(text)
+    for _ in range(count):
+        close = text.rfind("}", 0, end)
+        if close < 0:
+            return None
+        opened = text.rfind("{", 0, close)
+        if opened < 0:
+            return None
+        objects.append(text[opened : close + 1])
+        end = opened
+    return list(reversed(objects))
+
+
+def terminal_duplicate_run_reached(
+    text: str, *, run_length: int = REPETITION_STOP_RUN_LENGTH
+) -> bool:
+    """True when the output currently ends in a run of identical references.
+
+    Greedy decoding at temperature 0 cannot escape such a run: each copy raises
+    the probability of the next, so once P(another copy) exceeds P("]") the
+    inequality only widens. Raising `max_tokens` therefore buys time, not
+    termination, which is why generation is stopped here instead.
+    """
+    objects = _last_complete_objects(text, run_length)
+    if objects is None:
+        return False
+    identities = []
+    for chunk in objects:
+        try:
+            payload = json.loads(chunk)
+        except json.JSONDecodeError:
+            return False
+        if not isinstance(payload, dict):
+            return False
+        identities.append(tuple(str(payload.get(field, "")) for field in LEGAL_TUPLE_FIELDS))
+    return len(set(identities)) == 1
+
+
+def salvage_repeated_json_prefix(raw_output: str) -> dict[str, Any] | None:
+    """Close only a valid JSON prefix that demonstrably ends in a tuple loop.
+
+    Lives here, next to the parser, so the deployment path and the training
+    path apply the identical rule. They did not: the same model failing the
+    same way was recovered during validation and quarantined during
+    deployment, purely because the recovery existed in one code path only.
+
+    The rule refuses an enumeration runaway on purpose. d000059 counted `bent`
+    upward -- 201, 202, 203 -- so no two tuples are equal and there is nothing
+    to deduplicate; closing that array would inject hundreds of fabricated
+    references into the batch. Such a document stays quarantined.
+    """
+    array_start = raw_output.find("[")
+    if array_start < 0:
+        return None
+    search_end = len(raw_output)
+    while True:
+        object_end = raw_output.rfind("}", array_start, search_end)
+        if object_end < 0:
+            return None
+        candidate = raw_output[array_start : object_end + 1].rstrip().rstrip(",") + "]"
+        try:
+            references = _parse_model_output(candidate)
+        except ContractError:
+            search_end = object_end
+            continue
+        if len(references) < 2:
+            return None
+        identities = [
+            tuple(str(reference.get(field, "")) for field in LEGAL_TUPLE_FIELDS)
+            for reference in references
+        ]
+        terminal_identity = identities[-1]
+        terminal_run_length = 0
+        for identity in reversed(identities):
+            if identity != terminal_identity:
+                break
+            terminal_run_length += 1
+        unique = deduplicate_legal_tuples(references)
+        # The second clause is provably unreachable given the first -- a
+        # terminal run of two means the last two identities are equal, so
+        # deduplication must shrink the list. It is kept because this is the
+        # frozen rule the sealed G0 runs were produced with, and removing dead
+        # code from a frozen rule buys nothing. A mutation that deletes it
+        # therefore survives, correctly; it is not a gap in the tests.
+        if terminal_run_length < 2 or len(unique) == len(references):
+            return None
+        return {
+            "references": unique,
+            "complete_reference_count": len(references),
+            "unique_reference_count": len(unique),
+            "duplicate_reference_count": len(references) - len(unique),
+            "terminal_duplicate_run_length": terminal_run_length,
+            "discarded_incomplete_suffix_chars": len(raw_output) - object_end - 1,
+            "synthetic_closing_bracket": True,
+            "repaired_prefix_sha256": sha256_text(candidate),
+        }
+
+
 def _parse_model_output(raw_output: str) -> list[dict[str, str]]:
     text = raw_output.strip()
     if text.startswith("```"):
@@ -180,6 +308,7 @@ class MlxG0Backend:
         prompt_tps: float | None = None
         generation_tps: float | None = None
         peak_memory_bytes: int | None = None
+        repetition_stopped = False
         for response in stream_generate(
             self.model,
             self.tokenizer,
@@ -191,6 +320,15 @@ class MlxG0Backend:
             pieces.append(response.text)
             output_tokens = int(response.generation_tokens)
             finish_reason = str(response.finish_reason or finish_reason)
+            # Greedy decoding at temperature 0 cannot leave a tuple loop, so
+            # generation is stopped the moment one is provable rather than paid
+            # for to the ceiling. Checked only when an object just closed, and
+            # the check scans backwards from the end, so it costs nothing per
+            # token. See REPETITION_STOP_RUN_LENGTH for why three, not two.
+            if "}" in response.text and terminal_duplicate_run_reached("".join(pieces)):
+                repetition_stopped = True
+                finish_reason = "repetition_stop"
+                break
             prompt_tps = optional_float(getattr(response, "prompt_tps", None), prompt_tps)
             generation_tps = optional_float(
                 getattr(response, "generation_tps", None), generation_tps
@@ -199,18 +337,36 @@ class MlxG0Backend:
                 getattr(response, "peak_memory", None), peak_memory_bytes
             )
         raw = "".join(pieces)
-        truncated = finish_reason == "length"
+        model_runaway = finish_reason == "length" or repetition_stopped
+        recovery: dict[str, Any] | None = None
         try:
             references = _parse_model_output(raw)
             status, error = (
                 ("error", "model output reached generation limit")
-                if truncated
+                if finish_reason == "length"
                 else ("success", None)
             )
         except ContractError as exc:
             references = []
             status = "error"
-            error = f"model output reached generation limit; {exc}" if truncated else str(exc)
+            error = (
+                f"model output reached generation limit; {exc}"
+                if finish_reason == "length"
+                else str(exc)
+            )
+            # A runaway that ends in a proven tuple loop carries a usable
+            # prefix: the copies are dropped and the array is closed. An
+            # enumeration runaway is refused by the same rule and stays an
+            # error, because closing it would invent references.
+            if model_runaway:
+                recovery = salvage_repeated_json_prefix(raw)
+                if recovery is not None:
+                    references = recovery["references"]
+                    status, error = "success", None
+        # A recovered document is not truncated: a complete reference set was
+        # obtained from it. One that stayed an error is, and routes to
+        # quarantine as before.
+        truncated = bool(model_runaway and recovery is None and status == "error")
         try:
             import mlx.core as mx
 
@@ -228,6 +384,12 @@ class MlxG0Backend:
                 "latency_seconds": time.perf_counter() - started,
                 "truncated": truncated,
                 "finish_reason": finish_reason,
+                "repetition_stopped": repetition_stopped,
+                "repetition_recovery": (
+                    None
+                    if recovery is None
+                    else {key: value for key, value in recovery.items() if key != "references"}
+                ),
                 "generation_attempted": True,
                 "ttft_seconds": ttft_seconds,
                 "prompt_tps": prompt_tps,

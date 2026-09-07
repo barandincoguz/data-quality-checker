@@ -24,7 +24,16 @@ from .errors import ContractError, FingerprintMismatch, IntegrityError
 from .fingerprints import fingerprint_json, sha256_file
 from .performance import EMPTY_PERFORMANCE, optional_float, optional_int
 
-LEGAL_TUPLE_FIELDS = ("kanun_no", "kanun_ad", "madde", "fikra", "bent")
+# The tuple identity, the deduplication and the salvage rule all live in
+# `processing`, next to the parser they depend on, so the deployment path and
+# this training path can never drift into applying different rules to the
+# same model output -- which is exactly what happened once.
+from .processing import (
+    deduplicate_legal_tuples as _deduplicate_legal_tuples,
+)
+from .processing import (
+    salvage_repeated_json_prefix as _salvage_repeated_json_prefix,
+)
 
 
 def _utc_now() -> str:
@@ -206,66 +215,6 @@ def _token_intervals(
         if end == token_count:
             return intervals
         start = end - overlap_tokens
-
-
-def _deduplicate_legal_tuples(
-    references: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    unique: list[dict[str, Any]] = []
-    seen: set[tuple[str, ...]] = set()
-    for reference in references:
-        identity = tuple(str(reference.get(field, "")) for field in LEGAL_TUPLE_FIELDS)
-        if identity in seen:
-            continue
-        seen.add(identity)
-        unique.append(reference)
-    return unique
-
-
-def _salvage_repeated_json_prefix(raw_output: str) -> dict[str, Any] | None:
-    """Close only a valid JSON prefix that demonstrably ends in a tuple loop."""
-
-    from .processing import _parse_model_output
-
-    array_start = raw_output.find("[")
-    if array_start < 0:
-        return None
-    search_end = len(raw_output)
-    while True:
-        object_end = raw_output.rfind("}", array_start, search_end)
-        if object_end < 0:
-            return None
-        candidate = raw_output[array_start : object_end + 1].rstrip().rstrip(",") + "]"
-        try:
-            references = _parse_model_output(candidate)
-        except ContractError:
-            search_end = object_end
-            continue
-        if len(references) < 2:
-            return None
-        identities = [
-            tuple(str(reference.get(field, "")) for field in LEGAL_TUPLE_FIELDS)
-            for reference in references
-        ]
-        terminal_identity = identities[-1]
-        terminal_run_length = 0
-        for identity in reversed(identities):
-            if identity != terminal_identity:
-                break
-            terminal_run_length += 1
-        unique = _deduplicate_legal_tuples(references)
-        if terminal_run_length < 2 or len(unique) == len(references):
-            return None
-        return {
-            "references": unique,
-            "complete_reference_count": len(references),
-            "unique_reference_count": len(unique),
-            "duplicate_reference_count": len(references) - len(unique),
-            "terminal_duplicate_run_length": terminal_run_length,
-            "discarded_incomplete_suffix_chars": len(raw_output) - object_end - 1,
-            "synthetic_closing_bracket": True,
-            "repaired_prefix_sha256": hashlib.sha256(candidate.encode("utf-8")).hexdigest(),
-        }
 
 
 def _generate_window_fallback(

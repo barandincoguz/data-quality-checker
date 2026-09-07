@@ -280,15 +280,48 @@ def compact_references(references: Iterable[dict[str, Any]]) -> list[dict[str, s
     return compacted
 
 
+# Words that name the concept "statute" rather than any particular statute. A
+# label built only from these discriminates nothing: an annotator who clipped
+# "... İstanbul Su ve Kanalizasyon İdaresi Kanununun 21 inci maddesi" down to
+# "Kanun" has not claimed that law 2560 is some other law.
+_CONTENTLESS_LAW_WORDS = frozenset(
+    {"kanun", "kanunu", "kanunun", "kanununun", "sayili", "bu", "mezkur", "ilgili", "adi", "gecen"}
+)
+
+
+def names_a_particular_law(kanun_ad: str) -> bool:
+    """True when a law name carries something that distinguishes one law."""
+
+    folded = _fold(kanun_ad)
+    return any(word not in _CONTENTLESS_LAW_WORDS for word in folded.split())
+
+
 def conflicting_law_identity(references: Iterable[dict[str, str]]) -> bool:
+    """True when one statute number is given two different names.
+
+    Only that direction. The mirror -- one name given to two numbers -- used to
+    count as well, and it is wrong for Turkish tax rulings: a ruling may cite a
+    repealed statute alongside the one that replaced it, and the two share a
+    name. 1475 and 4857 are both the İş Kanunu, 5422 and 5520 both the Kurumlar
+    Vergisi Kanunu, 4628 and 6446 both the Elektrik Piyasası Kanunu.
+
+    Measured before removing it: across the 500 canonical ground-truth
+    documents and M01's 100, that direction fired six times. Five were
+    legitimate repealed/successor pairs -- four of them inside the
+    expert-validated ground truth, which the router would therefore have called
+    self-contradictory -- and the sixth, a model naming 7143 the Special
+    Consumption Tax Law, was already RED because two of the annotator's core
+    references were missing from it. It caught nothing on its own, it hid the
+    real reason on the documents it did fire on, and it blocked the expert from
+    saving a pair the ground truth already contains.
+
+    Names that name no particular law are ignored entirely; see
+    `names_a_particular_law`.
+    """
     names_by_number: defaultdict[str, set[str]] = defaultdict(set)
-    numbers_by_name: defaultdict[str, set[str]] = defaultdict(set)
     for reference in references:
         number = reference["kanun_no"]
         name = _fold(reference["kanun_ad"])
-        if number and name:
+        if number and name and names_a_particular_law(reference["kanun_ad"]):
             names_by_number[number].add(name)
-            numbers_by_name[name].add(number)
-    return any(len(values) > 1 for values in names_by_number.values()) or any(
-        len(values) > 1 for values in numbers_by_name.values()
-    )
+    return any(len(values) > 1 for values in names_by_number.values())

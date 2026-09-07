@@ -21,12 +21,11 @@ from flask import (
 from .atomic import write_json_atomic
 from .config import AppConfig
 from .constants import EXPERT_ACTIONS
-from .contracts import validate_reference_list
+from .contracts import REFERENCE_FIELDS, validate_reference_list
 from .errors import ConfigurationError, ContractError, GateBlocked, VersionConflict
 from .judges import ensure_green_audit_plan
 from .normalization import (
     compact_references,
-    conflicting_law_identity,
     core_identity,
     full_identity,
 )
@@ -543,17 +542,38 @@ def evidence_segments(text: str, spans: list[dict[str, Any]]) -> list[dict[str, 
 
 
 def validate_final_references(references: Any, *, document_text: str) -> list[dict[str, str]]:
+    """Accept what the expert decided; refuse only what is not a submission.
+
+    The expert is this pipeline's truth source. Three checks here used to
+    reject a whole submission over the *content* of the references, and each
+    was wrong for the same reason -- it told the expert their reading of a
+    ruling was inadmissible:
+
+    * a redundant row, `193/51` written beside `193/51/1-8`. The annotators do
+      this in 177 of the 500 canonical documents; it is a writing convention,
+      and `compact_references` already resolves it wherever it matters.
+    * a "conflicting law identity", which fired on repealed/successor statute
+      pairs sharing a name and is therefore present in the expert-validated
+      ground truth itself. An expert could not save doc_234's own references.
+    * a row with no law number and no law name, which rejected everything else
+      the expert had written along with it.
+
+    None of those are malformed input, so none of them is refused now. A row
+    that is entirely blank is dropped, because a blank form row carries no
+    claim to lose. A row that has content but no law identity is kept: it will
+    match nothing, but the expert wrote it, and discarding it silently would be
+    the same mistake in a quieter form.
+
+    Structural validation stays. A payload that is not a list of objects is a
+    fault in the page, not a judgement, and there is nothing to normalise.
+    """
     validated = validate_reference_list(references)
     validated, _ = apply_reference_policy(validated)
-    normalized = compact_references(validated)
-    if len(normalized) != len(validated):
-        raise ContractError("final references contain duplicate or generic-shadowed rows")
-    if conflicting_law_identity(normalized):
-        raise ContractError("final references contain conflicting law identity")
-    for index, reference in enumerate(validated):
-        if not reference["kanun_no"] and not reference["kanun_ad"]:
-            raise ContractError(f"final reference[{index}] has no law identity")
-    return validated
+    return [
+        reference
+        for reference in validated
+        if any(str(reference.get(field, "")).strip() for field in REFERENCE_FIELDS)
+    ]
 
 
 def _trigger_green_escalation(

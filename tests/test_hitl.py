@@ -9,7 +9,7 @@ import pytest
 
 from data_quality_checker.cli import main
 from data_quality_checker.config import default_config_path, load_config
-from data_quality_checker.errors import ContractError, GateBlocked, IntegrityError
+from data_quality_checker.errors import GateBlocked, IntegrityError
 from data_quality_checker.fingerprints import sha256_file
 from data_quality_checker.hitl import create_hitl_app
 from data_quality_checker.preparation import prepare_batch
@@ -479,15 +479,21 @@ def test_review_backup_create_and_verify_cli_are_explicit_operations(tmp_path, c
     assert verified["snapshot_sha256"] == created["snapshot_sha256"]
 
 
-def test_a_reference_without_a_law_identity_and_defer_without_reason_are_rejected(
+def test_the_endpoint_refuses_a_deferral_with_no_reason_but_not_the_expert_s_references(
     tmp_path,
 ) -> None:
-    """What the review endpoint still refuses.
+    """What the review endpoint still refuses, and what it stopped refusing.
 
-    A source_text that does not appear in the ruling is no longer one of them:
-    the field is the project owner's material for annotator error analysis and
-    decides nothing, so an expert may summarise the passage. A reference naming
-    no law at all remains meaningless, and a deferral still needs its reason.
+    A source_text that does not appear in the ruling is not one of them: the
+    field is the project owner's material for annotator error analysis and
+    decides nothing, so an expert may summarise the passage. Neither is a
+    reference naming no law -- it matches nothing, but the expert wrote it, and
+    rejecting the whole submission over it told the truth source their reading
+    was inadmissible.
+
+    A deferral still needs its reason. That is not a judgement about the
+    references; it is the record of why a document was set aside, and there is
+    nothing to normalise in its absence.
     """
     _, app = fixture(tmp_path)
     client = app.test_client()
@@ -506,7 +512,7 @@ def test_a_reference_without_a_law_identity_and_defer_without_reason_are_rejecte
         json={"action": "revise", "references": [no_law], "row_version": 0},
         headers={"X-CSRF-Token": csrf},
     )
-    assert response.status_code == 400
+    assert response.status_code == 200
     deferred = client.post(
         f"/api/reviews/{doc_id}",
         json={"action": "defer", "row_version": 0},
@@ -640,17 +646,20 @@ def test_the_expert_may_paraphrase_the_supporting_passage(tmp_path) -> None:
     assert result[0]["madde"] == "37"
     assert result[0]["source_text"] == "belgede birebir geçmeyen, uzmanın kendi özeti"
 
-    with pytest.raises(ContractError):
-        validate_final_references(
-            [
-                {
-                    "kanun_no": "",
-                    "kanun_ad": "",
-                    "madde": "37",
-                    "fikra": "",
-                    "bent": "",
-                    "source_text": "x",
-                }
-            ],
-            document_text=document_text,
-        )
+    # A row naming no law is no longer refused either. It matches nothing, but
+    # it is still what the expert wrote, and it no longer takes the rest of
+    # their submission down with it.
+    kept = validate_final_references(
+        [
+            {
+                "kanun_no": "",
+                "kanun_ad": "",
+                "madde": "37",
+                "fikra": "",
+                "bent": "",
+                "source_text": "x",
+            }
+        ],
+        document_text=document_text,
+    )
+    assert len(kept) == 1

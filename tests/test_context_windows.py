@@ -4,8 +4,15 @@ import json
 import re
 from pathlib import Path
 
+import pytest
+
 from data_quality_checker import context_windows
-from data_quality_checker.context_windows import _expanded_interval, build_context_window_view
+from data_quality_checker.context_windows import (
+    _dense_replay_rows,
+    _expanded_interval,
+    build_context_window_view,
+)
+from data_quality_checker.errors import ContractError
 
 
 class _OffsetTokenizer:
@@ -355,8 +362,11 @@ def test_dense_replay_serves_the_real_passage_spanning_its_pack(
 
     The pack used to be served as the annotator's spans joined by newlines:
     324 of the sealed view's 2022 rows were input the model will never meet.
-    Rebuilt on real spanning passages the same 2075 reference instances
-    survive across 513 rows.
+    Rebuilt on real spanning passages, 2041 reference instances survive
+    across 506 rows (median pack 4, median passage 1834 characters) -- 34
+    fewer than an earlier count of 2075, because the native/windowed sizing
+    fix now serves seven documents whole, and a native document is never
+    replayed.
     """
     monkeypatch.setattr(context_windows, "_primary_window_geometry", lambda _: (4, 2))
     monkeypatch.setattr(context_windows, "FALLBACK_WINDOW_TOKENS", 3)
@@ -414,3 +424,124 @@ def test_dense_replay_serves_the_real_passage_spanning_its_pack(
     assert replay
     for row in replay:
         assert row["messages"][1]["content"] in body
+
+
+def test_dense_replay_splits_into_multiple_rows_when_one_pack_cannot_hold_them_all(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A document whose references cannot all fit one pack must still teach
+    every one of them -- split across more than one dense-replay row, not
+    truncated to whatever the first pack could hold.
+
+    Budget arithmetic (the toy tokenizer splits on whitespace; the system
+    message "extract" always costs 1 token; a packed reference's stripped
+    JSON -- `kanun_ad` is "Vergi Usul Kanunu" -- costs a fixed 2 tokens plus
+    1 more per reference in the pack, i.e. 2n+1 for n references):
+
+      pack [ref1, ref2]:  user "madde bir a3 a4 a5 madde iki" = 7 words
+                          -> 1 (system) + 7 (user) + 5 (assistant, n=2) = 13
+      pack [ref1, ref2, ref3]: user extends to "...a8 a9 madde uc" = 10 words
+                          -> 1 + 10 + 7 (assistant, n=3) = 18
+
+    max_sequence_length=13 admits the first pack but not the second, so the
+    loop must close [ref1, ref2] and start a fresh pack rather than stall:
+      pack [ref3] alone: user "madde uc" = 2 words
+                          -> 1 + 2 + 3 (assistant, n=1) = 6
+    """
+    monkeypatch.setattr(context_windows, "_primary_window_geometry", lambda _: (4, 2))
+    monkeypatch.setattr(context_windows, "FALLBACK_WINDOW_TOKENS", 3)
+    monkeypatch.setattr(context_windows, "FALLBACK_OVERLAP_TOKENS", 1)
+    body = "a0 madde bir a3 a4 a5 madde iki a8 a9 madde uc a12 a13"
+    references = [
+        {
+            "kanun_no": "213",
+            "kanun_ad": "Vergi Usul Kanunu",
+            "madde": "1",
+            "fikra": "",
+            "bent": "",
+            "source_text": "madde bir",
+        },
+        {
+            "kanun_no": "213",
+            "kanun_ad": "Vergi Usul Kanunu",
+            "madde": "2",
+            "fikra": "",
+            "bent": "",
+            "source_text": "madde iki",
+        },
+        {
+            "kanun_no": "213",
+            "kanun_ad": "Vergi Usul Kanunu",
+            "madde": "3",
+            "fikra": "",
+            "bent": "",
+            "source_text": "madde uc",
+        },
+    ]
+    source = tmp_path / "train.jsonl"
+    source.write_text(
+        json.dumps(_row(body, references), ensure_ascii=False) + "\n", encoding="utf-8"
+    )
+    doc_ids = tmp_path / "train_doc_ids.json"
+    doc_ids.write_text("[1]\n", encoding="utf-8")
+    output = tmp_path / "view.jsonl"
+
+    manifest = build_context_window_view(
+        source_path=source,
+        source_doc_ids_path=doc_ids,
+        output_path=output,
+        output_doc_ids_path=tmp_path / "view_doc_ids.json",
+        manifest_path=tmp_path / "view_manifest.json",
+        tokenizer=_Tokenizer(),
+        model_fingerprint="a" * 64,
+        max_sequence_length=13,
+    )
+
+    # Confirm the split is a dense-replay pack split, not the document
+    # merely having been cut into unrelated windowed chunks -- filter on
+    # the mode explicitly.
+    replay_chunks = [
+        chunk for chunk in manifest["chunks"] if chunk["mode"] == "reference_dense_replay"
+    ]
+    assert len(replay_chunks) >= 2
+    replay_reference_counts = [chunk["reference_count"] for chunk in replay_chunks]
+    # Observed: [2, 1] -- nothing lost when the pack splits.
+    assert sum(replay_reference_counts) == len(references) == 3
+
+    rows = [json.loads(line) for line in output.read_text(encoding="utf-8").splitlines()]
+    for chunk in replay_chunks:
+        user_turn = rows[chunk["output_row_index"]]["messages"][1]["content"]
+        assert user_turn in body
+
+
+def test_dense_replay_raises_when_a_single_reference_row_exceeds_max_sequence_length() -> None:
+    """A reference dense replay cannot fit in one row must be a loud
+    contract failure -- not silently dropped from the pack.
+
+    Budget arithmetic (the toy tokenizer splits on whitespace): the system
+    message "extract" costs 1 token; the stripped assistant target for one
+    reference (`kanun_ad` "Vergi Usul Kanunu") costs a fixed 3 tokens; a
+    lone reference's dense-replay passage is exactly its own `source_text`
+    span, here "madde bir iki uc dort" = 5 words. Total: 1 + 5 + 3 = 9.
+    max_sequence_length=8 is one below that, so the very first (and only)
+    pack must raise rather than silently ship an oversized row.
+    """
+    reference = {
+        "kanun_no": "213",
+        "kanun_ad": "Vergi Usul Kanunu",
+        "madde": "5",
+        "fikra": "",
+        "bent": "",
+        "source_text": "madde bir iki uc dort",
+    }
+    body = "pad0 pad1 madde bir iki uc dort pad7 pad8"
+
+    with pytest.raises(ContractError) as excinfo:
+        _dense_replay_rows(
+            tokenizer=_Tokenizer(),
+            system_message={"role": "system", "content": "extract"},
+            body=body,
+            references=[reference],
+            max_sequence_length=8,
+        )
+    assert "dense replay row" in str(excinfo.value)

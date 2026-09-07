@@ -210,8 +210,13 @@ def _dense_replay_rows(
 
     `source_text` now only locates each reference; the row serves the
     shortest real passage that spans its pack. Measured on the same 300
-    documents: all 2075 reference instances survive, across 513 rows with a
-    median pack of 4 and a median passage of 1836 characters.
+    documents: 2041 reference instances survive, across 506 rows with a
+    median pack of 4 and a median passage of 1834 characters. That is 34
+    fewer reference instances than an earlier measurement of 2075: the
+    native/windowed sizing fix above now keeps seven documents (ids 9, 109,
+    166, 213, 363, 443, 477) whole, and a native document is served entire
+    and never replayed. Reference coverage stays complete regardless --
+    those 34 are taught by their native row, not lost.
     """
 
     located: list[tuple[int, int, dict[str, Any]]] = []

@@ -23,16 +23,6 @@ def test_a_round_model_can_be_named_on_the_command_line(command: str, argv: list
     assert args.generation == "M000"
 
 
-@pytest.mark.parametrize("command", ["process", "reroute", "serve"])
-def test_g0_remains_the_default_generation(command: str) -> None:
-    argv = (
-        ["process", "--prepared-batch", "M01"]
-        if command == "process"
-        else [command, "--batch-id", "M01"]
-    )
-    assert build_parser().parse_args(argv).generation == "G0"
-
-
 @pytest.mark.parametrize(
     "argv",
     [
@@ -66,6 +56,51 @@ def test_the_judge_can_be_pointed_at_a_round_s_predictions() -> None:
     """
     args = build_parser().parse_args(["pilot-judges", "--batch-id", "M01", "--generation", "M000"])
     assert args.generation == "M000"
-    assert build_parser().parse_args(["pilot-judges", "--batch-id", "M01"]).generation == "G0"
     with pytest.raises(SystemExit):
         build_parser().parse_args(["pilot-judges", "--batch-id", "M01", "--generation", "M1"])
+
+
+LOOP_COMMANDS = {
+    "process": ["process", "--prepared-batch", "M01"],
+    "reroute": ["reroute", "--batch-id", "M01"],
+    "serve": ["serve", "--batch-id", "M01"],
+    "pilot-judges": ["pilot-judges", "--batch-id", "M01"],
+}
+
+
+@pytest.mark.parametrize("command", sorted(LOOP_COMMANDS))
+def test_a_loop_command_will_not_guess_the_generation(command: str) -> None:
+    """No default. Which model a round uses is a fact only the caller knows.
+
+    `train_step` states the rule in its own docstring -- "every default guessed
+    on this line of work produced a defect elsewhere in the pipeline: a round
+    predicting with the wrong model, a judge reading the wrong generation, an
+    evaluator gating the wrong split size" -- and all three of those were live
+    bugs. A "G0" default is the same hazard in its quietest form: omit the flag
+    on `serve` and the expert adjudicates the bootstrap model's output, and
+    their decisions become the next round's training data. Nothing errors.
+    """
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(LOOP_COMMANDS[command])
+
+
+@pytest.mark.parametrize("command", sorted(LOOP_COMMANDS))
+def test_a_loop_command_takes_the_round_it_is_told(command: str) -> None:
+    args = build_parser().parse_args([*LOOP_COMMANDS[command], "--generation", "M000"])
+    assert args.generation == "M000"
+
+
+@pytest.mark.parametrize("command", sorted(LOOP_COMMANDS))
+def test_g0_may_still_be_named_explicitly(command: str) -> None:
+    """The bootstrap model stays reachable -- it just cannot be reached by
+    forgetting to say which model you meant.
+    """
+    args = build_parser().parse_args([*LOOP_COMMANDS[command], "--generation", "G0"])
+    assert args.generation == "G0"
+
+
+def test_train_bootstrap_trains_only_g0() -> None:
+    """`train_bootstrap` refuses anything but G0, so the flag says so."""
+    assert build_parser().parse_args(["train-bootstrap"]).generation == "G0"
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["train-bootstrap", "--generation", "M000"])

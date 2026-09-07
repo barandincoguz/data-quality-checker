@@ -56,7 +56,8 @@ def build_parser() -> argparse.ArgumentParser:
     attribution.set_defaults(handler=commands.import_attribution)
 
     train = subparsers.add_parser("train-bootstrap", help="build or run canonical-only G0")
-    train.add_argument("--generation", type=_generation, default="G0")
+    # `train_bootstrap` refuses anything but G0, so this is not a choice.
+    train.add_argument("--generation", choices=["G0"], default="G0")
     train.add_argument(
         "--execute",
         action="store_true",
@@ -130,7 +131,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     process = subparsers.add_parser("process", help="run resumable G0 inference and routing")
     process.add_argument("--prepared-batch", required=True)
-    process.add_argument("--generation", type=_generation, default="G0")
+    process.add_argument(
+        "--generation",
+        type=_generation,
+        required=True,
+        help="which model generation this acts on: G0 for the bootstrap model, or a round label such as M000. Required -- a default here silently picks a model, and on `serve` that means the expert adjudicates the wrong output and their decisions become the next round's training data",
+    )
     process.add_argument("--resume", action="store_true")
     process.add_argument("--fake-backend", action="store_true", help=argparse.SUPPRESS)
     process.set_defaults(handler=commands.process)
@@ -139,7 +145,12 @@ def build_parser() -> argparse.ArgumentParser:
         "reroute", help="preflight or atomically apply a reference-policy reroute"
     )
     reroute.add_argument("--batch-id", required=True)
-    reroute.add_argument("--generation", type=_generation, default="G0")
+    reroute.add_argument(
+        "--generation",
+        type=_generation,
+        required=True,
+        help="which model generation this acts on: G0 for the bootstrap model, or a round label such as M000. Required -- a default here silently picks a model, and on `serve` that means the expert adjudicates the wrong output and their decisions become the next round's training data",
+    )
     reroute.add_argument(
         "--reference-policy",
         default=DEFAULT_REFERENCE_POLICY_ID,
@@ -157,12 +168,8 @@ def build_parser() -> argparse.ArgumentParser:
     pilot.add_argument(
         "--generation",
         type=_generation,
-        default="G0",
-        help=(
-            "model generation whose predictions the judge compares against the "
-            "annotator; a round must pass its own label or the judge reads the "
-            "wrong model's output"
-        ),
+        required=True,
+        help="which model generation this acts on: G0 for the bootstrap model, or a round label such as M000. Required -- a default here silently picks a model, and on `serve` that means the expert adjudicates the wrong output and their decisions become the next round's training data",
     )
     pilot.add_argument("--allow-external-judge", action="store_true")
     pilot.add_argument(
@@ -184,12 +191,8 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument(
         "--generation",
         type=_generation,
-        default="G0",
-        help=(
-            "model generation whose predictions the expert adjudicates; "
-            "defaults to G0. A round must pass its own label (M001, M002, ...) "
-            "or the expert reviews the wrong model's output."
-        ),
+        required=True,
+        help="which model generation this acts on: G0 for the bootstrap model, or a round label such as M000. Required -- a default here silently picks a model, and on `serve` that means the expert adjudicates the wrong output and their decisions become the next round's training data",
     )
     serve.add_argument("--port", type=int, default=5055)
     serve.set_defaults(handler=commands.serve)

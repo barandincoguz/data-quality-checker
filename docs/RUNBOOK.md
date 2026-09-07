@@ -173,12 +173,12 @@ dosyasına `0600` izinle ve atomik olarak yazılır.
 dqcheck process --prepared-batch <batch-id> --generation G0 --resume
 
 # Ham predictionları değiştirmeden policy reroute preflight
-dqcheck reroute --batch-id <batch-id>
+dqcheck reroute --batch-id <batch-id> --generation <G0|M000|...>
 
 # Preflight doğrulandıktan sonra backup + atomik apply
-dqcheck reroute --batch-id <batch-id> --apply
+dqcheck reroute --batch-id <batch-id> --generation <G0|M000|...> --apply
 
-dqcheck pilot-judges --batch-id <batch-id> --allow-external-judge
+dqcheck pilot-judges --batch-id <batch-id> --generation <G0|M000|...> --allow-external-judge
 ```
 
 Varsayılan policy `ignore_vuk_213_article_413_v1`dir. Metin modele eksiksiz
@@ -192,7 +192,7 @@ Pilot uzman incelemesi tamamlandıktan sonra judge açıkça kilitlenir:
 ```bash
 dqcheck judge-lock --batch-id <batch-id> \
   --model qwen3.5:397b --reason '<ölçülebilir seçim gerekçesi>'
-dqcheck pilot-judges --batch-id <batch-id> --allow-external-judge
+dqcheck pilot-judges --batch-id <batch-id> --generation <G0|M000|...> --allow-external-judge
 ```
 
 İkinci `pilot-judges` çağrısı kilitli judge için gerekli production coverage'ı
@@ -203,7 +203,7 @@ HITL sunucusu:
 ```bash
 export DQCHECK_SESSION_SECRET='<en-az-32-karakter>'
 export DQCHECK_ACCESS_TOKEN='<en-az-32-karakter>'
-dqcheck serve --batch-id <batch-id> --port 5055
+dqcheck serve --batch-id <batch-id> --generation <G0|M000|...> --port 5055
 ```
 
 Sunucu yalnız `127.0.0.1:5055` üzerinde dinler.

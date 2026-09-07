@@ -437,6 +437,8 @@ def test_missing_credential_surfaces_as_a_clean_cli_error(
             "pilot-judges",
             "--batch-id",
             "batch",
+            "--generation",
+            "G0",
             "--allow-external-judge",
             "--judge-models",
             "qwen3.5:397b",

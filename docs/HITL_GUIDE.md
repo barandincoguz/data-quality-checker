@@ -11,7 +11,7 @@ Run the server bound to localhost:
 ```bash
 export DQCHECK_SESSION_SECRET="<en-az-32-karakter-gizli-anahtar>"
 export DQCHECK_ACCESS_TOKEN="<en-az-32-karakter-erisim-belirteci>"
-dqcheck serve --batch-id <batch-id> --port 5055
+dqcheck serve --batch-id <batch-id> --generation <G0|M000|...> --port 5055
 ```
 
 Access the UI at `http://127.0.0.1:5055`.

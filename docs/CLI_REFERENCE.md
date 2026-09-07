@@ -42,20 +42,30 @@ Runs model inference and semantic routing on a prepared batch.
 ```bash
 dqcheck process \
   --prepared-batch <batch-id> \
-  [--generation G0] \
+  --generation <G0|M000|M001|...> \
   [--resume]
 ```
+> `--generation` is required and has no default. It names the model this acts on:
+> `G0` for the bootstrap model, or a round label such as `M000`. A default would
+> pick a model silently -- on `serve` that means the expert adjudicates the wrong
+> model's output, and their decisions become the next round's training data.
+
 
 ### 4. `reroute`
 Preflights or applies reference-policy bucket updates.
 
 ```bash
 # Preflight check
-dqcheck reroute --batch-id <batch-id>
+dqcheck reroute --batch-id <batch-id> --generation <G0|M000|...>
 
 # Apply verified updates to SQLite store
-dqcheck reroute --batch-id <batch-id> --apply
+dqcheck reroute --batch-id <batch-id> --generation <G0|M000|...> --apply
 ```
+> `--generation` is required and has no default. It names the model this acts on:
+> `G0` for the bootstrap model, or a round label such as `M000`. A default would
+> pick a model silently -- on `serve` that means the expert adjudicates the wrong
+> model's output, and their decisions become the next round's training data.
+
 
 ### 5. `pilot-judges`
 Runs candidate blind automated judges on a batch subset.
@@ -63,9 +73,15 @@ Runs candidate blind automated judges on a batch subset.
 ```bash
 dqcheck pilot-judges \
   --batch-id <batch-id> \
+  --generation <G0|M000|M001|...> \
   [--allow-external-judge] \
   [--judge-models <model-id,model-id,...>]
 ```
+> `--generation` is required and has no default. It names the model this acts on:
+> `G0` for the bootstrap model, or a round label such as `M000`. A default would
+> pick a model silently -- on `serve` that means the expert adjudicates the wrong
+> model's output, and their decisions become the next round's training data.
+
 
 - `--judge-models`: Comma-separated judge model ids. Defaults to the two-model pilot pair. Every id must be registered in `judge_model_providers()`.
 
@@ -94,8 +110,14 @@ Launches the local-only Human-in-the-Loop (HITL) Web review interface.
 ```bash
 dqcheck serve \
   --batch-id <batch-id> \
+  --generation <G0|M000|M001|...> \
   [--port 5055]
 ```
+> `--generation` is required and has no default. It names the model this acts on:
+> `G0` for the bootstrap model, or a round label such as `M000`. A default would
+> pick a model silently -- on `serve` that means the expert adjudicates the wrong
+> model's output, and their decisions become the next round's training data.
+
 
 ### 8. `review-backup`
 Manages and verifies online ACID SQLite backups.

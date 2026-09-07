@@ -110,12 +110,15 @@ def test_refit_scaling_and_base_improvement_gate() -> None:
 
 
 def test_bootstrap_run_id_is_unchanged_for_development(tmp_path: Path) -> None:
-    # Regression lock: pins the development run id to today's SYSTEM_PROMPT.
-    # source_text left the model's field list and few-shot examples, which is
-    # a deliberate change to the sealed prompt fingerprint (see Task 4: this
-    # is exactly why a new model is trained rather than reusing deployed G0).
+    # Regression lock: pins the development run id to today's SYSTEM_PROMPT
+    # and TRAINING_VIEW_POLICY. source_text left the model's field list and
+    # few-shot examples, and then left the trainee's input entirely -- dense
+    # replay and reference rescue now serve real document passages. Both are
+    # deliberate changes to the sealed fingerprint, which is exactly why a
+    # new run id is right: the sealed loop run dqcheck_loop_fd1abc3af6b7 and
+    # its update-325 checkpoint keep their own directory untouched.
     result = train_bootstrap(config=isolated_config(tmp_path), generation="G0")
-    assert result["run_id"] == "dqcheck_g0_qwen3_5_9b_458edd8b15f9"
+    assert result["run_id"] == "dqcheck_g0_qwen3_5_9b_e613d3647c11"
 
 
 def test_refit_bootstrap_trains_on_all_494_with_its_own_run_id(tmp_path: Path) -> None:

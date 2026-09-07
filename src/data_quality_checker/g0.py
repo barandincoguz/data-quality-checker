@@ -32,7 +32,7 @@ from .fingerprints import fingerprint_json, sha256_bytes, sha256_file, sha256_te
 
 PROMPT_VARIANT = "few-shot-cot-v3-en-compact-recall-v2"
 TRAINING_VIEW_POLICY = (
-    "adaptive-context-fallback128-positive-only-dense-max10-tokenmean-looprepair-v10"
+    "adaptive-context-fallback128-positive-only-dense-max10-tokenmean-looprepair-realtext-v11"
 )
 REFIT_SPLIT_POLICY = "refit-all-494-nominal-valid-and-test"
 

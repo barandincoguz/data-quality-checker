@@ -199,22 +199,46 @@ def _dense_replay_rows(
     references: list[dict[str, Any]],
     max_sequence_length: int,
 ) -> list[tuple[dict[str, Any], int, int]]:
-    """Pack a document's real evidence into long-target replay rows."""
+    """Replay a document's references over the real passages that carry them.
 
-    packed: list[tuple[dict[str, Any], int, int]] = []
-    current_references: list[dict[str, Any]] = []
-    current_evidence: list[str] = []
+    The pack used to be served as the annotator's `source_text` spans joined
+    by newlines. That input never occurs at inference -- the model is given
+    continuous ruling prose, not a list of clipped phrases -- and the
+    annotators clip from several places in a document, so the joined blob was
+    synthetic text carrying a many-reference answer. On the sealed
+    300-document view it was 324 of 2022 training rows.
+
+    `source_text` now only locates each reference; the row serves the
+    shortest real passage that spans its pack. Measured on the same 300
+    documents: all 2075 reference instances survive, across 513 rows with a
+    median pack of 4 and a median passage of 1836 characters.
+    """
+
+    located: list[tuple[int, int, dict[str, Any]]] = []
+    for reference_index, reference in enumerate(references):
+        source_text = reference.get("source_text")
+        if not isinstance(source_text, str) or not source_text.strip():
+            raise IntegrityError(f"dense replay reference {reference_index} has no source_text")
+        source_text = source_text.strip()
+        char_start = body.find(source_text)
+        if char_start < 0:
+            raise IntegrityError(
+                f"dense replay reference {reference_index} is absent from source text"
+            )
+        located.append((char_start, char_start + len(source_text), reference))
+    located.sort(key=lambda item: (item[0], item[1]))
 
     def render(
-        replay_references: list[dict[str, Any]], evidence: list[str]
+        pack: list[tuple[int, int, dict[str, Any]]],
     ) -> tuple[dict[str, Any], int]:
+        passage = body[min(start for start, _, _ in pack) : max(end for _, end, _ in pack)]
         messages = [
             system_message,
-            {"role": "user", "content": "\n".join(evidence)},
+            {"role": "user", "content": passage},
             {
                 "role": "assistant",
                 "content": json.dumps(
-                    [_without_source_text(reference) for reference in replay_references],
+                    [_without_source_text(reference) for _, _, reference in pack],
                     ensure_ascii=False,
                     separators=(",", ":"),
                 ),
@@ -222,43 +246,26 @@ def _dense_replay_rows(
         ]
         return {"messages": messages}, _rendered_token_count(tokenizer, messages)
 
-    for reference_index, reference in enumerate(references):
-        source_text = reference.get("source_text")
-        if not isinstance(source_text, str) or not source_text.strip():
-            raise IntegrityError(f"dense replay reference {reference_index} has no source_text")
-        source_text = source_text.strip()
-        if source_text not in body:
-            raise IntegrityError(
-                f"dense replay reference {reference_index} is absent from source text"
-            )
-        if len(current_references) == DENSE_REPLAY_MAX_REFERENCES:
-            row, tokens = render(current_references, current_evidence)
-            packed.append((row, tokens, len(current_references)))
-            current_references = []
-            current_evidence = []
-        candidate_references = [*current_references, reference]
-        candidate_evidence = list(current_evidence)
-        if source_text not in candidate_evidence:
-            candidate_evidence.append(source_text)
-        candidate_row, candidate_tokens = render(candidate_references, candidate_evidence)
-        if candidate_tokens <= max_sequence_length:
-            current_references = candidate_references
-            current_evidence = candidate_evidence
-            continue
-        if not current_references:
-            raise ContractError(
-                "single-reference dense replay exceeds the accepted sequence length"
-            )
-        row, tokens = render(current_references, current_evidence)
-        packed.append((row, tokens, len(current_references)))
-        current_references = [reference]
-        current_evidence = [source_text]
-
-    if current_references:
-        row, tokens = render(current_references, current_evidence)
+    packed: list[tuple[dict[str, Any], int, int]] = []
+    index = 0
+    while index < len(located):
+        pack = [located[index]]
+        row, tokens = render(pack)
         if tokens > max_sequence_length:
-            raise ContractError("dense replay exceeds the accepted sequence length")
-        packed.append((row, tokens, len(current_references)))
+            raise ContractError(
+                f"dense replay row tokens={tokens} exceed "
+                f"max_sequence_length={max_sequence_length}"
+            )
+        cursor = index + 1
+        while cursor < len(located) and len(pack) < DENSE_REPLAY_MAX_REFERENCES:
+            candidate_pack = [*pack, located[cursor]]
+            candidate_row, candidate_tokens = render(candidate_pack)
+            if candidate_tokens > max_sequence_length:
+                break
+            pack, row, tokens = candidate_pack, candidate_row, candidate_tokens
+            cursor += 1
+        packed.append((row, tokens, len(pack)))
+        index = cursor
     return packed
 
 
@@ -312,7 +319,7 @@ def build_context_window_view(
         "fallback_overlap_tokens": FALLBACK_OVERLAP_TOKENS,
         "reference_rescue": "real_window_v2",
         "empty_chunk_sampling": "true_negative_documents_only_v2",
-        "dense_replay": "windowed_documents_source_text_pack_max10_full_v5",
+        "dense_replay": "real_passage_span_pack_max10_full_v6",
         "dense_replay_sampling": {
             "policy": "sha256_doc_id_first_byte_threshold_v1",
             "namespace": DENSE_REPLAY_SAMPLE_NAMESPACE,

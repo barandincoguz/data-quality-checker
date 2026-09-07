@@ -346,3 +346,71 @@ def test_expanded_interval_contains_the_original_span_and_stays_in_bounds() -> N
                     assert 0 <= begin <= start
                     assert end <= stop <= total
                     assert begin < stop
+
+
+def test_dense_replay_serves_the_real_passage_spanning_its_pack(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Replay teaches many references at once, from continuous ruling prose.
+
+    The pack used to be served as the annotator's spans joined by newlines:
+    324 of the sealed view's 2022 rows were input the model will never meet.
+    Rebuilt on real spanning passages the same 2075 reference instances
+    survive across 513 rows.
+    """
+    monkeypatch.setattr(context_windows, "_primary_window_geometry", lambda _: (4, 2))
+    monkeypatch.setattr(context_windows, "FALLBACK_WINDOW_TOKENS", 3)
+    monkeypatch.setattr(context_windows, "FALLBACK_OVERLAP_TOKENS", 1)
+    body = "a0 madde bir a3 a4 a5 madde iki a8 a9"
+    references = [
+        {
+            "kanun_no": "213",
+            "kanun_ad": "Vergi Usul Kanunu",
+            "madde": "1",
+            "fikra": "",
+            "bent": "",
+            "source_text": "madde bir",
+        },
+        {
+            "kanun_no": "213",
+            "kanun_ad": "Vergi Usul Kanunu",
+            "madde": "2",
+            "fikra": "",
+            "bent": "",
+            "source_text": "madde iki",
+        },
+    ]
+    source = tmp_path / "train.jsonl"
+    source.write_text(
+        json.dumps(_row(body, references), ensure_ascii=False) + "\n", encoding="utf-8"
+    )
+    doc_ids = tmp_path / "train_doc_ids.json"
+    doc_ids.write_text("[1]\n", encoding="utf-8")
+    output = tmp_path / "view.jsonl"
+
+    manifest = build_context_window_view(
+        source_path=source,
+        source_doc_ids_path=doc_ids,
+        output_path=output,
+        output_doc_ids_path=tmp_path / "view_doc_ids.json",
+        manifest_path=tmp_path / "view_manifest.json",
+        tokenizer=_Tokenizer(),
+        model_fingerprint="a" * 64,
+        max_sequence_length=14,
+    )
+    assert manifest["dense_replay_row_count"] >= 1
+    assert manifest["dense_replay_reference_count"] == 2
+    assert manifest["request"]["dense_replay"] == "real_passage_span_pack_max10_full_v6"
+
+    replay = [
+        json.loads(line)
+        for line, mode in zip(
+            output.read_text(encoding="utf-8").splitlines(),
+            [chunk["mode"] for chunk in manifest["chunks"]],
+            strict=True,
+        )
+        if mode == "reference_dense_replay"
+    ]
+    assert replay
+    for row in replay:
+        assert row["messages"][1]["content"] in body

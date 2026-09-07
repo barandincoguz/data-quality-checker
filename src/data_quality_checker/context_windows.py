@@ -114,6 +114,38 @@ def _rendered_token_count(tokenizer: Any, messages: list[dict[str, str]]) -> int
     return len(tokens)
 
 
+def _token_span_for_chars(
+    offsets: list[tuple[int, int]], char_start: int, char_end: int
+) -> tuple[int, int]:
+    """Smallest token interval fully covering a character range."""
+
+    start = next(
+        (index for index, (_, end) in enumerate(offsets) if end > char_start),
+        max(0, len(offsets) - 1),
+    )
+    end = next(
+        (
+            index + 1
+            for index in range(len(offsets) - 1, -1, -1)
+            if offsets[index][0] < char_end
+        ),
+        start + 1,
+    )
+    return start, max(end, start + 1)
+
+
+def _expanded_interval(
+    start: int, end: int, total: int, minimum_tokens: int
+) -> tuple[int, int]:
+    """Grow a token interval to a minimum width, inside the body, still
+    containing the interval it was given."""
+
+    width = min(total, max(minimum_tokens, end - start))
+    pad = width - (end - start)
+    begin = max(0, min(start - pad // 2, total - width))
+    return begin, begin + width
+
+
 def _window_row(
     *,
     tokenizer: Any,
@@ -278,7 +310,7 @@ def build_context_window_view(
         "primary_overlap_tokens": primary_overlap_tokens,
         "fallback_window_tokens": FALLBACK_WINDOW_TOKENS,
         "fallback_overlap_tokens": FALLBACK_OVERLAP_TOKENS,
-        "reference_rescue": "source_text_v1",
+        "reference_rescue": "real_window_v2",
         "empty_chunk_sampling": "true_negative_documents_only_v2",
         "dense_replay": "windowed_documents_source_text_pack_max10_full_v5",
         "dense_replay_sampling": {
@@ -484,6 +516,8 @@ def build_context_window_view(
             raise IntegrityError(f"text coverage gap at source row {row_index}")
         missing_references = sorted(set(range(len(references))) - visible_union)
         for reference_index in missing_references:
+            if reference_index in visible_union:
+                continue
             reference = references[reference_index]
             source_text = reference.get("source_text")
             if not isinstance(source_text, str) or not source_text:
@@ -493,42 +527,49 @@ def build_context_window_view(
             char_start = body.find(source_text)
             if char_start < 0:
                 raise IntegrityError(f"reference rescue span is absent at source row {row_index}")
-            rescue_messages = [
-                messages[0],
-                {"role": "user", "content": source_text},
-                {
-                    "role": "assistant",
-                    "content": json.dumps(
-                        [_without_source_text(reference)],
-                        ensure_ascii=False,
-                        separators=(",", ":"),
-                    ),
-                },
-            ]
-            rescue_tokens = _rendered_token_count(tokenizer, rescue_messages)
-            if rescue_tokens > max_sequence_length:
+            # The span locates the passage; the passage is what is served.
+            # A rescue row used to put the annotator's bare span in the user
+            # turn -- text that never occurs at inference, from a field the
+            # system prompt does not name.
+            span_start, span_end = _token_span_for_chars(
+                offsets, char_start, char_start + len(source_text)
+            )
+            interval = _expanded_interval(
+                span_start, span_end, len(offsets), FALLBACK_WINDOW_TOKENS
+            )
+            rescue_row, rescue_metadata, rescue_visible = _window_row(
+                tokenizer=tokenizer,
+                system_message=messages[0],
+                body=body,
+                offsets=offsets,
+                interval=interval,
+                references=references,
+            )
+            if rescue_metadata["tokens"] > max_sequence_length:
                 raise ContractError(
-                    f"reference rescue tokens={rescue_tokens} exceed "
+                    f"reference rescue tokens={rescue_metadata['tokens']} exceed "
                     f"max_sequence_length={max_sequence_length} at row {row_index}"
                 )
-            output_rows.append({"messages": rescue_messages})
+            if reference_index not in rescue_visible:
+                raise IntegrityError(
+                    f"reference rescue window does not contain reference "
+                    f"{reference_index} at source row {row_index}"
+                )
+            output_rows.append(rescue_row)
             output_doc_ids.append(doc_id)
-            chunk_reference_count += 1
+            chunk_reference_count += rescue_metadata["reference_count"]
             reference_rescue_count += 1
-            maximum_tokens = max(maximum_tokens, rescue_tokens)
+            maximum_tokens = max(maximum_tokens, rescue_metadata["tokens"])
             chunks.append(
                 {
                     "output_row_index": len(output_rows) - 1,
                     "source_row_index": row_index,
                     "doc_id": doc_id,
                     "mode": "reference_rescue",
-                    "char_start": char_start,
-                    "char_end": char_start + len(source_text),
-                    "reference_count": 1,
-                    "tokens": rescue_tokens,
+                    **rescue_metadata,
                 }
             )
-            visible_union.add(reference_index)
+            visible_union.update(rescue_visible)
         if visible_union != set(range(len(references))):
             missing = sorted(set(range(len(references))) - visible_union)
             raise IntegrityError(f"reference coverage gap at source row {row_index}: {missing}")

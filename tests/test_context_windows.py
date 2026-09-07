@@ -5,7 +5,7 @@ import re
 from pathlib import Path
 
 from data_quality_checker import context_windows
-from data_quality_checker.context_windows import build_context_window_view
+from data_quality_checker.context_windows import _expanded_interval, build_context_window_view
 
 
 class _OffsetTokenizer:
@@ -228,3 +228,110 @@ def test_native_decision_ignores_the_source_text_it_is_about_to_strip(
     )
     assert manifest["native_document_count"] == 1
     assert manifest["windowed_document_count"] == 0
+
+
+def test_reference_rescue_serves_a_real_window_not_the_annotator_span(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A reference no window makes visible is still taught -- from the
+    ruling. The rescue row used to serve the annotator's bare span as the
+    user turn, which is prose about the document, not the document."""
+    monkeypatch.setattr(context_windows, "_primary_window_geometry", lambda _: (4, 2))
+    monkeypatch.setattr(context_windows, "FALLBACK_WINDOW_TOKENS", 3)
+    monkeypatch.setattr(context_windows, "FALLBACK_OVERLAP_TOKENS", 1)
+    body = "w0 w1 w2 w3 w4 w5 w6 w7 w8 w9"
+    # The span straddles the primary window boundary, so no window contains
+    # it as a substring and rescue is the only path that can cover it -- but
+    # only once the primary window (2, 6) is actually forced to fall back.
+    # That window renders at 8 tokens and already covers the span by
+    # overlap, so a limit of 12 (as loose prose describing this fixture
+    # might suggest) never exercises rescue at all. 7 is the only value
+    # that forces (2, 6) to fall back to sub-windows too narrow to contain
+    # the span (5 and 4 tokens, verified below) while still admitting the
+    # 7-token rescue row this test expects.
+    reference = {
+        "kanun_no": "213",
+        "kanun_ad": "Vergi Usul Kanunu",
+        "madde": "5",
+        "fikra": "",
+        "bent": "",
+        "source_text": "w3 w4 w5",
+    }
+    source = tmp_path / "train.jsonl"
+    source.write_text(
+        json.dumps(_row(body, [reference]), ensure_ascii=False) + "\n", encoding="utf-8"
+    )
+    doc_ids = tmp_path / "train_doc_ids.json"
+    doc_ids.write_text("[1]\n", encoding="utf-8")
+    output = tmp_path / "view.jsonl"
+
+    manifest = build_context_window_view(
+        source_path=source,
+        source_doc_ids_path=doc_ids,
+        output_path=output,
+        output_doc_ids_path=tmp_path / "view_doc_ids.json",
+        manifest_path=tmp_path / "view_manifest.json",
+        tokenizer=_Tokenizer(),
+        model_fingerprint="a" * 64,
+        max_sequence_length=7,
+    )
+    assert manifest["reference_rescue_count"] >= 1
+    assert manifest["reference_coverage"] == "complete"
+    assert manifest["request"]["reference_rescue"] == "real_window_v2"
+    # The count alone doesn't prove rescue is what covered this document --
+    # confirm a chunk actually recorded that mode.
+    assert any(chunk["mode"] == "reference_rescue" for chunk in manifest["chunks"])
+
+    rescue_rows = [
+        json.loads(line)
+        for line in output.read_text(encoding="utf-8").splitlines()
+    ]
+    assert all(row["messages"][1]["content"] in body for row in rescue_rows)
+    assert any(
+        "w3 w4 w5" in row["messages"][1]["content"]
+        and json.loads(row["messages"][2]["content"])
+        for row in rescue_rows
+    )
+
+
+def test_expanded_interval_contains_the_original_span_and_stays_in_bounds() -> None:
+    """`_expanded_interval` grows a token span to a minimum width. Both
+    invariants matter for real reasons: leaving `[0, total)` would index
+    past the token offsets, and failing to contain the original span would
+    build a rescue window that does not actually contain the reference it
+    was built for -- exactly what the `IntegrityError` in the rescue loop
+    guards against on real data.
+    """
+    cases = [
+        # (start, end, total, minimum_tokens) -- the awkward edges named by
+        # the task: span at index 0, span at the very end, a body shorter
+        # than minimum_tokens, and a span already wider than minimum_tokens.
+        (0, 1, 10, 4),  # span at index 0
+        (0, 2, 5, 4),  # span at index 0, body barely fits minimum_tokens
+        (8, 10, 10, 4),  # span at the very end
+        (9, 10, 10, 4),  # single-token span at the very end
+        (1, 2, 3, 5),  # body shorter than minimum_tokens
+        (0, 1, 1, 5),  # body of a single token, far shorter than minimum
+        (2, 9, 10, 3),  # span already wider than minimum_tokens
+        (0, 10, 10, 3),  # span already spans the entire body
+        (5, 6, 10, 1),  # minimum_tokens smaller than the span itself
+    ]
+    for start, end, total, minimum_tokens in cases:
+        begin, stop = _expanded_interval(start, end, total, minimum_tokens)
+        assert 0 <= begin, (start, end, total, minimum_tokens, begin, stop)
+        assert stop <= total, (start, end, total, minimum_tokens, begin, stop)
+        assert begin < stop, (start, end, total, minimum_tokens, begin, stop)
+        assert begin <= start, (start, end, total, minimum_tokens, begin, stop)
+        assert end <= stop, (start, end, total, minimum_tokens, begin, stop)
+
+    # A broader systematic sweep of the same two invariants -- not just the
+    # named edges -- since the brief's own integration test only samples one
+    # geometry and could easily pass by luck.
+    for total in range(1, 13):
+        for minimum_tokens in range(1, 13):
+            for start in range(total):
+                for end in range(start + 1, total + 1):
+                    begin, stop = _expanded_interval(start, end, total, minimum_tokens)
+                    assert 0 <= begin <= start
+                    assert end <= stop <= total
+                    assert begin < stop

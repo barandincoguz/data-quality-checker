@@ -19,7 +19,6 @@ import re
 from pathlib import Path
 
 from data_quality_checker import context_windows
-from data_quality_checker.constants import REFERENCE_DECISION_FIELDS
 from data_quality_checker.context_windows import build_context_window_view
 from data_quality_checker.judges import blind_candidates
 
@@ -32,6 +31,16 @@ ANNOTATOR_REFERENCE = {
     "source_text": "mükerrer 20 nci maddesi",
 }
 MODEL_REFERENCE = {**ANNOTATOR_REFERENCE, "source_text": ""}
+
+# The five decision fields, written out rather than imported from
+# `constants.REFERENCE_DECISION_FIELDS`. A guard that compared a payload
+# against that tuple would still pass if the tuple itself ever regained
+# `source_text` -- the exact class of defect this file exists to catch, and
+# the reason the previous guard (which asserted the payload's keys but never
+# a candidate's contents) let a broken judge pilot through. Writing them out
+# also keeps this file collectable, so its behavioural failure is
+# reproducible in the repo instead of only in a scratch copy.
+DECISION_FIELDS = frozenset({"kanun_no", "kanun_ad", "madde", "fikra", "bent"})
 
 
 def test_judge_candidates_carry_only_the_five_decision_fields() -> None:
@@ -49,7 +58,7 @@ def test_judge_candidates_carry_only_the_five_decision_fields() -> None:
     assert mapping in {"A=human,B=model", "A=model,B=human"}
     for candidate in (candidate_a, candidate_b):
         for reference in candidate:
-            assert set(reference) == set(REFERENCE_DECISION_FIELDS)
+            assert set(reference) == DECISION_FIELDS
     # The two sides are now indistinguishable, which is what blind means.
     assert candidate_a == candidate_b
 

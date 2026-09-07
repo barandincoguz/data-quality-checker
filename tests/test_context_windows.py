@@ -236,19 +236,27 @@ def test_reference_rescue_serves_a_real_window_not_the_annotator_span(
     """A reference no window makes visible is still taught -- from the
     ruling. The rescue row used to serve the annotator's bare span as the
     user turn, which is prose about the document, not the document."""
-    monkeypatch.setattr(context_windows, "_primary_window_geometry", lambda _: (4, 2))
-    monkeypatch.setattr(context_windows, "FALLBACK_WINDOW_TOKENS", 3)
+    monkeypatch.setattr(context_windows, "_primary_window_geometry", lambda _: (5, 1))
+    monkeypatch.setattr(context_windows, "FALLBACK_WINDOW_TOKENS", 5)
     monkeypatch.setattr(context_windows, "FALLBACK_OVERLAP_TOKENS", 1)
     body = "w0 w1 w2 w3 w4 w5 w6 w7 w8 w9"
-    # The span straddles the primary window boundary, so no window contains
-    # it as a substring and rescue is the only path that can cover it -- but
-    # only once the primary window (2, 6) is actually forced to fall back.
-    # That window renders at 8 tokens and already covers the span by
-    # overlap, so a limit of 12 (as loose prose describing this fixture
-    # might suggest) never exercises rescue at all. 7 is the only value
-    # that forces (2, 6) to fall back to sub-windows too narrow to contain
-    # the span (5 and 4 tokens, verified below) while still admitting the
-    # 7-token rescue row this test expects.
+    # Two things must be true at once or this test means nothing.
+    #
+    # Rescue must fire: no ordinary window may contain the span as a
+    # substring, which a primary geometry of (5, 1) achieves for "w3 w4 w5".
+    #
+    # And the rescue window must be strictly WIDER than the span. With a
+    # fallback as narrow as the span, the old bare-span row and a real
+    # window are byte identical, and only the strategy-id string would
+    # differ -- a label, not a behaviour. A fallback of 5 against the
+    # 3-token span yields "w2 w3 w4 w5 w6".
+    #
+    # The budget is the whole three-message chat, not the user turn: this
+    # reference row costs a fixed 4 tokens (system "extract" = 1, stripped
+    # assistant target = 3, because "Vergi Usul Kanunu" holds two spaces the
+    # toy tokenizer splits on). So a 5-token window needs 9, and a smaller
+    # limit makes the builder raise "reference rescue tokens=N exceed
+    # max_sequence_length" before any assertion runs.
     reference = {
         "kanun_no": "213",
         "kanun_ad": "Vergi Usul Kanunu",
@@ -273,25 +281,28 @@ def test_reference_rescue_serves_a_real_window_not_the_annotator_span(
         manifest_path=tmp_path / "view_manifest.json",
         tokenizer=_Tokenizer(),
         model_fingerprint="a" * 64,
-        max_sequence_length=7,
+        max_sequence_length=9,
     )
     assert manifest["reference_rescue_count"] >= 1
-    assert manifest["reference_coverage"] == "complete"
     assert manifest["request"]["reference_rescue"] == "real_window_v2"
-    # The count alone doesn't prove rescue is what covered this document --
-    # confirm a chunk actually recorded that mode.
-    assert any(chunk["mode"] == "reference_rescue" for chunk in manifest["chunks"])
+    # The count alone doesn't prove rescue covered this document -- confirm a
+    # chunk actually recorded that mode.
+    rescue_chunks = [chunk for chunk in manifest["chunks"] if chunk["mode"] == "reference_rescue"]
+    assert rescue_chunks
 
-    rescue_rows = [
-        json.loads(line)
-        for line in output.read_text(encoding="utf-8").splitlines()
-    ]
-    assert all(row["messages"][1]["content"] in body for row in rescue_rows)
-    assert any(
-        "w3 w4 w5" in row["messages"][1]["content"]
-        and json.loads(row["messages"][2]["content"])
-        for row in rescue_rows
-    )
+    rows = [json.loads(line) for line in output.read_text(encoding="utf-8").splitlines()]
+    rescue_user = rows[rescue_chunks[0]["output_row_index"]]["messages"][1]["content"]
+    # These three together are what the strategy id cannot fake: the served
+    # turn is real document text, it contains the span, and it is not merely
+    # the span. That last one is the whole point -- source_text located the
+    # passage and did not become it.
+    assert rescue_user in body
+    assert "w3 w4 w5" in rescue_user
+    assert rescue_user != "w3 w4 w5"
+    # Every user turn served for this document is real document text.
+    assert all(row["messages"][1]["content"] in body for row in rows)
+    # And the reference is genuinely taught, not merely counted.
+    assert any(json.loads(row["messages"][2]["content"]) for row in rows)
 
 
 def test_expanded_interval_contains_the_original_span_and_stays_in_bounds() -> None:

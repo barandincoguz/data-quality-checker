@@ -109,16 +109,27 @@ class _Cfg:
 
 
 def test_reads_both_trust_levels(tmp_path: Path) -> None:
+    # This reference already carries its own source_text -- as a release row
+    # always does, per REFERENCE_FIELDS -- so the build-time locator this
+    # function also runs (Task 10) has nothing to fill in and passes it
+    # through unchanged; the locator itself is exercised by
+    # tests/test_reference_locator.py.
     _release(
         tmp_path,
         "round1",
-        expert=[{"internal_doc_id": "d1", "text": "bir", "references": [{"kanun_no": "193"}]}],
+        expert=[
+            {
+                "internal_doc_id": "d1",
+                "text": "bir",
+                "references": [{"kanun_no": "193", "source_text": "bir"}],
+            }
+        ],
         consensus=[{"internal_doc_id": "d2", "text": "iki", "references": []}],
     )
     documents = round_training_documents(_Cfg(tmp_path), batch_ids=["round1"])
     assert set(documents) == {"d1", "d2"}
     assert documents["d1"]["text"] == "bir"
-    assert documents["d1"]["references"] == [{"kanun_no": "193"}]
+    assert documents["d1"]["references"] == [{"kanun_no": "193", "source_text": "bir"}]
 
 
 def test_reads_several_rounds(tmp_path: Path) -> None:

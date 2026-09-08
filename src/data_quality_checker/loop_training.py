@@ -16,6 +16,7 @@ from typing import Any
 from .atomic import write_json_atomic
 from .errors import ContractError
 from .fingerprints import sha256_file
+from .reference_locator import attach_missing_spans
 
 
 def compose_round_training_ids(
@@ -95,6 +96,17 @@ def round_training_documents(config: Any, *, batch_ids: Sequence[str]) -> dict[s
     GREEN sample raised nothing. Quarantined documents are excluded -- training
     on documents the pipeline could not process would poison the very data this
     loop exists to clean.
+
+    A reference the DQ-Loop harvests from the model has no `source_text`: the
+    model does not emit one and the annotator never wrote the reference down.
+    `context_windows.py` needs a verbatim substring to build a training row,
+    so between reading the release and returning it this function runs the
+    build-time locator, `attach_missing_spans`, to fill those gaps -- without
+    ever writing the located span back into the release or the database, which
+    stay the faithful record of what the expert decided. Every reference the
+    locator could not place is collected into one `ContractError` naming all
+    of them at once, so the expert gets one worklist instead of one crash per
+    run.
     """
     documents: dict[str, dict[str, Any]] = {}
     for batch_id in batch_ids:
@@ -138,4 +150,17 @@ def round_training_documents(config: Any, *, batch_ids: Sequence[str]) -> dict[s
                 f"batch {batch_id!r} release contains zero training documents "
                 "-- every document was quarantined or excluded"
             )
+    documents, refusals = attach_missing_spans(documents)
+    if refusals:
+        worklist = "\n".join(
+            f"  {refusal['doc_id']}: kanun_no={refusal['kanun_no']!r} "
+            f"kanun_ad={refusal['kanun_ad']!r} madde={refusal['madde']!r} "
+            f"fikra={refusal['fikra']!r} bent={refusal['bent']!r}"
+            for refusal in refusals
+        )
+        raise ContractError(
+            f"{len(refusals)} reference(s) have no source_text and the locator "
+            "could not place them in their document's text -- an expert must "
+            f"review them:\n{worklist}"
+        )
     return documents

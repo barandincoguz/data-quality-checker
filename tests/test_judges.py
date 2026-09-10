@@ -751,3 +751,64 @@ def test_locked_coverage_refuses_a_verdict_from_another_instrument(tmp_path) -> 
     assert _instrument_matches({"judge_instrument": judge_instrument()}) is True
     assert _instrument_matches({"judge_instrument": {"prompt_sha256": "0" * 64}}) is False
     assert _instrument_matches({}) is False
+
+
+def test_the_judge_pilot_exam_is_served_blind_until_a_judge_is_locked(tmp_path) -> None:
+    """The 60 pilot documents are the judge's exam: `judge_expert_metrics`
+    grades the judge by comparing its `final_references` against the expert's
+    decision on those same documents. So the expert must not be shown the
+    judge's answer while deciding them, or the judge scores for having been
+    copied.
+
+    Today that holds only incidentally -- `_document_for_review` gates the
+    suggestion on `_locked_judge`, and a lock cannot exist until every pilot
+    document is finalized. Nothing stated or tested it, so a future change
+    offering the pilot verdict as pre-lock decision support would contaminate
+    the exam silently. This pins it, and the second half proves the assertion
+    is not vacuous by showing the suggestion does appear once a judge is
+    locked.
+    """
+    from data_quality_checker.hitl import _document_for_review, _locked_judge
+
+    config = prepared_processed_fixture(tmp_path)
+    with Store(config.database_path) as store:
+        internal_doc_id = store.list_documents("batch")[0]["internal_doc_id"]
+        store.set_router_bucket("batch", internal_doc_id, "RED")
+
+    run_judge_pilot(
+        config=config,
+        batch_id="batch",
+        allow_external_judge=True,
+        provider=FakeJudgeProvider(),
+        judge_models=("qwen3.5:397b",),
+    )
+    with Store(config.database_path) as store:
+        stored = store.get_judge_result("batch", internal_doc_id, "qwen3.5:397b")
+        assert stored is not None and stored["status"] == "valid"
+
+        assert _locked_judge(config, "batch") is None
+        served = _document_for_review(
+            config=config, store=store, batch_id="batch", internal_doc_id=internal_doc_id
+        )
+        assert served["judge_suggestion"] is None
+
+    # Finalize the review so lock_judge's gate opens, then lock.
+    with Store(config.database_path) as store:
+        review = store.get_review("batch", internal_doc_id)
+        store.update_review(
+            batch_id="batch",
+            internal_doc_id=internal_doc_id,
+            expected_version=review["row_version"],
+            status="finalized",
+            action="accept_human",
+            final_references=[],
+            reason=None,
+            reviewer="fixture",
+        )
+    lock_judge(config=config, batch_id="batch", model="qwen3.5:397b", reason="fixture")
+
+    with Store(config.database_path) as store:
+        after = _document_for_review(
+            config=config, store=store, batch_id="batch", internal_doc_id=internal_doc_id
+        )
+    assert after["judge_suggestion"] is not None

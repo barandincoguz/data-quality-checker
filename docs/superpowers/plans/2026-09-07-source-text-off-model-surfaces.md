@@ -1361,3 +1361,109 @@ With M₀′ sealed, round 1 proceeds: expert adjudication of all 60 pilot docum
 `judge_override` (`hitl.py:842`) writes the judge's `final_references` as the expert's decision; `release.py:242` puts that into `training_rows[].references`. A blinded judge cannot return `source_text`, and `context_windows.py` needs one to locate a reference — `_dense_replay_rows` and the rescue path raise `IntegrityError`, and `_window_row`'s visibility filter drops the reference silently. This is already latent (`tests/test_judges.py:610` permits an absent `source_text` in a verdict); blinding makes it systematic.
 
 It cannot fire in round 1 — `judge_override` requires a locked judge, and Task 9 Step 4 shows the lock comes after expert adjudication — but it must be settled before the expert starts. The recommended fix is to re-attach `source_text` at `judge_override` time by matching each of the judge's final references against the annotator's and the model's rows on `full_identity` (the five decision fields only, so `source_text` never influences the match), leaving a genuinely novel judge row blank. The alternative is to keep `judge_override` documents out of `training_rows` and accept the per-round attrition.
+
+---
+
+### Task 10: Locate a known reference's span, so the expert need not type 231 of them
+
+**Why this task exists.** The loop's purpose is to harvest references the annotator missed. Measured on M01: **231 references across 80 of 100 documents** are in M000's output and absent from the annotator's by five-field identity. None of them carries a `source_text` from anyone — the model does not emit one and the annotator never wrote the reference down. And a reference with an empty `source_text` on a document that must be windowed fails the training build outright; verified by running it:
+
+```
+IntegrityError: reference rescue has no source_text at source row 0
+```
+
+M01's documents are a median 5432 characters and only 35 of the sealed 300 fit natively, so effectively every one of them is windowed. Without this task the expert must type 231 spans, or the M₁ build dies.
+
+**What was measured before choosing an approach.** The existing `annotator/reference/regex.py` engine was the obvious candidate and it is not good enough: it locates 129 of the 231 (55.8%), and only 62 of those spans are verbatim substrings of the raw document, because it extracts from `normalize_reference_text`'s output rather than the raw body. `context_windows.py` needs a verbatim substring (`body.find`), so that path yields 27% usable spans.
+
+Finding *where a known reference is* is a much narrower problem than finding *which references exist*. A purpose-built locator, measured on the same 231:
+
+| outcome | count | share |
+| --- | --- | --- |
+| article-level span, automatic | **197** | 85.3% |
+| law-level reference (no article), law mention is the correct span | **23** | 10.0% |
+| refused, goes to the expert | **11** | 4.8% |
+
+All 220 automatic spans are verbatim substrings of the raw text. This also removes an architectural problem: nothing needs to import `annotator/`, so the two engines stay independent as `benchmark/` already does.
+
+**The refusals are a signal, not a gap.** Each of the 11 was inspected in the document text. `d000052`'s six rows claim VUK articles 350/362/381/396, but the document says *"sırasıyla 350, 362, 381 ve 396 Sıra No.lu Vergi Usul Kanunu Genel Tebliğleri"* — those are communiqué serial numbers, not articles. `d000031`'s `488/34` points at *"(34) numaralı fıkrasında"* of a table section, not article 34. So an unlocatable article is evidence the reference is wrong, and the right response is to show it to the expert rather than invent a span. Most of these will disappear during adjudication anyway, because they are rows the expert deletes.
+
+**Files:**
+- Create: `src/data_quality_checker/reference_locator.py`
+- Modify: `src/data_quality_checker/loop_training.py` (`round_training_documents`)
+- Test: `tests/test_reference_locator.py`
+
+**Interfaces:**
+- Produces `locate_reference_span(document_text: str, reference: Mapping[str, str]) -> str | None` — a verbatim substring of `document_text` that supports `reference`, or `None` when the reference names an article the text does not place. Never returns a non-substring; never guesses an article-level span from a law mention.
+- Produces `attach_missing_spans(documents: Mapping[Any, dict[str, Any]]) -> tuple[dict[Any, dict[str, Any]], list[dict[str, str]]]` — fills empty `source_text` values in each document's `references` and returns the documents alongside a refusal list of `{"doc_id", "kanun_no", "kanun_ad", "madde", "fikra", "bent"}`.
+- `round_training_documents` raises `ContractError` naming **every** refusal at once, so the expert gets one worklist instead of one error per run.
+
+**The seam, and why it is there.** The locator runs in `round_training_documents`, between the immutable release and the training view. The release stays a faithful record of what the expert decided, with no machine-added spans; the located span exists only as the build-time locator this whole branch reduced `source_text` to. It must not be written back into the release or the database.
+
+- [ ] **Step 1: Write the failing tests**
+
+`tests/test_reference_locator.py`, with real Turkish drafting shapes rather than invented ones — each of these was taken from an M01 document:
+
+```python
+def test_locates_an_ordinary_article_mention() -> None:
+    text = "213 sayılı Vergi Usul Kanununun 413 üncü maddesinde belirtilen usul"
+    span = locate_reference_span(text, {"kanun_no": "213", "kanun_ad": "Vergi Usul Kanunu",
+                                        "madde": "413", "fikra": "", "bent": ""})
+    assert span in text
+    assert "413" in span
+
+
+def test_locates_each_number_of_a_shared_ordinal_series() -> None:
+    """"2, 3 ve 4 üncü maddeleri": only the last number carries the suffix,
+    yet every number in the series names an article. Taken from d000014."""
+    text = "Mezkûr Kararın 2, 3 ve 4 üncü maddeleri gereğince, internet ortamında"
+    for madde in ("2", "3", "4"):
+        span = locate_reference_span(text, {"kanun_no": "476", "kanun_ad": "",
+                                            "madde": madde, "fikra": "", "bent": ""})
+        assert span is not None and span in text
+
+
+def test_a_law_level_reference_is_located_by_its_law_mention() -> None:
+    text = "5957 sayılı Sebze ve Meyveler ile Yeterli Arz ve Talep Derinliği bulunan"
+    span = locate_reference_span(text, {"kanun_no": "5957", "kanun_ad": "Sebze ve Meyveler",
+                                        "madde": "", "fikra": "", "bent": ""})
+    assert span is not None and span in text
+
+
+def test_refuses_a_serial_number_masquerading_as_an_article() -> None:
+    """d000052: the model read communiqué serial numbers as VUK articles. The
+    locator must refuse rather than hand back the law mention, because an
+    unlocatable article is evidence the reference itself is wrong."""
+    text = ("uyulacak usul ve esaslar sırasıyla 350, 362, 381 ve 396 Sıra No.lu "
+            "Vergi Usul Kanunu Genel Tebliğleri ile duyurulmuştur")
+    span = locate_reference_span(text, {"kanun_no": "213", "kanun_ad": "Vergi Usul Kanunu",
+                                        "madde": "350", "fikra": "", "bent": ""})
+    assert span is None
+
+
+def test_every_returned_span_is_a_verbatim_substring() -> None:
+    """The only property context_windows.py actually depends on."""
+    text = "3065 sayılı Katma Değer Vergisi Kanununun 17/4-k maddesi uyarınca"
+    for madde in ("17/4-k", "17"):
+        span = locate_reference_span(text, {"kanun_no": "3065", "kanun_ad": "Katma Değer Vergisi Kanunu",
+                                            "madde": madde, "fikra": "", "bent": ""})
+        if span is not None:
+            assert span in text
+```
+
+- [ ] **Step 2: Run them and confirm they fail on the missing module**
+
+Run: `.venv/bin/python -m pytest tests/test_reference_locator.py -v`
+Expected: collection error, `ModuleNotFoundError: No module named 'data_quality_checker.reference_locator'`.
+
+- [ ] **Step 3: Write the locator**
+
+The probe that produced the measured table above is at `scratchpad/locate_probe.py` and is the reference implementation: an ordinal-suffix alternation, three article patterns, the comma-series pattern, law-mention scoring that prefers the article mention nearest after a law mention, and a 90-character context window. Port it into `reference_locator.py` with the measured numbers in the module docstring, and **refuse rather than fall back to a law mention whenever `madde` is non-empty**.
+
+- [ ] **Step 4: Wire it into `round_training_documents` and raise on refusals**
+
+- [ ] **Step 5: Mutation proof**
+
+Remove the refusal branch so an unlocatable article falls back to the law mention; `test_refuses_a_serial_number_masquerading_as_an_article` must fail. Remove the comma-series pattern; `test_locates_each_number_of_a_shared_ordinal_series` must fail for `"2"` and `"3"`.
+
+- [ ] **Step 6: Re-measure against the live 231 and confirm the table above reproduces**

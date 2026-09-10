@@ -113,6 +113,25 @@ def _instrument_matches(stored: dict[str, Any]) -> bool:
     return stored.get("judge_instrument") == judge_instrument()
 
 
+# Names what *accepted* a verdict, not what *produced* it.
+#
+# `judge_instrument()` fingerprints the prompt and candidate payload shape --
+# the two things that determine what the judge was asked and shown. This is a
+# different axis: which rule `_validate_judge_result` applied when deciding
+# the resulting JSON was a valid verdict. It deliberately does NOT live inside
+# `judge_instrument()`. The resume guard in `_run_pilot_impl` re-judges a
+# document only when its stored `judge_instrument` doesn't match the current
+# one, and every one of M01's 56 already-valid verdicts was produced by the
+# same prompt and payload shape before and after this validator changed --
+# their evidence passes under both the old whole-array check and the new
+# per-span one. Folding this constant into `judge_instrument()` would change
+# that fingerprint for all 56 and force them to be re-judged for no reason:
+# the instrument that produced them never moved, only the rule that grades
+# their output did. Recording the two side by side lets the stored payload
+# answer both questions -- what asked the question, and what accepted the
+# answer -- without conflating them.
+VALIDATION_CONTRACT = "per_span_evidence_v2"
+
 PILOT_TARGET_PER_BUCKET = 20
 PILOT_MAX_DOCS = 60
 
@@ -565,6 +584,23 @@ def resolve_judge_provider(model: str, *, fake_backend: bool = False) -> JudgePr
 
 
 def _validate_judge_result(payload: Any, document_text: str) -> dict[str, Any]:
+    """Apply the judge output contract, per span rather than per array.
+
+    Measured across batch M01's 60-document pilot: 280 evidence spans, only 4
+    unverifiable (1.43%), and no document carried more than one. Rejecting the
+    whole array on one bad span discarded 4 entire verdicts -- 21 verified
+    spans among them -- over a guard that is right to exist (see
+    `test_evidence_span_absent_from_document_is_still_rejected`: a span the
+    judge could not have quoted is a real signal, most often a plausible
+    reconstruction stitched from non-contiguous fragments) but was applied at
+    the wrong granularity. A span the judge could not quote is a fact about
+    that span, not about the eleven others in the same verdict, so it is
+    quarantined into `unverified_evidence` rather than raised: the verdict
+    survives, the signal is kept, and `judge_expert_metrics` re-sources the
+    fabrication-rate signal from this field precisely because a verdict that
+    stops failing here would otherwise stop generating the attempt-error rows
+    that metric used to count.
+    """
     if isinstance(payload, str):
         try:
             payload = json.loads(payload)
@@ -586,8 +622,16 @@ def _validate_judge_result(payload: Any, document_text: str) -> dict[str, Any]:
     reason_codes = payload.get("reason_codes")
     if not isinstance(evidence, list) or not isinstance(reason_codes, list):
         raise ContractError("evidence and reason_codes must be lists")
-    if any(evidence_match_mode(item, document_text) is None for item in evidence if item):
-        raise ContractError("judge evidence contains a span absent from the document")
+    verified_evidence: list[str] = []
+    unverified_evidence: list[str] = []
+    for item in evidence:
+        span = str(item)
+        if not span.strip():
+            continue
+        if evidence_match_mode(span, document_text) is None:
+            unverified_evidence.append(span)
+        else:
+            verified_evidence.append(span)
     return {
         "verdict": verdict,
         "candidate_errors": {
@@ -595,7 +639,8 @@ def _validate_judge_result(payload: Any, document_text: str) -> dict[str, Any]:
             "B": list(candidate_errors["B"]),
         },
         "final_references": references,
-        "evidence": [str(item) for item in evidence],
+        "evidence": verified_evidence,
+        "unverified_evidence": unverified_evidence,
         "reason_codes": [str(item) for item in reason_codes],
     }
 
@@ -787,6 +832,7 @@ def _run_pilot_impl(
                     "model": model,
                     "blind_mapping": mapping,
                     "judge_instrument": instrument,
+                    "validation_contract": VALIDATION_CONTRACT,
                     "status": status,
                     # Which model output this verdict was formed against. The
                     # store's key does not carry it, so without this a verdict
@@ -860,6 +906,7 @@ def _run_pilot_impl(
             "green_audit": audit,
             "judge_prompt_sha256": judge_prompt_fingerprint(),
             "judge_instrument": instrument,
+            "validation_contract": VALIDATION_CONTRACT,
             "production_judge_locked": False,
         }
         write_json_atomic(public_dir / "judge_pilot_summary.json", summary, mode=0o644)
@@ -974,6 +1021,7 @@ def _run_locked_judge_coverage(
                 "stage": "production",
                 "blind_mapping": mapping,
                 "judge_instrument": judge_instrument(),
+                "validation_contract": VALIDATION_CONTRACT,
                 "status": status,
                 "judged_prediction": judged_prediction_provenance(prediction),
                 "result": validated or {},
@@ -1126,6 +1174,23 @@ def _error_class(error: str) -> str:
 def judge_expert_metrics(
     store: Store, *, batch_id: str, model: str, ids: list[str]
 ) -> dict[str, Any]:
+    """Judge-quality numbers, including a fabrication signal sourced two ways.
+
+    `fabricated_evidence_attempts`/`fabricated_evidence_rate` count attempts
+    whose error message was the evidence-rejection class -- that signal only
+    exists for an attempt that failed outright. Since `_validate_judge_result`
+    now quarantines a single unquotable span into `unverified_evidence`
+    instead of failing the whole attempt, a verdict that used to fail on one
+    bad span can now succeed on its first try and generate no failed attempt
+    at all -- which would silently zero out that counter for exactly the
+    verdicts it exists to flag. `unverified_evidence_spans` and
+    `unverified_evidence_span_rate` re-source the same signal from the
+    `unverified_evidence` field carried on valid results, so a verdict that
+    stops failing does not stop being counted. Both signals are kept: the
+    attempt-based counters still reflect genuinely-failed attempts (bad JSON,
+    a bad verdict token, and so on), and the span-based counters reflect
+    spans a valid verdict could not have quoted.
+    """
     if not ids:
         return {"status": "complete", "document_count": 0}
     exact = 0
@@ -1137,6 +1202,8 @@ def judge_expert_metrics(
     invalid_attempts = 0
     invalid_attempts_by_error_class: dict[str, int] = defaultdict(int)
     documents_needing_retry = 0
+    unverified_evidence_spans = 0
+    evidence_spans_seen = 0
     verdict_distribution = {"annotator": 0, "model": 0, "TIE": 0, "NEITHER": 0}
     for internal_doc_id in ids:
         review = store.get_review(batch_id, internal_doc_id)
@@ -1146,7 +1213,15 @@ def judge_expert_metrics(
         if result["status"] != "valid":
             return {"status": result["status"], "document_count": len(ids)}
         expert = json.loads(review["final_references_json"] or "[]")
-        judge = json.loads(result["result_json"]).get("final_references", [])
+        result_data = json.loads(result["result_json"])
+        judge = result_data.get("final_references", [])
+        # Re-sourced fabrication signal: spans this valid verdict could not
+        # be verified against the document, counted here so the metric does
+        # not depend on the verdict having failed an attempt to be seen.
+        verified_spans = result_data.get("evidence") or []
+        unverified_spans = result_data.get("unverified_evidence") or []
+        unverified_evidence_spans += len(unverified_spans)
+        evidence_spans_seen += len(verified_spans) + len(unverified_spans)
         expert_full, judge_full = (
             _set_metric(expert, core=False),
             _set_metric(judge, core=False),
@@ -1201,6 +1276,11 @@ def judge_expert_metrics(
         ),
         "invalid_attempts": invalid_attempts,
         "invalid_attempts_by_error_class": dict(invalid_attempts_by_error_class),
+        "unverified_evidence_spans": unverified_evidence_spans,
+        "evidence_spans_seen": evidence_spans_seen,
+        "unverified_evidence_span_rate": (
+            unverified_evidence_spans / evidence_spans_seen if evidence_spans_seen else 0.0
+        ),
         "documents_needing_retry": documents_needing_retry,
         "verdict_distribution": verdict_distribution,
         "mean_latency_seconds": sum(latencies) / len(latencies) if latencies else None,

@@ -572,24 +572,30 @@ def test_a_rejected_judge_output_is_kept_for_audit(tmp_path) -> None:
     """A refusal that keeps no evidence cannot be audited.
 
     When the contract rejects a judge's answer, only the error message used to
-    survive. That is not enough to tell a judge that really invented a span
-    from a validator that was too strict -- and the difference is exactly what
-    a judge-error metric claims to measure. The rejected text is now kept
-    beside the attempt that produced it.
+    survive. That is not enough to tell a judge that really produced a
+    malformed verdict from a validator that was too strict -- and the
+    difference is exactly what a judge-error metric claims to measure. The
+    rejected text is now kept beside the attempt that produced it.
+
+    Uses an invalid verdict token rather than an unfindable evidence span, as
+    this test did before the per-span partition: a single unverifiable span
+    is no longer fatal to the whole verdict (see the evidence tests above), so
+    it can no longer stand in here for "a contract violation that is still
+    fatal." An invalid verdict token still is.
     """
     import json as _json
 
     from data_quality_checker.judges import JudgeProviderUnavailable  # noqa: F401
 
-    class AlwaysUngrounded:
+    class AlwaysMalformed:
         def judge(self, *, model, payload):
             return (
                 _json.dumps(
                     {
-                        "verdict": "A",
+                        "verdict": "MAYBE",
                         "candidate_errors": {"A": [], "B": []},
                         "final_references": [],
-                        "evidence": ["bu parça belgede kesinlikle yok"],
+                        "evidence": [],
                         "reason_codes": ["test"],
                     },
                     ensure_ascii=False,
@@ -602,7 +608,7 @@ def test_a_rejected_judge_output_is_kept_for_audit(tmp_path) -> None:
         config=config,
         batch_id="batch",
         allow_external_judge=True,
-        provider=AlwaysUngrounded(),
+        provider=AlwaysMalformed(),
         judge_models=("qwen3.5:397b",),
     )
     with Store(config.database_path) as store:
@@ -613,7 +619,7 @@ def test_a_rejected_judge_output_is_kept_for_audit(tmp_path) -> None:
     assert attempts, "an error must record the attempts that produced it"
     assert all(a["status"] == "invalid" for a in attempts)
     for attempt in attempts:
-        assert "bu parça belgede kesinlikle yok" in attempt["rejected_output"]
+        assert "MAYBE" in attempt["rejected_output"]
 
 
 _DOCUMENT_TEXT = "213 sayılı Vergi Usul Kanununun mükerrer 20 nci maddesi uyarınca."
@@ -664,16 +670,148 @@ def test_final_references_source_text_need_not_be_verbatim() -> None:
     assert validated["final_references"][0]["madde"] == "mükerrer 20"
 
 
-def test_evidence_span_absent_from_document_is_still_rejected() -> None:
-    """The judge's own evidence array is a hallucination guard on a machine's
-    output and stays validated even though final_references' source_text no
-    longer is."""
+def test_evidence_span_absent_from_document_is_quarantined_not_rejected() -> None:
+    """The judge's own evidence array is still a hallucination guard on a
+    machine's output: a span it could not quote from the document is still
+    identified as such, exactly as before. What changed is the consequence.
+
+    Measured on batch M01: 280 evidence spans, 4 unverifiable (1.43%), no
+    document with more than one -- yet discarding the whole verdict on that
+    1.43% also discarded 21 verified spans riding along with the 4 bad ones.
+    The guard now acts per span: the unquotable span is quarantined into
+    `unverified_evidence` (so the signal this test used to prove -- that a
+    fabricated span is caught -- still holds), and the verdict that carried
+    it is validated normally rather than thrown away whole."""
     from data_quality_checker.judges import _validate_judge_result
 
     payload = _judge_payload()
     payload["evidence"] = ["bu parça belgede kesinlikle yok"]
-    with pytest.raises(ContractError, match="judge evidence contains a span absent"):
-        _validate_judge_result(payload, _DOCUMENT_TEXT)
+    validated = _validate_judge_result(payload, _DOCUMENT_TEXT)
+    assert validated["verdict"] == "A"
+    assert validated["evidence"] == []
+    assert validated["unverified_evidence"] == ["bu parça belgede kesinlikle yok"]
+
+
+def test_one_unverifiable_span_among_several_does_not_discard_the_verdict() -> None:
+    """The all-or-nothing check this replaces discarded 4 whole M01 verdicts
+    -- 21 verified spans between them -- over 4 unverifiable spans out of 280
+    (1.43%). One bad span among several must not cost the good ones: the
+    verdict stays valid, `evidence` keeps only what verified, and the bad
+    span is recorded separately rather than silently dropped."""
+    from data_quality_checker.judges import _validate_judge_result
+
+    payload = _judge_payload()
+    payload["evidence"] = [
+        "213 sayılı Vergi Usul Kanununun mükerrer 20 nci maddesi",
+        "bu parça belgede kesinlikle yok",
+    ]
+    validated = _validate_judge_result(payload, _DOCUMENT_TEXT)
+    assert validated["verdict"] == "A"
+    assert validated["evidence"] == ["213 sayılı Vergi Usul Kanununun mükerrer 20 nci maddesi"]
+    assert validated["unverified_evidence"] == ["bu parça belgede kesinlikle yok"]
+
+
+def test_entirely_unverifiable_evidence_still_yields_a_valid_verdict() -> None:
+    """Every span here is unverifiable, not just one -- the per-span partition
+    still returns a valid verdict with an empty `evidence` and both spans
+    quarantined into `unverified_evidence`.
+
+    Opinion, spelled out further in the fix report: this is the right default
+    rather than a gap. `verdict` and `final_references` are validated on their
+    own terms by `validate_reference_list`/`apply_reference_policy`; nothing
+    here makes a verdict's substance depend on its evidence array being
+    non-empty. Refusing outright at 100% unverifiable would also resurrect the
+    same all-or-nothing failure this fix removes, just moved to an
+    unprincipled threshold (refuse at 100%? 90%? 50%?) -- a policy call that
+    belongs where the full pilot's per-span rate is visible
+    (`judge_expert_metrics`/`lock_judge`), not inside a single verdict's
+    validator, which only ever sees one document."""
+    from data_quality_checker.judges import _validate_judge_result
+
+    payload = _judge_payload()
+    payload["evidence"] = ["bu parça belgede kesinlikle yok", "başka bir uydurma parça"]
+    validated = _validate_judge_result(payload, _DOCUMENT_TEXT)
+    assert validated["verdict"] == "A"
+    assert validated["evidence"] == []
+    assert validated["unverified_evidence"] == [
+        "bu parça belgede kesinlikle yok",
+        "başka bir uydurma parça",
+    ]
+
+
+def test_judge_expert_metrics_counts_an_unverifiable_span_on_a_valid_result(
+    tmp_path: Path,
+) -> None:
+    """A verdict can now carry an unverifiable span and still be `valid`, so
+    the old attempt-based fabrication counters go silent for it -- no attempt
+    ever failed, so nothing feeds `fabricated_evidence_attempts`. That is
+    exactly the trap: once a bad-span verdict stops failing, a metric that
+    only watched failed attempts would silently report zero fabrication while
+    fabrication is exactly what happened. `judge_expert_metrics` must
+    re-source the signal from the `unverified_evidence` field carried on the
+    valid result itself."""
+    from data_quality_checker.judges import judge_expert_metrics
+
+    batch_id = "batch"
+    model = "test-judge"
+    store = Store(tmp_path / "store.db")
+    try:
+        store.create_batch(batch_id=batch_id, input_fingerprint="fp", config_fingerprint="cfg")
+        store.add_document(
+            batch_id,
+            {
+                "internal_doc_id": "doc-1",
+                "public_doc_id": "doc-1",
+                "raw_document_id": "doc-1",
+                "selected_channel": "pdf",
+                "pdf_coverage": 1.0,
+                "html_coverage": 0.0,
+                "text": "document text doc-1",
+                "text_sha256": "0" * 64,
+                "human_references": [],
+            },
+        )
+        review = store.get_review(batch_id, "doc-1")
+        assert review is not None
+        store.update_review(
+            batch_id=batch_id,
+            internal_doc_id="doc-1",
+            expected_version=review["row_version"],
+            status="finalized",
+            action="accept_human",
+            final_references=[],
+            reason=None,
+            reviewer="fixture",
+        )
+        store.persist_judge_result(
+            batch_id=batch_id,
+            internal_doc_id="doc-1",
+            model=model,
+            blind_mapping="A=human,B=model",
+            status="valid",
+            verdict="TIE",
+            result={
+                "verdict": "TIE",
+                "final_references": [],
+                "evidence": ["kept span"],
+                "unverified_evidence": ["fabricated span"],
+            },
+            response_path=None,
+            response_sha256=None,
+            retry_count=0,
+            error=None,
+        )
+        metrics = judge_expert_metrics(store, batch_id=batch_id, model=model, ids=["doc-1"])
+    finally:
+        store.close()
+
+    assert metrics["status"] == "complete"
+    assert metrics["unverified_evidence_spans"] == 1
+    assert metrics["evidence_spans_seen"] == 2
+    assert metrics["unverified_evidence_span_rate"] == pytest.approx(0.5)
+    # No attempt ever failed for this document, so the old attempt-based
+    # signal is silent here -- surviving exactly that silence is the point.
+    assert metrics["fabricated_evidence_attempts"] == 0
 
 
 def test_judge_instrument_names_the_payload_shape_not_only_the_prompt() -> None:

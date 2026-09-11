@@ -219,6 +219,7 @@ _DIFF_STATUS_LABELS = {
     "only_a": "Yalnız insan anotasyonunda",
     "only_b": "Yalnız model çıktısında",
     "differs": "Alan farkı",
+    "set_differs": "Aynı madde, farklı fıkra/bent kümesi",
 }
 
 
@@ -228,8 +229,11 @@ def ab_diff(
     """Align human (A) and model (B) references by core law-article identity.
 
     References are grouped by ``core_identity`` in first-appearance order across
-    A then B. Each group reports a ``status`` and, when a matched core differs
-    one-to-one, the subset of ``fikra``/``bent``/``source_text`` that disagree.
+    A then B. Each group reports a ``status``. A one-to-one group whose
+    identities disagree is ``differs``, carrying the subset of
+    ``fikra``/``bent``/``source_text`` that actually differ; a group that is
+    not one-to-one is ``set_differs``, meaning the two sides cite different
+    provisions under the same article rather than the same one differently.
 
     Pairing normalises first; display does not. ``core_identity`` reads its
     fields as given, and every other consumer in the pipeline -- the router,
@@ -272,10 +276,18 @@ def ab_diff(
             full_identity(normalize_reference(r)) for r in b_refs
         ):
             status = "same"
-        else:
+        elif len(a_refs) == 1 and len(b_refs) == 1:
             status = "differs"
+        else:
+            # Both sides cite this article but list different provisions under
+            # it. Nothing differs field-by-field -- the group is simply not
+            # one-to-one, so the field comparison below never runs. Calling
+            # that "Alan farkı" sent the expert hunting for a field that does
+            # not disagree; on batch M01 it did so on 58 of 70 such rows,
+            # across 43 of 100 documents.
+            status = "set_differs"
         field_diffs: list[str] = []
-        if status == "differs" and len(a_refs) == 1 and len(b_refs) == 1:
+        if status == "differs":
             normalized_a = normalize_reference(a_refs[0])
             normalized_b = normalize_reference(b_refs[0])
             field_diffs = [

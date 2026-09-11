@@ -56,10 +56,15 @@ def test_ab_diff_reports_field_level_difference_for_matched_core() -> None:
     assert "bent" not in row["field_diffs"]
 
 
-def test_ab_diff_differs_without_field_diffs_when_group_is_not_one_to_one() -> None:
-    # Same core identity on both sides, but two refs on A vs one on B whose
-    # full identities do not match as a multiset -> "differs" with no
-    # per-field diffs (field_diffs is only defined for 1-to-1 groups).
+def test_ab_diff_reports_a_set_difference_when_the_group_is_not_one_to_one() -> None:
+    """Same article on both sides, two references on A against one on B.
+
+    This used to be reported as "differs" with an empty `field_diffs`, and the
+    UI rendered that as "Alan farkı" -- a field difference the expert could
+    never find, because the per-field comparison only runs for a one-to-one
+    group and so had never run. It is now named for what it is: the two sides
+    list different provisions under the same article.
+    """
     a1 = _ref(fikra="1", src="A birinci fıkra")
     a2 = _ref(fikra="2", src="A ikinci fıkra")
     b1 = _ref(fikra="1", src="B birinci fıkra")
@@ -67,7 +72,8 @@ def test_ab_diff_differs_without_field_diffs_when_group_is_not_one_to_one() -> N
 
     assert len(rows) == 1
     row = rows[0]
-    assert row["status"] == "differs"
+    assert row["status"] == "set_differs"
+    assert row["status_label"] == "Aynı madde, farklı fıkra/bent kümesi"
     assert row["field_diffs"] == []
     assert len(row["a"]) == 2
     assert len(row["b"]) == 1
@@ -218,3 +224,39 @@ def test_ab_diff_still_separates_an_additional_article_from_a_subparagraph() -> 
     rows = ab_diff([additional], [subparagraph])
 
     assert {row["status"] for row in rows} == {"only_a", "only_b"}
+
+
+def test_ab_diff_names_a_set_difference_as_what_it_is() -> None:
+    """"Alan farkı" sent the expert looking for a field that does not differ.
+
+    When both sides cite the same article but list different paragraphs under
+    it, nothing differs field-by-field -- the group simply is not one-to-one,
+    so `field_diffs` stays empty and the label named a comparison that never
+    ran. On batch M01 that was 58 of 70 "Alan farkı" rows, across 43 of 100
+    documents. d000011 is the case that surfaced it: the annotator cited only
+    KVK 3/2 while the model also found 3/3-a and 3/3-c.
+    """
+    a = [_ref(no="5520", ad="Kurumlar Vergisi Kanunu", madde="3", fikra="2")]
+    b = [
+        _ref(no="5520", ad="Kurumlar Vergisi Kanunu", madde="3", fikra="2"),
+        _ref(no="5520", ad="Kurumlar Vergisi Kanunu", madde="3", fikra="3", bent="a"),
+        _ref(no="5520", ad="Kurumlar Vergisi Kanunu", madde="3", fikra="3", bent="c"),
+    ]
+    rows = ab_diff(a, b)
+
+    assert len(rows) == 1
+    assert rows[0]["status"] == "set_differs"
+    assert rows[0]["status_label"] == "Aynı madde, farklı fıkra/bent kümesi"
+    assert rows[0]["field_diffs"] == []
+
+
+def test_ab_diff_keeps_field_difference_for_a_one_to_one_pair() -> None:
+    """The original label stays where it is true: one reference each side,
+    same article, and a field that really does disagree."""
+    a = [_ref(fikra="1", bent="a", src="metin A")]
+    b = [_ref(fikra="2", bent="a", src="metin A")]
+    rows = ab_diff(a, b)
+
+    assert rows[0]["status"] == "differs"
+    assert rows[0]["status_label"] == "Alan farkı"
+    assert rows[0]["field_diffs"] == ["fikra"]

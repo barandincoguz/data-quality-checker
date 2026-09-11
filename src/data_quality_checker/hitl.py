@@ -28,6 +28,7 @@ from .normalization import (
     compact_references,
     core_identity,
     full_identity,
+    normalize_reference,
 )
 from .preparation import annotation_attribution_path
 from .reference_policy import (
@@ -229,13 +230,31 @@ def ab_diff(
     References are grouped by ``core_identity`` in first-appearance order across
     A then B. Each group reports a ``status`` and, when a matched core differs
     one-to-one, the subset of ``fikra``/``bent``/``source_text`` that disagree.
+
+    Pairing normalises first; display does not. ``core_identity`` reads its
+    fields as given, and every other consumer in the pipeline -- the router,
+    the loop metrics, the judge metrics, the reference audit -- hands it rows
+    that ``compact_references`` has already normalised. This function was the
+    one place passing raw references, so an annotator's "Ek 5" and the model's
+    "ek 5" keyed differently and the expert was shown "only in the annotator"
+    beside "only in the model" for a reference both sides agreed on. Measured
+    on batch M01: 48 such phantom rows across 19 of 100 documents, five of them
+    GREEN -- documents the router itself calls identical.
+
+    The same applies to the field comparison: ``normalize_extension`` already
+    treats "(1)" and "1", and "A" and "a", as one paragraph, so comparing the
+    raw strings would trade one phantom for another.
+
+    What the expert reads stays exactly as written, though. The groups hold the
+    original references and only the keys are normalised -- showing "ek 5"
+    where the annotator typed "Ek 5" would misreport the record being audited.
     """
 
     order: list[tuple[str, str, str, str]] = []
     groups: dict[tuple[str, str, str, str], dict[str, list[dict[str, Any]]]] = {}
     for label, references in (("a", candidate_a), ("b", candidate_b)):
         for reference in references:
-            key = core_identity(reference)
+            key = core_identity(normalize_reference(reference))
             if key not in groups:
                 groups[key] = {"a": [], "b": []}
                 order.append(key)
@@ -249,16 +268,20 @@ def ab_diff(
             status = "only_a"
         elif b_refs and not a_refs:
             status = "only_b"
-        elif sorted(full_identity(r) for r in a_refs) == sorted(full_identity(r) for r in b_refs):
+        elif sorted(full_identity(normalize_reference(r)) for r in a_refs) == sorted(
+            full_identity(normalize_reference(r)) for r in b_refs
+        ):
             status = "same"
         else:
             status = "differs"
         field_diffs: list[str] = []
         if status == "differs" and len(a_refs) == 1 and len(b_refs) == 1:
+            normalized_a = normalize_reference(a_refs[0])
+            normalized_b = normalize_reference(b_refs[0])
             field_diffs = [
                 field
                 for field in _DIFF_FIELDS
-                if a_refs[0].get(field, "") != b_refs[0].get(field, "")
+                if normalized_a.get(field, "") != normalized_b.get(field, "")
             ]
         sample = (a_refs or b_refs)[0]
         rows.append(

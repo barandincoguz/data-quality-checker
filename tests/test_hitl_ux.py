@@ -160,3 +160,61 @@ def test_review_position_is_one_based_with_total() -> None:
 
 def test_review_position_returns_none_when_absent() -> None:
     assert review_position([{"internal_doc_id": "x"}], "missing") is None
+
+
+def test_ab_diff_pairs_the_same_article_written_with_different_case() -> None:
+    """d000006 and 18 other M01 documents showed phantom disagreements.
+
+    The annotator wrote "Ek 5" and the model wrote "ek 5" -- the same additional
+    article. Every other consumer of `core_identity` normalises first, through
+    `compact_references`; `ab_diff` was the one place passing raw references, so
+    the two grouped under different keys and the expert was shown
+    "Yalnız insan anotasyonunda" beside "Yalnız model çıktısında" for a
+    reference both sides agreed on. Measured across M01: 48 such phantom rows on
+    19 of 100 documents, 5 of them GREEN -- documents the router itself calls
+    identical.
+    """
+    human = _ref(no="2560", ad="İSKİ Kanunu", madde="Ek 5", src="ek 5 inci maddesi")
+    model = _ref(no="2560", ad="İSKİ Kanunu", madde="ek 5", src="ek 5 inci maddesi")
+    rows = ab_diff([human], [model])
+
+    assert len(rows) == 1
+    assert rows[0]["status"] == "same"
+
+
+def test_ab_diff_shows_the_expert_what_was_actually_written() -> None:
+    """Pairing normalises; display must not. The expert is reading the
+    annotator's own wording, and silently showing them "ek 5" where the
+    annotator typed "Ek 5" would misreport the record they are auditing."""
+    human = _ref(no="2560", ad="İSKİ Kanunu", madde="Ek 5")
+    model = _ref(no="2560", ad="İSKİ Kanunu", madde="ek 5")
+    rows = ab_diff([human], [model])
+
+    assert rows[0]["a"][0]["madde"] == "Ek 5"
+    assert rows[0]["b"][0]["madde"] == "ek 5"
+
+
+def test_ab_diff_does_not_invent_a_field_difference_from_formatting() -> None:
+    """`normalize_extension` already treats "(1)" and "1", and "A" and "a", as
+    the same paragraph. Comparing the raw strings would replace one phantom
+    with another: a matched pair reported as "Alan farkı" over punctuation."""
+    a = _ref(fikra="(1)", bent="A", src="aynı metin")
+    b = _ref(fikra="1", bent="a", src="aynı metin")
+    rows = ab_diff([a], [b])
+
+    assert len(rows) == 1
+    assert rows[0]["status"] == "same"
+    assert rows[0]["field_diffs"] == []
+
+
+def test_ab_diff_still_separates_an_additional_article_from_a_subparagraph() -> None:
+    """Rule 3 of this project: `32/A` is ek madde A and is never split, while
+    `32/a` is bent a and is. Case decides, and normalising for the pairing key
+    must not collapse that distinction -- these are two different provisions
+    and must stay two rows.
+    """
+    additional = _ref(madde="32/A")
+    subparagraph = _ref(madde="32/a")
+    rows = ab_diff([additional], [subparagraph])
+
+    assert {row["status"] for row in rows} == {"only_a", "only_b"}

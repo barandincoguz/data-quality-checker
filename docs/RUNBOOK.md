@@ -76,24 +76,34 @@ validation belgesi atomik yazılır; aynı fingerprint'le resume tamamlanan belg
 yeniden üretmez.
 
 Kabul edilen Mac Studio sözleşmesinde full-document inference/validation
-`12288` token, backward eğitim `1536` tokendır. Güncel full max-10 görünümünde
-`394` train belgesi lossless örtüşmeli/dense-replay pencerelerle `3726` satıra
-dönüşür. Manifest hem metin hem gold
+`12288` token, backward eğitim `1536` tokendır.
+
+> **Tarihsel v9 trajectory — artık güncel değil.** Aşağıdaki `394` belge →
+> `3726` satır → `932` update zinciri, iki jenerasyon önceki
+> `...-realtext-v9` training-view policy'sine ait tarihsel bir kayıttır.
+> Güncel policy `...-realtext-v11`dir; burada yerine yeni sayılar
+> uydurulmamıştır. Güncel satır/update sayıları için tek doğruluk kaynağı
+> `src/data_quality_checker/g0.py` içindeki `TRAINING_VIEW_POLICY` sabitidir.
+
+Tarihsel v9 görünümünde `394` train belgesi lossless örtüşmeli/dense-replay
+pencerelerle `3726` satıra dönüşüyordu. Manifest hem metin hem gold
 referans coverage'ını `complete` olarak doğrulamazsa eğitim başlamaz; bu akış
 sessiz truncation değildir.
 
-Güncel v9 trajectory'sinde seçilen `lr2.5e-5` önce `25`, sonra `50/75`
-validation kapılarından geçirilir. Üçü de sağlıklıysa aynı stateful trajectory
-bir training-view epoch olan `932=ceil(3726/4)` update'e uzatılır:
+Tarihsel v9 trajectory'sinde seçilen `lr2.5e-5` önce `25`, sonra `50/75`
+validation kapılarından geçirilirdi. Üçü de sağlıklıysa aynı stateful
+trajectory bir training-view epoch olan `932=ceil(3726/4)` update'e
+uzatılıyordu (tarihsel komut örneği):
 
 ```bash
 dqcheck train-g0 --run-id <run-id> --candidate lr2.5e-5 \
   --target-updates 932 --execute --resume
 ```
 
-`932`, 3726 satırlık kilitli görünümü gradient accumulation `4` ile bir kez
-tüketir. En iyi checkpoint her 25 update'teki generation metriğinden seçilir;
-ara sağlık kapısı düşerse uzun hedefe devam edilmez.
+Bu tarihsel `932`, v9'daki 3726 satırlık kilitli görünümü gradient
+accumulation `4` ile bir kez tüketiyordu. En iyi checkpoint her 25 update'teki
+generation metriğinden seçilir; ara sağlık kapısı düşerse uzun hedefe devam
+edilmez.
 
 Checkpoint seçimi validation-50 üzerinde `core-F1 → docwise@1.0 → recall →
 validation loss` sırasındadır. Validation ve sealed test rolleri birleştirilmez:
@@ -282,8 +292,8 @@ dqcheck q36-p1 views --predictions <raw.json> --output-dir <views-dir>
 dqcheck q36-p1 gold-view --source <gold.json-or-dir> --output <filtered.json-or-dir>
 ```
 
-Tam Q36 sözleşmesi ve audit sonrası compute kapıları:
-`tasks/q36_p1_controlled_sft_2026_08_04/{PLAN,RUNBOOK}.md`.
+Tam Q36 sözleşmesi ve audit sonrası compute kapıları için kod tek doğruluk
+kaynağıdır: `src/data_quality_checker/q36_p1.py`.
 
 ## Kurtarma
 

@@ -33,7 +33,7 @@ dqcheck --config configs/presets/sample_data.json import-attribution \
 
 # 4. Run semantic routing with fake backend (offline mode)
 dqcheck --config configs/presets/sample_data.json process \
-  --prepared-batch demo_batch_001 --fake-backend
+  --prepared-batch demo_batch_001 --generation G0 --fake-backend
 
 # 5. Check batch lifecycle state
 dqcheck --config configs/presets/sample_data.json status \
@@ -41,5 +41,5 @@ dqcheck --config configs/presets/sample_data.json status \
 
 # 6. Launch the local HITL Web UI
 dqcheck --config configs/presets/sample_data.json serve \
-  --batch-id demo_batch_001 --port 5055
+  --batch-id demo_batch_001 --generation G0 --port 5055
 ```

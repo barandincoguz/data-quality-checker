@@ -12,11 +12,13 @@ Thank you for contributing to `data-quality-checker`!
    cd data-quality-checker
    ```
 
-2. **Set up Python environment (>=3.11)**:
+2. **Python environment (>=3.11)**:
+   The repo's `.venv` is a symlink to the shared lab environment and already
+   has everything installed. Do not create a venv and do not `pip install` —
+   just run the Makefile targets, which call `./.venv/bin/python` directly:
    ```bash
-   python3 -m venv .venv
-   source .venv/bin/activate
-   pip install -e ".[dev,test]"
+   make test
+   make lint
    ```
 
 3. **Run tests**:

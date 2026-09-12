@@ -75,7 +75,7 @@ dqcheck --config configs/presets/sample_data.json prepare \
 
 # 3. Run semantic routing with fake backend
 dqcheck --config configs/presets/sample_data.json process \
-  --prepared-batch demo_batch_001 --fake-backend
+  --prepared-batch demo_batch_001 --generation G0 --fake-backend
 
 # 4. Check batch status
 dqcheck --config configs/presets/sample_data.json status --batch-id demo_batch_001
@@ -83,7 +83,7 @@ dqcheck --config configs/presets/sample_data.json status --batch-id demo_batch_0
 # 5. Launch the HITL review interface
 export DQCHECK_SESSION_SECRET="$(openssl rand -hex 32)"
 export DQCHECK_ACCESS_TOKEN="$(openssl rand -hex 32)"
-dqcheck --config configs/presets/sample_data.json serve --batch-id demo_batch_001 --port 5055
+dqcheck --config configs/presets/sample_data.json serve --batch-id demo_batch_001 --generation G0 --port 5055
 ```
 Open [http://127.0.0.1:5055](http://127.0.0.1:5055) in your browser.
 

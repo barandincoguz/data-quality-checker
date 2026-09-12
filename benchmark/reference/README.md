@@ -3,7 +3,9 @@
 > **Yorumlayıcı uyarısı.** Bu dosyadaki komut blokları `venv/bin/python` yazar,
 > fakat bu repo paylaşımlı bir lab ortamında koşuyor ve **o yol her makinede
 > bulunmaz** (bu Mac Studio'da yoktur; çalışan yorumlayıcı
-> `/opt/llm-lab/.venv/bin/python`). Çözümleme sırası ve gerekçe: `AGENTS.md` §8.
+> `/opt/llm-lab/.venv/bin/python`). Çözümleme sırası ve gerekçe için kod tek
+> doğruluk kaynağıdır: repo kökündeki `Makefile` (`PYTHON ?= ./.venv/bin/python`,
+> `.venv` paylaşımlı lab ortamına symlink'tir).
 > Ayrıca `evaluate.py`'yi **dosya yolu** ile çağırıyorsan
 > `PYTHONPATH=<repo kökü>` zorunludur; `python -m benchmark.reference.evaluate`
 > biçimi ise cwd repo kökü olduğu sürece PYTHONPATH gerektirmez.

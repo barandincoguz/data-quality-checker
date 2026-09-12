@@ -1,3 +1,20 @@
+> **UYARI — bu tasarım uygulanmadı. 2026-09-13'te eklendi.**
+>
+> Aşağıda anlatılan **körlenmiş A/B protokolü kurulmadı.** Uzman ekranı
+> adayları körlemiyor: `hitl.py` her belgede `candidate_a, candidate_b =
+> human, model` atamasını sabit yapıyor ve sütunları "İnsan anotasyonu" /
+> "G0 model çıktısı" diye açıkça etiketliyor. `docs/RUNBOOK.md` de bunu
+> yazıyor ("körleme yoktur").
+>
+> Körleme **hakem** tarafında var, uzman tarafında değil — `blind_candidates`
+> hakemin hangi tarafın insan olduğunu görmesini engelliyor. Bu belgedeki
+> `ab_diff` durum kümesi de eksik: kodda beşinci bir durum var (`set_differs`).
+>
+> Belge silinmedi çünkü alınmamış bir kararı kaydediyor. Ama buradaki hiçbir
+> ifade sistemin davranışı olarak alıntılanmamalı.
+
+---
+
 # HITL Review UX — A/B Diff, Queue Navigation, Structured Editor
 
 Date: 2026-07-24

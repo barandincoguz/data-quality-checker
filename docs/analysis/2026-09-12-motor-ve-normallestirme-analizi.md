@@ -23,7 +23,12 @@ geçerli. Kaybolan şey mutlak seviye: gerçek doğruluk raporlanandan yüksek.
 
 ---
 
-## 1. Varsayılan motor, kabul edilmiş düzeltmeyi kullanmıyor — YÜKSEK
+## 1. Varsayılan motor, kabul edilmiş düzeltmeyi kullanmıyor — ÇÖZÜLDÜ
+
+> Düzeltildi: commit `dbd4ccf`. `canonical_evaluate` artık
+> `--matching-engine optimal` geçiyor ve motoru `metric_view`'a damgalıyor.
+> M₀ ve M₀′ bu motorla yeniden ölçüldü; ikisinde de seçilen checkpoint değişti.
+> Aşağıdaki 2. ve 3. bulgular da aynı düzeltmeyle kapandı.
 
 `benchmark/reference/run.py:196` varsayılanı `greedy`. Düzeltme yazılmış,
 test edilmiş, kabul edilmiş, ama çağrılmıyor.

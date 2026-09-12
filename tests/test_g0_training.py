@@ -301,6 +301,11 @@ def test_validation_wrapper_uses_canonical_evaluator_and_exact_50_doc_universe(
     assert result["evaluated_doc_count"] == 50
     assert result["reference_postprocess_mode"] == "canonical_set"
     assert result["core_reference_view"] == "row"
+    # Read back from the evaluator's own provenance stamp, not from the command
+    # we built: this fails if the flag is dropped and the frozen `greedy`
+    # default silently takes over, which is how every loop metric came to be
+    # produced by a matcher the project had already superseded.
+    assert result["matching_engine"] == "optimal"
     assert result["core_law_article_strict"]["recall"] == 1.0
     assert result["core_law_article_strict"]["tp"] > 0
     assert result["docwise_core_accuracy"]["total_docs"] == 50

@@ -82,6 +82,18 @@ WINDOW_FALLBACK_OVERLAP_TOKENS = 256
 WINDOW_FALLBACK_MAX_GENERATION_TOKENS = 1024
 REFERENCE_POSTPROCESS = "canonical_set"
 CORE_REFERENCE_VIEW = "row"
+# The matcher every number in this project is produced by. `benchmark`'s own
+# default is still `greedy`, the frozen Run 015-021 pairing, and passing no
+# flag silently selected it -- so every loop metric was computed by a matcher
+# the project itself superseded on 2026-08-03. Its README records the cost on
+# identical predictions: core F1 0.8825 under greedy against 0.9348 under
+# optimal, with the leader changing engine to engine. `optimal` also scores
+# law-level (madde-less) references on both sides, which greedy drops from
+# recall while still charging the same shape as a false positive -- 249 of the
+# 3523 canonical references, 7.1%, are law-level. Named here rather than left
+# to a default, and stamped into `metric_view` below, because the README's own
+# rule is that every claim must say which matcher produced it.
+MATCHING_ENGINE = "optimal"
 # `_base_run_context` is the one gate both G0's historical run and every
 # DQ-Loop round run pass through -- there is only one compute driver
 # (`run_development`), not one per generation. The constraint this pattern
@@ -481,6 +493,8 @@ def canonical_evaluate(
         REFERENCE_POSTPROCESS,
         "--core-reference-view",
         CORE_REFERENCE_VIEW,
+        "--matching-engine",
+        MATCHING_ENGINE,
         "--per-doc",
     ]
     completed = subprocess.run(
@@ -574,6 +588,7 @@ def _validation_summary(
         "metric_view": {
             "reference_postprocess": REFERENCE_POSTPROCESS,
             "core_reference_view": CORE_REFERENCE_VIEW,
+            "matching_engine": MATCHING_ENGINE,
             "docwise_threshold": 1.0,
         },
         "prediction_sha256": validation["predictions_sha256"],

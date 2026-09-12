@@ -150,10 +150,19 @@ def salvage_repeated_json_prefix(raw_output: str) -> dict[str, Any] | None:
     same way was recovered during validation and quarantined during
     deployment, purely because the recovery existed in one code path only.
 
-    The rule refuses an enumeration runaway on purpose. d000059 counted `bent`
-    upward -- 201, 202, 203 -- so no two tuples are equal and there is nothing
-    to deduplicate; closing that array would inject hundreds of fabricated
-    references into the batch. Such a document stays quarantined.
+    The gate that refuses an unprovable close is the terminal-repeat
+    requirement below: the final tuple must have occurred more than once
+    anywhere in the array. A cycle is as provable a duplication as a run --
+    d000031 truncated mid-loop with its tail alternating through three
+    Damga Vergisi Kanunu articles (1, 3, 9) rather than repeating one of
+    them; no terminal *run* exists, but each of those three tuples recurs
+    earlier in the array, so deduplication is provably safe and the document
+    is recovered to its ten genuine references. d000059 counted `bent`
+    upward instead -- 201, 202, 203 -- so its terminal tuple never recurs:
+    there is nothing to deduplicate, and closing that array would inject
+    hundreds of fabricated references into the batch. Such a document stays
+    quarantined. Either way the safety property is unchanged: only tuples
+    the model itself emitted are ever returned.
     """
     array_start = raw_output.find("[")
     if array_start < 0:
@@ -181,14 +190,18 @@ def salvage_repeated_json_prefix(raw_output: str) -> dict[str, Any] | None:
             if identity != terminal_identity:
                 break
             terminal_run_length += 1
+        terminal_duplicate_repeat_count = sum(
+            1 for identity in identities if identity == terminal_identity
+        )
         unique = deduplicate_legal_tuples(references)
-        # The second clause is provably unreachable given the first -- a
-        # terminal run of two means the last two identities are equal, so
-        # deduplication must shrink the list. It is kept because this is the
-        # frozen rule the sealed G0 runs were produced with, and removing dead
-        # code from a frozen rule buys nothing. A mutation that deletes it
-        # therefore survives, correctly; it is not a gap in the tests.
-        if terminal_run_length < 2 or len(unique) == len(references):
+        # The second clause is provably unreachable given the first -- the
+        # terminal tuple occurring twice anywhere in the array means
+        # deduplication must drop at least one of those occurrences, so the
+        # list must shrink. It is kept because this is the frozen rule the
+        # sealed G0 runs were produced with, and removing dead code from a
+        # frozen rule buys nothing. A mutation that deletes it therefore
+        # survives, correctly; it is not a gap in the tests.
+        if terminal_duplicate_repeat_count < 2 or len(unique) == len(references):
             return None
         return {
             "references": unique,
@@ -196,6 +209,7 @@ def salvage_repeated_json_prefix(raw_output: str) -> dict[str, Any] | None:
             "unique_reference_count": len(unique),
             "duplicate_reference_count": len(references) - len(unique),
             "terminal_duplicate_run_length": terminal_run_length,
+            "terminal_duplicate_repeat_count": terminal_duplicate_repeat_count,
             "discarded_incomplete_suffix_chars": len(raw_output) - object_end - 1,
             "synthetic_closing_bracket": True,
             "repaired_prefix_sha256": sha256_text(candidate),

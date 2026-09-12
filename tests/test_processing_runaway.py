@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from data_quality_checker.processing import (
@@ -97,6 +99,31 @@ class TestSalvage:
         assert result["duplicate_reference_count"] == 2
         assert result["synthetic_closing_bracket"] is True
 
+    def test_a_cyclic_runaway_is_salvaged_to_its_unique_prefix(self) -> None:
+        """d000031: the tail cycles through three tuples -- Damga Vergisi
+        Kanunu articles 1, 3, and 9 -- instead of repeating one of them. There
+        is no terminal *run* (the last two objects differ), but the final
+        tuple recurs earlier in the array, and that recurrence is exactly as
+        provable a duplication as a run: deduplication must still drop it, so
+        closing the array cannot invent anything the model did not emit.
+        """
+        cycle = (("488", "1"), ("488", "3"), ("488", "9"))
+        emitted = {(no, madde) for no, madde in cycle}
+        raw = "[" + _objects(*(cycle * 4)) + ',{"kanun_no":"48'
+
+        result = salvage_repeated_json_prefix(raw)
+
+        assert result is not None
+        recovered = {
+            (reference["kanun_no"], reference["madde"]) for reference in result["references"]
+        }
+        assert recovered == emitted
+        assert len(result["references"]) == 3
+        # Nothing outside the model's own three-tuple cycle appears.
+        assert recovered <= emitted
+        assert result["terminal_duplicate_run_length"] == 1
+        assert result["terminal_duplicate_repeat_count"] == 4
+
     def test_an_enumeration_runaway_is_refused(self) -> None:
         """d000059 counted `bent` upward -- 201, 202, 203 -- so no two tuples
         are equal and there is nothing to deduplicate. Closing the array would
@@ -107,6 +134,27 @@ class TestSalvage:
             '{"kanun_no":"5520","kanun_ad":"K","madde":"30","fikra":"1","bent":"%d"}' % index
             for index in range(200, 260)
         )
+        assert salvage_repeated_json_prefix(raw) is None
+
+    def test_the_real_archived_enumeration_runaway_stays_refused(self) -> None:
+        """Regression pin on the real d000059 output, not a reduced shape.
+
+        424 parsed objects, 424 unique -- `bent` counts upward across the
+        whole tail, so the terminal tuple never recurs and there is nothing
+        this rule can prove is a duplicate. Skips rather than passing silently
+        if the archived evidence file is not present.
+        """
+        archive = (
+            Path(__file__).resolve().parent.parent
+            / "artifacts"
+            / "data_quality_checker"
+            / "evidence"
+            / "2026-09-07_m01_m000_runaway"
+            / "d000059_cap16384.txt"
+        )
+        if not archive.is_file():
+            pytest.skip(f"archived evidence file not present at {archive}")
+        raw = archive.read_text(encoding="utf-8")
         assert salvage_repeated_json_prefix(raw) is None
 
     def test_output_with_no_array_is_refused(self) -> None:

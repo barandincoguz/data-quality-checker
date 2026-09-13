@@ -576,7 +576,7 @@ def evidence_segments(text: str, spans: list[dict[str, Any]]) -> list[dict[str, 
     return segments
 
 
-def validate_final_references(references: Any, *, document_text: str) -> list[dict[str, str]]:
+def validate_final_references(references: Any) -> list[dict[str, str]]:
     """Accept what the expert decided; refuse only what is not a submission.
 
     The expert is this pipeline's truth source. Three checks here used to
@@ -601,6 +601,10 @@ def validate_final_references(references: Any, *, document_text: str) -> list[di
 
     Structural validation stays. A payload that is not a list of objects is a
     fault in the page, not a judgement, and there is nothing to normalise.
+
+    There is deliberately no `document_text` parameter. One survived the removal
+    of those three checks and was still being passed by every caller, so the
+    signature went on promising a grounding check the body had stopped doing.
     """
     validated = validate_reference_list(references)
     validated, _ = apply_reference_policy(validated)
@@ -884,7 +888,7 @@ def create_hitl_app(
                     status = "deferred"
                 else:
                     validated_final = validate_final_references(
-                        final, document_text=document["text"]
+                        final
                     )
                     status = "finalized"
                 review, review_event_id = store.update_review_with_event(

@@ -631,7 +631,6 @@ def test_the_expert_may_paraphrase_the_supporting_passage(tmp_path) -> None:
     """
     from data_quality_checker.hitl import validate_final_references
 
-    document_text = "Belge metni 193 sayılı Gelir Vergisi Kanununun 37 nci maddesinden söz eder."
     paraphrased = [
         {
             "kanun_no": "193",
@@ -642,7 +641,7 @@ def test_the_expert_may_paraphrase_the_supporting_passage(tmp_path) -> None:
             "source_text": "belgede birebir geçmeyen, uzmanın kendi özeti",
         }
     ]
-    result = validate_final_references(paraphrased, document_text=document_text)
+    result = validate_final_references(paraphrased)
     assert result[0]["madde"] == "37"
     assert result[0]["source_text"] == "belgede birebir geçmeyen, uzmanın kendi özeti"
 
@@ -659,7 +658,6 @@ def test_the_expert_may_paraphrase_the_supporting_passage(tmp_path) -> None:
                 "bent": "",
                 "source_text": "x",
             }
-        ],
-        document_text=document_text,
+        ]
     )
     assert len(kept) == 1

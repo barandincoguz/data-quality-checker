@@ -240,8 +240,7 @@ def release_batch(*, config: AppConfig, batch_id: str) -> dict[str, Any]:
                     continue
                 if review["status"] == "finalized":
                     references = validate_final_references(
-                        json.loads(review["final_references_json"] or "[]"),
-                        document_text=document["text"],
+                        json.loads(review["final_references_json"] or "[]")
                     )
                     row = {
                         **common,

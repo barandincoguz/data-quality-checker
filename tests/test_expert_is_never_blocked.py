@@ -47,15 +47,13 @@ class TestExpertSubmissionAccepted:
             [
                 ref("5422", "Kurumlar Vergisi Kanunu", "8"),
                 ref("5520", "Kurumlar Vergisi Kanunu", "5"),
-            ],
-            document_text="metin",
+            ]
         )
         assert len(result) == 2
 
     def test_the_labour_law_pair_is_accepted(self) -> None:
         result = validate_final_references(
-            [ref("1475", "İş Kanunu", "14"), ref("4857", "İş Kanunu", "17")],
-            document_text="metin",
+            [ref("1475", "İş Kanunu", "14"), ref("4857", "İş Kanunu", "17")]
         )
         assert len(result) == 2
 
@@ -64,29 +62,26 @@ class TestExpertSubmissionAccepted:
             [
                 ref("193", "Gelir Vergisi Kanunu", "51"),
                 ref("193", "Gelir Vergisi Kanunu", "51", "1", "8"),
-            ],
-            document_text="metin",
+            ]
         )
         assert len(result) == 2
 
     def test_a_bare_law_beside_one_of_its_articles_is_accepted(self) -> None:
         result = validate_final_references(
-            [ref("193", "Gelir Vergisi Kanunu"), ref("193", "Gelir Vergisi Kanunu", "51")],
-            document_text="metin",
+            [ref("193", "Gelir Vergisi Kanunu"), ref("193", "Gelir Vergisi Kanunu", "51")]
         )
         assert len(result) == 2
 
     def test_an_exact_duplicate_is_accepted(self) -> None:
         rows = [ref("193", "Gelir Vergisi Kanunu", "51")] * 2
-        assert len(validate_final_references(rows, document_text="metin")) == 2
+        assert len(validate_final_references(rows)) == 2
 
     def test_a_row_with_an_article_but_no_law_is_kept_not_refused(self) -> None:
         """It cannot be matched to anything, but it is still something the
         expert wrote. Losing it silently is as wrong as refusing the save.
         """
         result = validate_final_references(
-            [ref("193", "Gelir Vergisi Kanunu", "51"), ref(madde="7")],
-            document_text="metin",
+            [ref("193", "Gelir Vergisi Kanunu", "51"), ref(madde="7")]
         )
         assert len(result) == 2
         assert result[1]["madde"] == "7"
@@ -96,20 +91,20 @@ class TestExpertSubmissionAccepted:
         lose by dropping it and nothing to gain by refusing the save.
         """
         result = validate_final_references(
-            [ref("193", "Gelir Vergisi Kanunu", "51"), ref()], document_text="metin"
+            [ref("193", "Gelir Vergisi Kanunu", "51"), ref()]
         )
         assert len(result) == 1
 
     def test_an_empty_submission_is_accepted(self) -> None:
         """"This ruling cites nothing" is a legitimate expert verdict."""
-        assert validate_final_references([], document_text="metin") == []
+        assert validate_final_references([]) == []
 
 
 class TestStructuralValidationStays:
     @pytest.mark.parametrize("payload", ["not a list", {"references": []}, [1, 2], [None]])
     def test_malformed_payloads_are_still_refused(self, payload) -> None:
         with pytest.raises(ContractError):
-            validate_final_references(payload, document_text="metin")
+            validate_final_references(payload)
 
 
 class TestConflictDetection:

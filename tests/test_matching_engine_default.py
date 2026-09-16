@@ -14,6 +14,7 @@ name -- it just stops being what you get by saying nothing.
 from __future__ import annotations
 
 import inspect
+from pathlib import Path
 
 from benchmark.reference import evaluate as evaluate_module
 from benchmark.reference import run as run_module
@@ -37,8 +38,17 @@ def test_a_report_without_an_engine_stamp_is_still_read_back_as_greedy() -> None
     """Deliberately NOT flipped. A report that records no engine is an old
     report, and an old report really was produced by greedy; saying otherwise
     would relabel history."""
+    import re
+
     source = inspect.getsource(evaluate_module)
-    assert 'result.get("matching_engine", MATCHING_ENGINE_GREEDY)' in source
+    # Both sites, not "somewhere": a plain substring check would pass while one
+    # of the two had been flipped. The two spell the key differently -- one is
+    # inside an f-string -- so match on the shape, not on one quoting style.
+    fallbacks = re.findall(
+        r"""result\.get\(\s*['"]matching_engine['"]\s*,\s*MATCHING_ENGINE_GREEDY\s*\)""",
+        source,
+    )
+    assert len(fallbacks) == 2, fallbacks
 
 
 def test_both_cli_defaults_are_optimal() -> None:
@@ -66,3 +76,30 @@ def test_the_controlled_q36_track_is_scored_with_optimal_too() -> None:
     source = inspect.getsource(q36_p1)
     assert '"matching_engine": "greedy"' not in source
     assert '"matching_engine": "optimal"' in source
+
+
+def test_every_evaluator_call_in_run_py_passes_the_requested_engine() -> None:
+    """A call that omits `matching_engine` silently takes the library default.
+
+    `run.py`'s hard-case block did exactly that: the main-report call passed the
+    engine while the hard-case call a hundred lines below did not, so
+    `--matching-engine greedy` produced a greedy main report and an optimal
+    hard-case report with no error -- and before the default flipped, the bug
+    was invisible because the default happened to match the CLI's.
+
+    Parsed rather than grepped, so a future call site is caught too.
+    """
+    import ast
+
+    source = Path(run_module.__file__).read_text(encoding="utf-8")
+    calls = [
+        node
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "evaluate_prediction_file"
+    ]
+    assert calls, "no evaluate_prediction_file call found -- has it been renamed?"
+    for call in calls:
+        keywords = {keyword.arg for keyword in call.keywords}
+        assert "matching_engine" in keywords, f"run.py:{call.lineno} omits matching_engine"

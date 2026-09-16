@@ -458,8 +458,10 @@ Primary metric ciktisi:
 > maliyet ve kesin kural: `docs/analysis/2026-09-15-greedy-arsiv-karari.md`.
 > Kural: **bir `greedy` sayisi bir `optimal` sayisinin yanina asla konmaz.**
 
-Yukarida anlatilan tier merdiveni **`greedy`** motorudur ve varsayilandir. Run
-`015`-`021` bu motorla uretilmistir; bit duzeyinde korunur.
+Yukarida anlatilan tier merdiveni **`greedy`** motorudur. 2026-09-15'e kadar
+varsayilandi; artik degil (yukaridaki nota bakin). Run `015`-`021` bu motorla
+uretilmistir ve bit duzeyinde korunur -- greedy'nin adiyla secilebilir kalmasinin
+sebebi tam olarak budur.
 
 **`optimal`** motoru (`benchmark/reference/matching.py`) yeni semantigi uygular.
 Run `023`teki dört kabul kapısı (Run `021` greedy eşitliği, 9 yöntem × 30 seed

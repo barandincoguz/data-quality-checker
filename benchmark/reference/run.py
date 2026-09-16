@@ -477,6 +477,7 @@ def main() -> None:
                     docwise_threshold=docwise_threshold,
                     reference_postprocess=reference_postprocess,
                     core_reference_view=core_reference_view,
+                    matching_engine=matching_engine,
                 )
                 hard_case_results.append(result)
 

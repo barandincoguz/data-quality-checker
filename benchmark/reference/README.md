@@ -453,6 +453,11 @@ Primary metric ciktisi:
 
 ### Matching engine: `--matching-engine {greedy,optimal}` (2026-08-03)
 
+> **2026-09-15 — varsayilan artik `optimal`.** `greedy` arsivlendi: silinmedi,
+> adiyla secilebilir kalir, ama varsayilan olmaktan cikti. Gerekce, olculmus
+> maliyet ve kesin kural: `docs/analysis/2026-09-15-greedy-arsiv-karari.md`.
+> Kural: **bir `greedy` sayisi bir `optimal` sayisinin yanina asla konmaz.**
+
 Yukarida anlatilan tier merdiveni **`greedy`** motorudur ve varsayilandir. Run
 `015`-`021` bu motorla uretilmistir; bit duzeyinde korunur.
 

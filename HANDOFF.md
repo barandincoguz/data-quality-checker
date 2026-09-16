@@ -47,6 +47,75 @@ Seçim göz kararı değil, projenin kendi kuralıyla: `core_f1` →
 `parse_count >= 49`. Kural işe yaradı: update 200 (F1 0.8713) 48 belge
 ayrıştırabildiği için elendi.
 
+### Taban çizgisi — fine-tune edilmemiş temel model (2026-09-15)
+
+Aynı 50 belgelik validation, aynı `optimal` motoru, aynı istek (update 425'in
+isteğinden yalnız adaptör çıkarıldı). `assert_test_improves_base` kapısının
+bugüne kadar karşılaştıracak ölçülmüş bir sayısı yoktu; artık var.
+
+| | Taban | M000 | fark |
+| --- | --- | --- | --- |
+| core F1 | 0.759055 | **0.910798** | +0.151743 (+%20.0) |
+| precision | 0.814189 | **0.970000** | +0.155811 (+%19.1) |
+| recall | 0.710914 | **0.858407** | +0.147493 (+%20.7) |
+
+Fine-tune **hem precision hem recall** kazandırıyor, ikisi de ~%20 bağıl.
+Taban modelin tp/fp/fn'i 241/55/98.
+
+Maliyet (50 belge): taban medyanda daha hızlı (4.0 s vs 6.2 s) ama kuyruğu
+belirgin kötü (p95 **28.6 s** vs 16.4 s) ve %31 fazla token üretiyor
+(16.000 vs 12.207, p95 893 vs 534). Yani fine-tune modeli kısaltıp
+öngörülebilir kılıyor. Tepe bellek 9.81 vs 10.26 GB.
+
+**Taban model JSON sözleşmesine uyuyor:** 50/50 ayrıştırıldı, 0 runaway, 0 boş.
+Yani fine-tune'un kazandırdığı şey format disiplini değil, doğruluk.
+
+Kanıt: `evidence/2026-09-15_base_model_baseline/`
+
+### Ölçümün doğrulanması ve motor kararı (2026-09-15)
+
+Taban çizgisi üç ayrı sınavla doğrulandı, tekrar iddia ederek değil:
+
+1. **Adaptör yüklenmedi.** İstekte `adapter_path` ve `adapter_sha256` yok,
+   worker `passed`, `model_path` pinli taban snapshot, `data_sha256` M000'inkiyle
+   aynı.
+2. **Aynı kod yolu.** M000'in *kendi* kayıtlı tahminleri aynı `canonical_evaluate`
+   çağrısından geçirildiğinde **0.910798 / 0.970000 / 0.858407** çıktı — mühürlü
+   kayıtla bit düzeyinde aynı.
+3. **Motor bayrağı fiilen çalışıyor.** *Aynı* taban tahminleri: greedy F1
+   **0.707736**, optimal **0.759055**. Rapordaki `matching_engine` alanı bizim
+   damgamız değil, değerlendiricinin kendi kaydı (`evaluate.py:1626`), ve
+   `:1585`'te gerçek bir davranış dalı var.
+
+**Ve öğrenilen:** iki motorun **paydası farklı**. `tp+fn` greedy'de 372,
+optimal'de 339 — iki modelde de aynı, yani motorun özelliği. Sebebi kodda yazılı:
+optimal kendi ön-işleme zincirine sahip, çünkü greedy'nin "hangi kopya hayatta
+kalır" seçimi **satır sırasına bağlı** ve bastırması yöntemler arası asimetrik.
+
+Sonuç: **taban 0.759055 ile M000 0.910798 aynı 339 paydasında ve doğrudan
+karşılaştırılabilir. Hiçbiri greedy dönemi bir sayıyla karşılaştırılamaz.**
+
+### Greedy → optimal: karar ve plan
+
+`optimal` daha doğru motordur; bu bir tercih değil. `greedy` maksimum-kardinalite
+değil, **satır sırasına bağlı**, ve maddesiz altın satırları recall'dan düşürürken
+aynı şekli tahmin tarafında yanlış pozitif sayıyor (kanonik 3523 referansın
+**249'u, %7.1'i** maddesiz). Aynı tahminlerde README'nin kaydı F1 0.8825 / 0.9348
+ve **kazanan model bile değişiyor**.
+
+Varsayılan hâlâ üç yerde `greedy` (`evaluate.py:1548`, `evaluate.py:1970`,
+`run.py:196`) ve `q36_p1.py:985` onu gerekçesiz sabitliyor. Depoda varsayılana
+bel bağlayan **hiçbir çağıran yok** — tek çağıran `canonical_evaluate` ve o
+bayrağı geçiyor — yani çevirmek hiçbir dondurulmuş koşuyu bozmaz.
+
+Plan: `docs/superpowers/plans/2026-09-15-greedy-to-optimal.md`
+
+`greedy` **silinmiyor, arşivleniyor**: dondurulmuş Run 015-021 ve Run 023'ün
+makaleye bakan greedy yarısı yeniden üretilebilir kalmalı. Adıyla seçilebilir
+kalır, yalnız varsayılan olmaktan çıkar.
+
+---
+
 **Neden v10 değil v11:** eski model tam da bu dalda kaldırdığımız şeyle —
 girdisinde `source_text` ile — eğitilmişti. Seri, kullandığı tarifle kurulmalı.
 
@@ -81,10 +150,13 @@ açılmayacak.
 5. **`pip install` yok, venv oluşturma yok.** `.venv` paylaşımlı lab ortamına
    sembolik bağ. Python: `.venv/bin/python`.
 6. Her doğruluk sayısı maliyetiyle yayımlanır: gecikme p50/p95, token, bellek.
-7. **Her ölçüm hangi motorla alındığını söyler.** `canonical_evaluate` artık
+7. **`greedy` ile `optimal` sayıları asla yan yana konmaz**, farkları
+   "iyileşme" diye sunulmaz. `greedy` tarihî bir artefakttır ve yalnız
+   dondurulmuş bir koşuyu yeniden üretmek için, **adıyla** seçilir.
+8. **Her ölçüm hangi motorla alındığını söyler.** `canonical_evaluate` artık
    `--matching-engine optimal` geçiyor ve bunu `metric_view`'a damgalıyor.
-8. Her koruma **mutasyonla** doğrulanır, okuyarak değil.
-9. Gemini 3 ve altı desteklenmiyor.
+9. Her koruma **mutasyonla** doğrulanır, okuyarak değil.
+10. Gemini 3 ve altı desteklenmiyor.
 
 ---
 

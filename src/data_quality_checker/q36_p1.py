@@ -982,7 +982,13 @@ def bootstrap_q36_p1(
             "views": ["full_extraction", "production_filtered_213_413"],
             "reference_postprocess": "canonical_set",
             "core_reference_view": "row",
-            "matching_engine": "greedy",
+            # `optimal`, like every other number in this project. This was a
+            # bare "greedy" literal with no recorded reason, while the loop's
+            # own choice carries a twelve-line justification -- an inherited
+            # default, not a decision. Q36-P1 is a new experiment rather than a
+            # frozen run and had produced no artefact, so nothing was
+            # invalidated by changing it.
+            "matching_engine": "optimal",
             "docwise_threshold": 1.0,
             "paired_bootstrap_iterations": 10000,
             "paired_bootstrap_seed": 42,

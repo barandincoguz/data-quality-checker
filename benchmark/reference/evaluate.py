@@ -218,7 +218,7 @@ def normalize_core_reference_view_mode(mode: str) -> str:
 
 def normalize_matching_engine(engine: str) -> str:
     """Normalize core matching engine values."""
-    normalized = str(engine or MATCHING_ENGINE_GREEDY).strip().lower()
+    normalized = str(engine or MATCHING_ENGINE_OPTIMAL).strip().lower()
     if normalized not in SUPPORTED_MATCHING_ENGINES:
         raise ValueError(f"Unsupported matching engine: {engine}")
     return normalized
@@ -1545,7 +1545,7 @@ def evaluate_prediction_file(
     docwise_threshold: float = DEFAULT_DOCWISE_THRESHOLD,
     reference_postprocess: str = REFERENCE_POSTPROCESS_LEGACY,
     core_reference_view: str = CORE_REFERENCE_VIEW_ROW,
-    matching_engine: str = MATCHING_ENGINE_GREEDY,
+    matching_engine: str = MATCHING_ENGINE_OPTIMAL,
 ) -> dict[str, Any]:
     """Evaluate one prediction file and return a serializable result."""
     docwise_threshold = validate_docwise_threshold(docwise_threshold)
@@ -1967,14 +1967,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--matching-engine",
         choices=list(SUPPORTED_MATCHING_ENGINES),
-        default=MATCHING_ENGINE_GREEDY,
+        default=MATCHING_ENGINE_OPTIMAL,
         help=(
-            "Core matcher. `greedy` reproduces the frozen Run 015-021 staged first-fit "
-            "pairing; `optimal` uses order-independent maximum-cardinality matching with "
-            "symmetric law-identity unification, and scores law-level (madde-less) "
-            "references on both sides. CRITICAL: GT v4 ground truth MUST be evaluated "
-            "with --matching-engine optimal. Greedy matching on GT v4 is invalid due to "
-            "subparagraph splits."
+            "Core matcher, default `optimal`: order-independent maximum-cardinality "
+            "matching with symmetric law-identity unification, scoring law-level "
+            "(madde-less) references on both sides. `greedy` is the ARCHIVED Run "
+            "015-021 staged first-fit pairing, kept selectable so frozen runs stay "
+            "reproducible. It is order-dependent and drops law-level gold rows from "
+            "recall while charging the same shape as a false positive, so a greedy "
+            "number must never be placed beside an optimal one. CRITICAL: GT v4 "
+            "ground truth is invalid under greedy due to subparagraph splits."
         ),
     )
     return parser.parse_args()

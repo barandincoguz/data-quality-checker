@@ -20,7 +20,7 @@ from benchmark.reference.evaluate import (
     DEFAULT_DOCWISE_THRESHOLD,
     DOCWISE_CORE_ACCURACY_NAME,
     CORE_REFERENCE_VIEW_ROW,
-    MATCHING_ENGINE_GREEDY,
+    MATCHING_ENGINE_OPTIMAL,
     Metrics,
     PRIMARY_METRIC_NAME,
     REFERENCE_POSTPROCESS_LEGACY,
@@ -193,11 +193,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--matching-engine",
         choices=list(SUPPORTED_MATCHING_ENGINES),
-        default=MATCHING_ENGINE_GREEDY,
+        default=MATCHING_ENGINE_OPTIMAL,
         help=(
-            "Core matcher. `greedy` reproduces the frozen Run 015-021 staged first-fit "
-            "pairing; `optimal` uses order-independent maximum-cardinality matching and "
-            "scores law-level (madde-less) references on both sides."
+            "Core matcher, default `optimal`: order-independent maximum-cardinality "
+            "matching with symmetric law-identity unification, scoring law-level "
+            "(madde-less) references on both sides. `greedy` is the ARCHIVED Run "
+            "015-021 staged first-fit pairing, kept selectable so frozen runs stay "
+            "reproducible. It is order-dependent and drops law-level gold rows from "
+            "recall while charging the same shape as a false positive, so a greedy "
+            "number must never be placed beside an optimal one. CRITICAL: GT v4 "
+            "ground truth is invalid under greedy due to subparagraph splits."
         ),
     )
     parser.add_argument("--baseline-report", type=Path, help="Optional baseline JSON report for delta comparison")

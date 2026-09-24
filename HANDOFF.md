@@ -1,5 +1,25 @@
 # Devir — DQ-Loop tur 1
 
+> **25 Eylül 2026 — DÖNGÜ GT750 İLE YENİDEN KURULDU. Önce bunu oku.** Aşağısı
+> eski düzenin (GT v3, 300/50/150, 12×100) 13 Eylül kaydıdır; eski 1. tur (`M01`)
+> silinmedi, dokunulmadı, uzman kararı 0/60 idi.
+>
+> - Plan: `/Users/student2/ner-project/docs/superpowers/plans/2026-09-25-dq-loop-gt750-block-b.md`
+>   (kullanıcı kararları B-1…B-4). Dal: `feat/gt750-loop`.
+> - Ayar: `--config configs/presets/gt750_loop.json` — ayrı kökler
+>   (`data/sensitive/data_quality_checker_gt750`, `artifacts/data_quality_checker_gt750`).
+> - Altın veri GT750 (depo içi kopya `data/ground_truth/gt_v6_gt750_2026-09-24/`), bölme
+>   500/50/200 (kalıp ikizleri bölünmez), havuz 1.191, batch'ler 4×250 + 191 (`R01`…`R05`).
+> - Komutlar: `loop-train --round N [--resume]`, `loop-predict --round N --hmac-key-file …`,
+>   `loop-mark --round N --stage judged|adjudicated`, `loop-open-test --confirm-open-test`
+>   (yalnız son turdan sonra). Hakem/uzman/sürüm eski komutlarla (`pilot-judges`, `judge-lock`,
+>   `serve`, `release`) `--batch-id R0k --generation M00(k-1)`.
+> - Başlama kapısı doğrulamada (M000 > eğitilmemiş temel model); **test en sona kadar kapalı**.
+> - Puanlamada `213/413` tahminden de düşer (loop ayarında `canonical_evaluate`).
+> - M000 eğitimi `tmux` oturumu `gt750-m0`'da; log `artifacts/data_quality_checker_gt750/loop/m0_train.log`.
+>   Çökerse aynı komut `--resume` ile.
+
+
 Son güncelleme: 2026-09-13. Bu belge yeni bir oturumun sıfırdan başlamadan
 devam edebilmesi içindir. Hiçbir sayı tahminle yazılmadı; hepsi canlı
 artefaktlardan okundu veya kod çalıştırılarak ölçüldü.

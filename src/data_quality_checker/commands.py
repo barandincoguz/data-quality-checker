@@ -257,3 +257,34 @@ def predict_agent(args: Namespace, config: AppConfig) -> int:
         )
     )
     return 0
+
+
+def _print_json(result: Any) -> int:
+    print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True, default=str))
+    return 0
+
+
+def loop_train(args: Namespace, config: AppConfig) -> int:
+    from .loop_ops import train_loop_round
+
+    return _print_json(train_loop_round(config, round_index=args.round, resume=args.resume))
+
+
+def loop_predict(args: Namespace, config: AppConfig) -> int:
+    from .loop_ops import predict_loop_round
+
+    return _print_json(
+        predict_loop_round(config, round_index=args.round, hmac_key_file=args.hmac_key_file)
+    )
+
+
+def loop_mark(args: Namespace, config: AppConfig) -> int:
+    from .loop_ops import mark_stage
+
+    return _print_json(mark_stage(config, round_index=args.round, stage=args.stage))
+
+
+def loop_open_test(args: Namespace, config: AppConfig) -> int:
+    from .loop_ops import open_test
+
+    return _print_json(open_test(config, confirm=args.confirm_open_test))

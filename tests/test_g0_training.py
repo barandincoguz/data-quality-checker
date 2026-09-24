@@ -596,6 +596,7 @@ def test_the_loop_candidate_anneals_over_the_round_s_own_epoch() -> None:
 
 def test_loop_scoring_drops_the_footnote_from_predictions(tmp_path):
     import json
+
     from data_quality_checker.g0_training import policy_filtered_predictions
 
     predictions = tmp_path / "predictions.json"

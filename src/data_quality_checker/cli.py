@@ -245,6 +245,29 @@ def build_parser() -> argparse.ArgumentParser:
     loop_status = subparsers.add_parser("loop-status", help="show where a DQ-Loop round is")
     loop_status.add_argument("--round", type=int, required=True, dest="round_index")
     loop_status.set_defaults(handler=commands.loop_status)
+
+    loop_train = subparsers.add_parser("loop-train", help="train round N's model (GT750 loop)")
+    loop_train.add_argument("--round", type=int, required=True)
+    loop_train.add_argument("--resume", action="store_true")
+    loop_train.set_defaults(handler=commands.loop_train)
+
+    loop_predict = subparsers.add_parser(
+        "loop-predict", help="prepare and predict batch R0N with M(N-1) (GT750 loop)"
+    )
+    loop_predict.add_argument("--round", type=int, required=True)
+    loop_predict.add_argument("--hmac-key-file", type=Path)
+    loop_predict.set_defaults(handler=commands.loop_predict)
+
+    loop_mark = subparsers.add_parser("loop-mark", help="record a human-driven round stage")
+    loop_mark.add_argument("--round", type=int, required=True)
+    loop_mark.add_argument("--stage", choices=["judged", "adjudicated"], required=True)
+    loop_mark.set_defaults(handler=commands.loop_mark)
+
+    loop_open = subparsers.add_parser(
+        "loop-open-test", help="score every round's model on the sealed test split, once"
+    )
+    loop_open.add_argument("--confirm-open-test", action="store_true")
+    loop_open.set_defaults(handler=commands.loop_open_test)
     return parser
 
 

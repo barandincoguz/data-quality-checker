@@ -29,6 +29,7 @@ from .g0 import (
 from .heartbeat import RunLease
 from .mlx_compute import _run_worker
 from .mlx_stateful import StatefulTrainingConfig
+from .reference_policy import DEFAULT_REFERENCE_POLICY_ID, apply_reference_policy
 
 PILOT_LEARNING_RATES = {
     "refit-cos1003": 2.5e-5,
@@ -455,6 +456,26 @@ def _validation_request(
     }
 
 
+def policy_filtered_predictions(predictions_path: Path, output_dir: Path) -> Path:
+    """A copy of the predictions with the reference policy applied.
+
+    GT750 carries no `213/413` row (K-2). Left on the prediction side, every
+    such row would be a spurious false positive -- above all for the
+    untrained base model the round-0 gate compares against, which emits the
+    closing boilerplate often. Removal is symmetric or it is not allowed.
+    """
+    rows = json.loads(predictions_path.read_text(encoding="utf-8"))
+    for row in rows:
+        kept, _ = apply_reference_policy(
+            row.get("references") or [], policy_id=DEFAULT_REFERENCE_POLICY_ID
+        )
+        row["references"] = kept
+    output_dir.mkdir(parents=True, exist_ok=True)
+    target = output_dir / "predictions_policy_filtered.json"
+    write_json_atomic(target, rows)
+    return target
+
+
 def canonical_evaluate(
     *,
     config: AppConfig,
@@ -468,6 +489,12 @@ def canonical_evaluate(
     if not evaluator.is_file():
         raise GateBlocked(f"canonical evaluator is unavailable: {evaluator}")
     output_dir.mkdir(parents=True, exist_ok=True)
+    from .loop_sources import has_loop_settings
+
+    reference_policy = None
+    if has_loop_settings(config):
+        predictions_path = policy_filtered_predictions(predictions_path, output_dir)
+        reference_policy = DEFAULT_REFERENCE_POLICY_ID
     descriptor, temporary_name = tempfile.mkstemp(
         dir=output_dir, prefix=".evaluation.", suffix=".tmp.json"
     )
@@ -534,6 +561,7 @@ def canonical_evaluate(
             )
         os.replace(temporary, report_path)
         fsync_directory(output_dir)
+        report["reference_policy"] = reference_policy
         return report
     finally:
         temporary.unlink(missing_ok=True)

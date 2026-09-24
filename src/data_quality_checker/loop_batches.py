@@ -201,10 +201,12 @@ def write_batch_manifest(
             f"(missing {len(missing)}, e.g. {missing[:5]!r})"
         )
     payload = {
-        "schema_version": 2,
+        "schema_version": 3,
         "seed": seed,
         "rounds": len(batches),
         "size": len(batches[0]) if batches else 0,
+        "batch_sizes": [len(batch) for batch in batches],
+        "remainder_round": len({len(batch) for batch in batches}) > 1,
         "balance_fields": list(BALANCE_FIELDS),
         "difficulty_balanced": False,
         "pool_size": pool_size,

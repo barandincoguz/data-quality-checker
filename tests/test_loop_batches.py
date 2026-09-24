@@ -260,7 +260,7 @@ def test_manifest_seals_itself_and_records_the_seed(tmp_path: Path) -> None:
         tmp_path, batches, seed=LOOP_BATCH_SEED, pool_doc_ids=pool_doc_ids
     )
     payload = json.loads((tmp_path / "round_batches_manifest.json").read_text(encoding="utf-8"))
-    assert payload["schema_version"] == 2
+    assert payload["schema_version"] == 3
     assert payload["seed"] == LOOP_BATCH_SEED
     assert payload["rounds"] == 12
     assert payload["size"] == 100

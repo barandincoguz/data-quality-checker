@@ -28,6 +28,8 @@ separate, later step -- exactly as it is for G0, where `train_bootstrap` and
 
 from __future__ import annotations
 
+import json
+import math
 from collections.abc import Callable, Sequence
 from dataclasses import asdict
 from datetime import UTC, datetime
@@ -58,12 +60,26 @@ from .g0_training import (
     WorkerRunner,
     run_development,
 )
+from .loop_sources import has_loop_settings, loop_split_policy, validate_loop_sources
 from .loop_training import compose_round_training_ids, round_training_documents
 
 # A round trains on the loop split, not on G0's. The label goes into the
 # fingerprint-adjacent record so a run can never be mistaken for a G0 run
 # that happened to see fewer documents.
 LOOP_SPLIT_POLICY = "loop-300-50-150"
+
+
+def full_epoch_updates(training_view: Path, *, gradient_accumulation: int) -> int:
+    """One pass over this round's windowed view.
+
+    Derived from the view's own row count every round (HANDOFF: never carried
+    over from a previous round's 506 or 549), so the cosine schedule anneals
+    across exactly one epoch whatever the round's size.
+    """
+    rows = sum(1 for line in training_view.read_text(encoding="utf-8").splitlines() if line.strip())
+    if rows <= 0:
+        raise ContractError(f"training view {training_view} is empty")
+    return math.ceil(rows / gradient_accumulation)
 
 
 def _write_round_scaffolding(
@@ -78,6 +94,7 @@ def _write_round_scaffolding(
     prompt: dict[str, Any],
     source_summary: dict[str, Any],
     execute: bool,
+    split_policy: str = LOOP_SPLIT_POLICY,
 ) -> tuple[Path, Path]:
     """Write exactly what `g0_training._base_run_context` demands of a run.
 
@@ -140,7 +157,7 @@ def _write_round_scaffolding(
         "long_run_started": False,
         "prompt": prompt,
         "training_view_policy": TRAINING_VIEW_POLICY,
-        "split_policy": LOOP_SPLIT_POLICY,
+        "split_policy": split_policy,
         "source": {key: value for key, value in source_summary.items() if key != "split"},
         "environment": environment,
         "training_contract": asdict(training_contract),
@@ -170,7 +187,7 @@ def train_round(
     cleaned_batch_ids: Sequence[str],
     execute: bool = False,
     candidate_id: str | None = None,
-    target_updates: int = PILOT_TARGET_UPDATES,
+    target_updates: int | None = PILOT_TARGET_UPDATES,
     resume: bool = False,
     compute_preflight_runner: Callable[..., dict[str, Any]] | None = None,
     worker_runner: WorkerRunner | None = None,
@@ -187,7 +204,14 @@ def train_round(
             f"{sorted(PILOT_LEARNING_RATES)}; got {candidate_id!r}"
         )
 
-    source = validate_canonical_sources(config)
+    if has_loop_settings(config):
+        source = validate_loop_sources(config)
+        if {name: list(split[name]) for name in ("train", "valid", "test")} != source["split"]:
+            raise ContractError("split differs from the sealed loop split in SPLIT.json")
+        split_policy = loop_split_policy(config)
+    else:
+        source = validate_canonical_sources(config)
+        split_policy = LOOP_SPLIT_POLICY
     source_summary = source["summary"]
 
     cleaned_batches: list[list[str]] = []
@@ -245,6 +269,7 @@ def train_round(
         prompt=prompt,
         source_summary=source_summary,
         execute=execute,
+        split_policy=split_policy,
     )
 
     result: dict[str, Any] = {
@@ -276,6 +301,13 @@ def train_round(
         data_dir=data_dir,
         preflight_path=preflight_path,
     )
+    if target_updates is None:
+        run_config = json.loads((run_dir / "run_config.json").read_text(encoding="utf-8"))
+        target_updates = full_epoch_updates(
+            Path(run_config["training_view"]["jsonl_path"]),
+            gradient_accumulation=TrainingContract().gradient_accumulation,
+        )
+        result["target_updates"] = target_updates
     development = run_development(
         config=config,
         run_id=run_id,

@@ -290,3 +290,26 @@ def test_the_preflight_carries_the_gates_and_the_round_s_own_document_counts(
     assert contract["batch_size"] == 1
     assert contract["gradient_accumulation"] == 4
     assert contract["seed"] == 42
+
+
+def test_a_loop_config_trains_on_the_sealed_split_only(tmp_path, monkeypatch):
+    from data_quality_checker import loop_train
+
+    sealed = {"train": [1, 2], "valid": [3], "test": [4]}
+    monkeypatch.setattr(loop_train, "has_loop_settings", lambda config: True)
+    monkeypatch.setattr(loop_train, "validate_loop_sources", lambda config: {
+        "documents": {}, "split": sealed, "summary": {}})
+
+    with pytest.raises(ContractError, match="sealed"):
+        loop_train.train_round(object(), generation="M000",
+                               split={"train": [1], "valid": [3], "test": [4]},
+                               cleaned_batch_ids=[])
+
+
+def test_full_epoch_horizon_is_derived_from_the_training_view(tmp_path):
+    from data_quality_checker.loop_train import full_epoch_updates
+
+    view = tmp_path / "view.jsonl"
+    view.write_text("\n".join("{}" for _ in range(2194)) + "\n")
+
+    assert full_epoch_updates(view, gradient_accumulation=4) == 549

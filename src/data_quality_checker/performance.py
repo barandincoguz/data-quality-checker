@@ -50,6 +50,18 @@ def optional_int(value: Any, fallback: int | None = None) -> int | None:
         return fallback
 
 
+def peak_memory_bytes_from_gb(value: Any, fallback: int | None = None) -> int | None:
+    """mlx_lm's `response.peak_memory` is gigabytes (`mx.get_peak_memory() / 1e9`).
+
+    Stored as bytes. `int()` on the raw value recorded 6.3 GB as 6 "bytes"
+    (found 2026-09-25 while recording round R01).
+    """
+    try:
+        return int(round(float(value) * 1e9)) if value is not None else fallback
+    except (TypeError, ValueError, OverflowError):
+        return fallback
+
+
 def _percentile(ordered: Sequence[float], percentile: float) -> float:
     """Nearest-rank percentile; deterministic and dependency-free."""
     if not ordered:

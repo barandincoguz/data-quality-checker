@@ -22,7 +22,7 @@ from typing import Any
 from .atomic import write_json_atomic
 from .errors import ContractError, FingerprintMismatch, IntegrityError
 from .fingerprints import fingerprint_json, sha256_file
-from .performance import EMPTY_PERFORMANCE, optional_float, optional_int
+from .performance import EMPTY_PERFORMANCE, optional_float, peak_memory_bytes_from_gb
 
 # The tuple identity, the deduplication and the salvage rule all live in
 # `processing`, next to the parser they depend on, so the deployment path and
@@ -175,7 +175,9 @@ def _generate_one(
         finish_reason = str(response.finish_reason or finish_reason)
         prompt_tps = optional_float(getattr(response, "prompt_tps", None), prompt_tps)
         generation_tps = optional_float(getattr(response, "generation_tps", None), generation_tps)
-        peak_memory_bytes = optional_int(getattr(response, "peak_memory", None), peak_memory_bytes)
+        peak_memory_bytes = peak_memory_bytes_from_gb(
+            getattr(response, "peak_memory", None), peak_memory_bytes
+        )
     generation_seconds = time.perf_counter() - started
     raw = "".join(pieces).strip()
     parse_error: str | None = None

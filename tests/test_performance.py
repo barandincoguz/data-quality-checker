@@ -196,3 +196,13 @@ def test_optional_helpers_survive_every_bad_input():
 def test_peak_memory_zero_is_not_read_as_a_measurement():
     summary = summarize_operational_records([_record(peak_memory_bytes=0)], provenance={})
     assert "peak_memory_bytes" in summary["not_measured"]
+
+
+def test_mlx_lm_peak_memory_is_gigabytes_and_is_stored_as_bytes():
+    """mlx_lm reports `peak_memory` as `mx.get_peak_memory() / 1e9` (GB, float).
+    Truncating it with int() recorded 6.3 GB as "6 bytes" for every document."""
+    from data_quality_checker.performance import peak_memory_bytes_from_gb
+
+    assert peak_memory_bytes_from_gb(6.3) == 6_300_000_000
+    assert peak_memory_bytes_from_gb(None, 5) == 5
+    assert peak_memory_bytes_from_gb("bozuk", None) is None

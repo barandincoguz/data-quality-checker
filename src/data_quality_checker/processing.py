@@ -17,7 +17,7 @@ from .fingerprints import fingerprint_json, sha256_file, sha256_text
 from .g0 import SYSTEM_PROMPT
 from .g0_finalize import ROUND_LABEL_PATTERN, round_registry_path
 from .heartbeat import RunLease
-from .performance import optional_float, optional_int
+from .performance import optional_float, peak_memory_bytes_from_gb
 from .preparation import validate_ready
 from .reference_policy import (
     DEFAULT_REFERENCE_POLICY_ID,
@@ -354,7 +354,7 @@ class MlxG0Backend:
             generation_tps = optional_float(
                 getattr(response, "generation_tps", None), generation_tps
             )
-            peak_memory_bytes = optional_int(
+            peak_memory_bytes = peak_memory_bytes_from_gb(
                 getattr(response, "peak_memory", None), peak_memory_bytes
             )
         raw = "".join(pieces)

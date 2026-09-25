@@ -16,8 +16,20 @@
 >   `serve`, `release`) `--batch-id R0k --generation M00(k-1)`.
 > - Başlama kapısı doğrulamada (M000 > eğitilmemiş temel model); **test en sona kadar kapalı**.
 > - Puanlamada `213/413` tahminden de düşer (loop ayarında `canonical_evaluate`).
-> - M000 eğitimi `tmux` oturumu `gt750-m0`'da; log `artifacts/data_quality_checker_gt750/loop/m0_train.log`.
->   Çökerse aynı komut `--resume` ile.
+> - **Durum 25 Eylül 17:45:** M000 hazır (400. adım; doğrulama F1 0,927, temel model 0,782 —
+>   kapı geçti; `artifacts/data_quality_checker_gt750/loop/rounds/round_000_model.json`).
+>   R01: 250 belge hazır, M000 ile tahmin edildi (GREEN 108 / YELLOW 40 / RED 102), hakem
+>   pilotu 60/60 geçerli. **Bekleyen: uzman 60 pilot belgesini karara bağlar** →
+>   `judge-lock --batch-id R01` → `pilot-judges` (üretim) → `loop-mark --round 1 --stage judged`
+>   → uzman gerisi → `release --batch-id R01` → `loop-mark --stage adjudicated` → `loop-train --round 1`.
+> - Uzman ekranı: `http://127.0.0.1:5056/login` (tmux `gt750-serve`; giriş anahtarı
+>   `data/sensitive/data_quality_checker_gt750/keys/access_token.txt`, ortam
+>   `keys/serve_env.sh`). 5055'teki ekran **eski** M01 turunundur.
+> - Belge kimliği anahtarı: `data/sensitive/data_quality_checker_gt750/keys/gt750_loop.key` —
+>   R01…R05'in hepsinde aynısı kullanılmalı.
+> - GPU paylaşımlı: M000'ın ilk 3 saatini student4'ün toplu değerlendirmesi yedi (Metal
+>   bellek yetersizliği). Uzun eğitimler `artifacts/data_quality_checker_gt750/loop/supervise_m0.sh`
+>   gibi GPU boşken deneyen bir gözetmenle koşulmalı.
 
 
 Son güncelleme: 2026-09-13. Bu belge yeni bir oturumun sıfırdan başlamadan

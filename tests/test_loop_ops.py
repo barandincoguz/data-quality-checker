@@ -66,3 +66,30 @@ def test_the_test_split_opens_only_when_every_round_has_a_model(tmp_path):
 
     with pytest.raises(GateBlocked, match="round"):
         loop_ops.open_test(config, confirm=True)
+
+
+def test_round_k_error_report_scores_batch_r0k_against_m_k_minus_1(tmp_path, monkeypatch):
+    seen = {}
+
+    def fake_report(config, **kwargs):
+        seen.update(kwargs)
+        return {"written": True}
+
+    monkeypatch.setattr(loop_ops, "write_error_report", fake_report)
+    loop_ops.error_report(_config(tmp_path), round_index=2)
+    assert seen["batch_id"] == "R02" and seen["generation"] == "M001"
+    assert seen["path"] == tmp_path / "public" / "loop" / "rounds" / "round_002_errors.json"
+
+
+def test_marking_a_round_adjudicated_writes_its_error_report(tmp_path, monkeypatch):
+    config = _config(tmp_path)
+    batch = config.public_root / "batches" / "R01"
+    batch.mkdir(parents=True)
+    (batch / "release.json").write_text("{}")
+    monkeypatch.setattr(loop_ops, "advance_round", lambda state, **kw: state)
+    monkeypatch.setattr(loop_ops, "resume_round", lambda d, k: SimpleNamespace(stage="adjudicated"))
+    monkeypatch.setattr(loop_ops, "write_round_state", lambda d, s: None)
+    calls = []
+    monkeypatch.setattr(loop_ops, "error_report", lambda config, round_index: calls.append(round_index))
+    loop_ops.mark_stage(config, round_index=1, stage="adjudicated")
+    assert calls == [1]

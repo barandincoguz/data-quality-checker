@@ -284,6 +284,21 @@ def loop_mark(args: Namespace, config: AppConfig) -> int:
     return _print_json(mark_stage(config, round_index=args.round, stage=args.stage))
 
 
+def loop_errors(args: Namespace, config: AppConfig) -> int:
+    from .loop_ops import error_report
+
+    report = error_report(config, round_index=args.round)
+    summary = {
+        "round": report["round"],
+        "reviews": report["reviews"],
+        "per_rater": {
+            name: {key: rater[key] for key in ("available_document_count", "tp", "fp", "fn", "f1")}
+            for name, rater in report["all_finalized"]["per_rater"].items()
+        },
+    }
+    return _print_json(summary)
+
+
 def loop_open_test(args: Namespace, config: AppConfig) -> int:
     from .loop_ops import open_test
 

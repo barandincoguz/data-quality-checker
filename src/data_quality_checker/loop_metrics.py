@@ -42,7 +42,7 @@ from __future__ import annotations
 import itertools
 import json
 import random
-from collections import Counter
+from collections import Counter, defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -50,9 +50,10 @@ from typing import Any
 from .constants import EXPERT_ACTIONS, REVIEW_STATUSES
 from .errors import ContractError, IntegrityError
 from .g0_training import canonical_evaluate
-from .normalization import compact_references, core_identity
+from .normalization import compact_references, core_identity, normalize_reference
 from .performance import _percentile, summarize_operational_records
 from .reference_policy import apply_reference_policy
+from .text import evidence_match_mode
 
 Identity = tuple[str, str, str, str]
 
@@ -77,6 +78,51 @@ def _core_identity_set(references: Iterable[Mapping[str, Any]] | None) -> set[Id
     return {core_identity(reference) for reference in compacted}
 
 
+def _details_by_core(
+    references: Iterable[Mapping[str, Any]],
+) -> dict[Identity, set[tuple[str, str]]]:
+    """The (fikra, bent) pairs each core identity is written with, after the same
+    policy and compaction `_core_identity_set` applies."""
+    kept, _ = apply_reference_policy(list(references))
+    details: defaultdict[Identity, set[tuple[str, str]]] = defaultdict(set)
+    for reference in compact_references(kept):
+        details[core_identity(reference)].add((reference["fikra"], reference["bent"]))
+    return details
+
+
+def annotator_grounding(
+    annotator: Iterable[Mapping[str, Any]],
+    *,
+    expert: Iterable[Mapping[str, Any]],
+    document_text: str,
+) -> dict[str, int]:
+    """Grounding errors of the annotator's rows whose article the expert kept.
+
+    A row with a wrong article is already a spurious reference; counting it
+    here too would charge one mistake twice. Only the annotator is checked:
+    the model and the judge are never given a `source_text` to write
+    (`judges._decision_fields_only`), so the question does not apply to them.
+    The test is the one preparation already uses (`text.evidence_match_mode`).
+    """
+    expert_set = _core_identity_set(expert) or set()
+    kept, _ = apply_reference_policy(list(annotator))
+    checked = empty = not_in_document = 0
+    for reference in kept:
+        if core_identity(normalize_reference(reference)) not in expert_set:
+            continue
+        checked += 1
+        source = str(reference.get("source_text") or "")
+        if not source.strip():
+            empty += 1
+        elif evidence_match_mode(source, document_text) is None:
+            not_in_document += 1
+    return {
+        "checked_references": checked,
+        "source_text_empty": empty,
+        "source_text_not_in_document": not_in_document,
+    }
+
+
 def attribute_errors(
     *,
     expert: Iterable[Mapping[str, Any]],
@@ -95,18 +141,22 @@ def attribute_errors(
     `None` if the rater has no usable output for this document.
 
     Returns, per rater, one of:
-    - `{"available": False, "correct": None, "missed": None, "spurious": None}`
-      when the rater has no data for this document; or
-    - `{"available": True, "correct": [...], "missed": [...], "spurious": [...]}`
-      where `correct` is the core identities in both the expert's and the
-      rater's set, `missed` is in the expert's set but not the rater's, and
-      `spurious` is in the rater's set but not the expert's -- each a sorted
-      list of core-identity 4-tuples.
+    - `{"available": False, "correct": None, "missed": None, "spurious": None,
+      "detail_mismatch": None}` when the rater has no data for this document; or
+    - `{"available": True, "correct": [...], "missed": [...], "spurious": [...],
+      "detail_mismatch": [...]}` where `correct` is the core identities in both
+      the expert's and the rater's set, `missed` is in the expert's set but not
+      the rater's, `spurious` is in the rater's set but not the expert's, and
+      `detail_mismatch` is the subset of `correct` whose paragraph/subparagraph
+      (`fikra`/`bent`) set differs from the expert's -- the right article with
+      the wrong detail, a mistake the core-identity score cannot see. Each is a
+      sorted list of core-identity 4-tuples.
     """
     if expert is None:
         raise ContractError("attribute_errors requires the expert's finalized references")
     expert_set = _core_identity_set(expert)
     assert expert_set is not None  # narrows for mypy; expert is never None here
+    expert_details = _details_by_core(expert)
 
     raw_by_rater = {"annotator": annotator, "model": model, "judge": judge}
     result: dict[str, Any] = {}
@@ -118,13 +168,21 @@ def attribute_errors(
                 "correct": None,
                 "missed": None,
                 "spurious": None,
+                "detail_mismatch": None,
             }
             continue
+        rater_details = _details_by_core(raw_by_rater[name])
+        correct = sorted(expert_set & rater_set)
         result[name] = {
             "available": True,
-            "correct": sorted(expert_set & rater_set),
+            "correct": correct,
             "missed": sorted(expert_set - rater_set),
             "spurious": sorted(rater_set - expert_set),
+            "detail_mismatch": [
+                identity
+                for identity in correct
+                if expert_details[identity] != rater_details[identity]
+            ],
         }
     return result
 
@@ -228,8 +286,13 @@ def rater_agreement(records: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     involving that rater (its own precision/recall, any pairwise kappa it is
     part of, and Fleiss' kappa).
 
+    A record may also carry `document_text`; the annotator's grounding
+    (`annotator_grounding`) is then counted over the records that have it.
+
     Emits, per rater, precision/recall/F1/exact-set-agreement each with
-    their tp/fp/fn or match/document counts; `joint_miss_count` -- references
+    their tp/fp/fn or match/document counts, `detail_errors` (right article,
+    wrong `fikra`/`bent`) and `grounding` (annotator only; `None` for the model
+    and the judge, which write no `source_text`); `joint_miss_count` -- references
     the expert kept that *no* rater produced, counted only over documents
     where all three raters have data, since a document where a rater is
     simply missing cannot honestly be called a joint miss -- alongside its
@@ -242,6 +305,8 @@ def rater_agreement(records: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     per_rater_fn = {name: 0 for name in _RATER_NAMES}
     per_rater_exact_matches = {name: 0 for name in _RATER_NAMES}
     per_rater_documents = {name: 0 for name in _RATER_NAMES}
+    per_rater_detail = {name: 0 for name in _RATER_NAMES}
+    grounding: dict[str, int] | None = None
 
     joint_miss_count = 0
     total_expert_reference_count = 0
@@ -282,8 +347,17 @@ def rater_agreement(records: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
             per_rater_tp[name] += len(rater["correct"])
             per_rater_fp[name] += len(rater["spurious"])
             per_rater_fn[name] += len(rater["missed"])
+            per_rater_detail[name] += len(rater["detail_mismatch"])
             if not rater["missed"] and not rater["spurious"]:
                 per_rater_exact_matches[name] += 1
+
+        if attribution["annotator"]["available"] and record.get("document_text") is not None:
+            counts = annotator_grounding(
+                record["annotator"], expert=record["expert"], document_text=record["document_text"]
+            )
+            grounding = {
+                key: (grounding or {}).get(key, 0) + value for key, value in counts.items()
+            }
 
         if all(attribution[name]["available"] for name in _RATER_NAMES):
             joint_miss_eligible_document_count += 1
@@ -332,6 +406,8 @@ def rater_agreement(records: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
                 "exact_set_matches": 0,
                 "exact_set_documents": 0,
                 "exact_set_agreement": None,
+                "detail_errors": None,
+                "grounding": None,
             }
             continue
         precision = _rate(tp, tp + fp)
@@ -347,6 +423,8 @@ def rater_agreement(records: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
             "exact_set_matches": per_rater_exact_matches[name],
             "exact_set_documents": documents,
             "exact_set_agreement": per_rater_exact_matches[name] / documents,
+            "detail_errors": per_rater_detail[name],
+            "grounding": grounding if name == "annotator" else None,
         }
 
     pairwise = {
@@ -484,7 +562,9 @@ def expert_workload(records: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     decision, and is excluded.
 
     Returns a dict with `document_count`, `documents_requiring_review_count`
-    (router `RED`/`YELLOW`, plus `GREEN` under an active escalation) and
+    (router `RED`/`YELLOW`, the GREEN audit sample, `GREEN` under an active
+    escalation, and the judge's pilot documents -- `in_judge_pilot`), of which
+    `judge_pilot_only_review_count` were required by the pilot alone, and
     `documents_requiring_review_rate` (`None` when `document_count` is
     `0`); `action_distribution` (one count per `EXPERT_ACTIONS` member plus
     `"total"`, over decided rows only); `deferred_count`;
@@ -500,6 +580,7 @@ def expert_workload(records: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     """
     document_count = len(records)
     documents_requiring_review = 0
+    judge_pilot_only = 0
     action_counts = {action: 0 for action in EXPERT_ACTIONS}
     deferred_count = 0
     decision_seconds: list[float] = []
@@ -527,12 +608,19 @@ def expert_workload(records: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         # more documents route GREEN, but the audit sample does not shrink with
         # them, so review work has a floor that this metric must show.
         in_green_audit_sample = bool(record.get("in_green_audit_sample", False))
-        if (
+        routed_to_review = (
             router_bucket in {"RED", "YELLOW"}
             or in_green_audit_sample
             or (escalated and router_bucket == "GREEN")
-        ):
+        )
+        # The judge's pilot exam is review work too, but it is the price of
+        # measuring the judge, not of routing: reported apart so the routing
+        # half of the claim is not flattered or penalised by it.
+        in_judge_pilot = bool(record.get("in_judge_pilot", False))
+        if routed_to_review or in_judge_pilot:
             documents_requiring_review += 1
+        if in_judge_pilot and not routed_to_review:
+            judge_pilot_only += 1
 
         if status == "pending":
             if action is not None:
@@ -571,6 +659,7 @@ def expert_workload(records: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     return {
         "document_count": document_count,
         "documents_requiring_review_count": documents_requiring_review,
+        "judge_pilot_only_review_count": judge_pilot_only,
         "documents_requiring_review_rate": (
             documents_requiring_review / document_count if document_count else None
         ),

@@ -99,6 +99,7 @@ def test_attribute_errors_marks_a_missing_rater_unavailable_not_empty() -> None:
         "correct": None,
         "missed": None,
         "spurious": None,
+        "detail_mismatch": None,
     }
     assert result["model"]["available"] is True
 

@@ -307,6 +307,159 @@ def measure_step(
     return step
 
 
+def round_records(
+    config: AppConfig, store: Store, *, batch_id: str, generation: str, judge_model: str
+) -> list[dict[str, Any]]:
+    """One record per document of a batch, in the shape `loop_metrics` expects.
+
+    `loop_metrics.py` is deliberately pure and database-free; this is the one
+    place that reads the store (and the filesystem facts the store cannot
+    answer) and shapes what those functions take, so every caller -- the old
+    runner's `metrics_step` and the GT750 loop's `write_error_report` -- scores
+    the same records.
+    """
+    documents = store.list_documents(batch_id)
+    if not documents:
+        raise ContractError(f"batch {batch_id!r} holds no documents to measure")
+
+    # Batch-wide facts `loop_metrics.expert_workload` cannot derive on its own
+    # -- resolved once per batch, here, and stamped onto every record below.
+    public_batch = config.public_root / "batches" / batch_id
+    escalated = (public_batch / "green_escalation.json").is_file()
+    audit = ensure_green_audit_plan(config=config, store=store, batch_id=batch_id)
+    audit_sample = {str(doc_id) for doc_id in audit["sample_internal_doc_ids"]}
+    pilot_path = public_batch / "judge_pilot_selection.json"
+    pilot = (
+        {
+            str(doc_id)
+            for doc_id in json.loads(pilot_path.read_text(encoding="utf-8"))["internal_doc_ids"]
+        }
+        if pilot_path.is_file()
+        else set()
+    )
+
+    records: list[dict[str, Any]] = []
+    for document in documents:
+        internal_doc_id = document["internal_doc_id"]
+        review = store.get_review(batch_id, internal_doc_id)
+        if review is None:
+            raise ContractError(f"document {internal_doc_id!r} carries no review row")
+
+        prediction = store.get_prediction(batch_id, internal_doc_id, generation)
+        # A prediction whose status is not "success" produced no usable
+        # output for this document -- that is a rater with nothing to say,
+        # not a rater that reported an empty list.
+        model = (
+            json.loads(prediction["references_json"])
+            if prediction is not None and prediction["status"] == "success"
+            else None
+        )
+
+        judge_row = store.get_judge_result(batch_id, internal_doc_id, judge_model)
+        judge = (
+            json.loads(judge_row["result_json"]).get("final_references", [])
+            if judge_row is not None and judge_row["status"] == "valid"
+            else None
+        )
+
+        final = (
+            json.loads(review["final_references_json"])
+            if review["final_references_json"] is not None
+            else None
+        )
+
+        records.append(
+            {
+                "internal_doc_id": internal_doc_id,
+                "router_bucket": document["router_bucket"],
+                "escalated": escalated,
+                "in_green_audit_sample": internal_doc_id in audit_sample,
+                "in_judge_pilot": internal_doc_id in pilot,
+                "status": review["status"],
+                "action": review["action"],
+                "created_at_epoch": review["created_at_epoch"],
+                "updated_at_epoch": review["updated_at_epoch"],
+                "annotator": json.loads(document["human_references_json"]),
+                "model": model,
+                "judge": judge,
+                "final": final,
+                "document_text": document["text"],
+            }
+        )
+    return records
+
+
+def _agreement(records: list[dict[str, Any]]) -> dict[str, Any]:
+    # A `defer` row (or a still-`pending` one) is real work but never expert
+    # truth: `documents_with_finalized_truth` keeps it out of every accuracy input.
+    return rater_agreement(
+        [
+            {
+                "expert": record["final"],
+                "annotator": record["annotator"],
+                "model": record["model"],
+                "judge": record["judge"],
+                "document_text": record["document_text"],
+            }
+            for record in documents_with_finalized_truth(records)
+        ]
+    )
+
+
+def write_error_report(
+    config: AppConfig,
+    *,
+    round_index: int,
+    batch_id: str,
+    generation: str,
+    judge_model: str,
+    path: Path,
+) -> dict[str, Any]:
+    """Score the annotator, the model and the judge against the expert, for one batch.
+
+    Needs no test split, so the GT750 loop can write it the moment a round's
+    reviews are in (and at any point before, as a progress check).
+
+    Decisions are split by when they were made relative to the judge lock.
+    Before the lock the expert is never shown the judge's answer
+    (`test_the_judge_pilot_exam_is_served_blind_until_a_judge_is_locked`), so
+    `before_judge_lock` holds the judge's blind exam. After it the answer is
+    on the page wherever the judge has one, and an expert who saw it may have
+    been anchored by it -- `after_judge_lock` is kept apart so the judge's
+    numbers there are never read as blind. A page opened before the lock and
+    submitted after it lands in `after_judge_lock`: the conservative side.
+    """
+    with Store(config.database_path, busy_timeout_ms=config.runtime.busy_timeout_ms) as store:
+        records = round_records(
+            config, store, batch_id=batch_id, generation=generation, judge_model=judge_model
+        )
+        row = store.connection.execute(
+            "SELECT MIN(created_at_epoch) FROM batch_events WHERE batch_id=? AND event_type='judge_locked'",
+            (batch_id,),
+        ).fetchone()
+    locked_at = row[0] if row else None
+    before = [r for r in records if locked_at is None or r["updated_at_epoch"] < locked_at]
+    after = [r for r in records if locked_at is not None and r["updated_at_epoch"] >= locked_at]
+    statuses = Counter(record["status"] for record in records)
+    payload = {
+        "schema_version": 1,
+        "round": round_index,
+        "batch_id": batch_id,
+        "generation": generation,
+        "judge_model": judge_model,
+        "judge_locked_at_epoch": locked_at,
+        "reviews": {
+            status: statuses.get(status, 0) for status in ("finalized", "deferred", "pending")
+        },
+        "all_finalized": _agreement(records),
+        "before_judge_lock": _agreement(before),
+        "after_judge_lock": _agreement(after),
+        "expert_workload": expert_workload(records),
+    }
+    write_json_atomic(path, payload)
+    return payload
+
+
 def metrics_step(
     config: AppConfig,
     *,
@@ -351,83 +504,12 @@ def metrics_step(
 
     def step(state: RoundState) -> str:
         with Store(config.database_path, busy_timeout_ms=config.runtime.busy_timeout_ms) as store:
-            documents = store.list_documents(batch_id)
-            if not documents:
-                raise ContractError(f"batch {batch_id!r} holds no documents to measure")
-
-            # Both booleans are batch-wide facts `loop_metrics.expert_workload`
-            # cannot derive on its own -- resolved once per batch, here, and
-            # stamped onto every one of the batch's records below, rather than
-            # re-checked (or re-sampled) once per document.
-            escalated = (
-                config.public_root / "batches" / batch_id / "green_escalation.json"
-            ).is_file()
-            audit = ensure_green_audit_plan(config=config, store=store, batch_id=batch_id)
-            audit_sample = {str(doc_id) for doc_id in audit["sample_internal_doc_ids"]}
-
-            records: list[dict[str, Any]] = []
-            for document in documents:
-                internal_doc_id = document["internal_doc_id"]
-                review = store.get_review(batch_id, internal_doc_id)
-                if review is None:
-                    raise ContractError(f"document {internal_doc_id!r} carries no review row")
-
-                prediction = store.get_prediction(batch_id, internal_doc_id, generation)
-                # A prediction whose status is not "success" produced no
-                # usable output for this document -- that is a rater with
-                # nothing to say, not a rater that reported an empty list.
-                model = (
-                    json.loads(prediction["references_json"])
-                    if prediction is not None and prediction["status"] == "success"
-                    else None
-                )
-
-                judge_row = store.get_judge_result(batch_id, internal_doc_id, judge_model)
-                judge = (
-                    json.loads(judge_row["result_json"]).get("final_references", [])
-                    if judge_row is not None and judge_row["status"] == "valid"
-                    else None
-                )
-
-                final = (
-                    json.loads(review["final_references_json"])
-                    if review["final_references_json"] is not None
-                    else None
-                )
-
-                records.append(
-                    {
-                        "internal_doc_id": internal_doc_id,
-                        "router_bucket": document["router_bucket"],
-                        "escalated": escalated,
-                        "in_green_audit_sample": internal_doc_id in audit_sample,
-                        "status": review["status"],
-                        "action": review["action"],
-                        "created_at_epoch": review["created_at_epoch"],
-                        "updated_at_epoch": review["updated_at_epoch"],
-                        "annotator": json.loads(document["human_references_json"]),
-                        "model": model,
-                        "judge": judge,
-                        "final": final,
-                    }
-                )
+            records = round_records(
+                config, store, batch_id=batch_id, generation=generation, judge_model=judge_model
+            )
 
         workload = expert_workload(records)
-        # A `defer` row (or a still-`pending` one) is real work but never
-        # expert truth: `documents_with_finalized_truth` is the filter that
-        # keeps such a row counted above, in workload, while excluding it here,
-        # from every accuracy input.
-        agreement = rater_agreement(
-            [
-                {
-                    "expert": record["final"],
-                    "annotator": record["annotator"],
-                    "model": record["model"],
-                    "judge": record["judge"],
-                }
-                for record in documents_with_finalized_truth(records)
-            ]
-        )
+        agreement = _agreement(records)
 
         # A round-specific subdirectory, not `output_dir` itself: canonical_evaluate
         # always names its report "evaluation.json", so reusing `output_dir`

@@ -263,6 +263,12 @@ def build_parser() -> argparse.ArgumentParser:
     loop_mark.add_argument("--stage", choices=["judged", "adjudicated"], required=True)
     loop_mark.set_defaults(handler=commands.loop_mark)
 
+    loop_errors = subparsers.add_parser(
+        "loop-errors", help="score annotator, model and judge against the expert for round N"
+    )
+    loop_errors.add_argument("--round", type=int, required=True)
+    loop_errors.set_defaults(handler=commands.loop_errors)
+
     loop_open = subparsers.add_parser(
         "loop-open-test", help="score every round's model on the sealed test split, once"
     )

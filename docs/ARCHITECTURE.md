@@ -58,7 +58,7 @@ Classifies document annotation quality by comparing human annotations against mo
   - `accept_model`: Adopt model prediction.
   - `revise`: Provide corrected reference list.
   - `defer`: Send to second-opinion senior adjudicator.
-  - `judge_override`: Overrule automated judge decisions.
+  - `judge_override`: Take the locked judge's reference list as the truth (shown only after `judge-lock`; the pilot is the judge's blind exam).
 - **Crash Recovery & Online Backup**:
   - Every review action executes within an ACID SQLite transaction.
   - Live verified online SQLite backup is taken upon commit before returning HTTP 200.

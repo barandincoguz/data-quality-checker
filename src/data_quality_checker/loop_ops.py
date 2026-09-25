@@ -5,6 +5,9 @@ validation against the untrained base model (B-4). Round k >= 1 prepares and
 predicts batch R0k with M(k-1); the judge, the expert and the release run
 through the existing `pilot-judges` / `judge-lock` / `serve` / `release`
 commands; `loop-mark` records those stages; `loop-train` then trains M(k).
+`loop-errors` scores the annotator, the model and the judge against the
+expert for a round (written automatically when the round is marked
+adjudicated).
 The test split stays closed for the whole loop: no test prediction is even
 generated until `loop-open-test --confirm-open-test`, after the last round.
 """
@@ -17,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from .atomic import write_json_atomic
+from .constants import JUDGE_MODEL_KEY
 from .errors import ContractError, GateBlocked
 from .fingerprints import sha256_file
 from .g0 import assert_test_improves_base
@@ -30,6 +34,7 @@ from .g0_training import (
     canonical_evaluate,
 )
 from .heartbeat import RunLease
+from .loop_bindings import write_error_report
 from .loop_rounds import advance_round, resume_round, rounds_state_dir, write_round_state
 from .loop_sources import validate_loop_sources
 from .loop_train import train_round
@@ -198,6 +203,14 @@ def predict_loop_round(config: Any, *, round_index: int, hmac_key_file: Path | N
     return {"batch_id": batch_id, "documents": len(doc_ids), "prepared": prepared, "processed": processed}
 
 
+def error_report(config: Any, *, round_index: int) -> dict[str, Any]:
+    """Round k's three-way error report: batch R0k, predicted by M(k-1)."""
+    return write_error_report(
+        config, round_index=round_index, batch_id=batch_id_for(round_index),
+        generation=round_label(round_index - 1), judge_model=JUDGE_MODEL_KEY,
+        path=rounds_state_dir(config) / f"round_{round_index:03d}_errors.json")
+
+
 def mark_stage(config: Any, *, round_index: int, stage: str) -> dict[str, Any]:
     batch = Path(config.public_root) / "batches" / batch_id_for(round_index)
     files = {"judged": ["judge_production_summary.json", "judge_pilot_summary.json"],
@@ -211,6 +224,8 @@ def mark_stage(config: Any, *, round_index: int, stage: str) -> dict[str, Any]:
     state = advance_round(resume_round(state_dir, round_index), to=stage,
                           artifact_sha256=sha256_file(artifact))
     write_round_state(state_dir, state)
+    if stage == "adjudicated":
+        error_report(config, round_index=round_index)
     return {"round": round_index, "stage": state.stage, "artifact": str(artifact)}
 
 

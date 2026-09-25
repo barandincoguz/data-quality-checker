@@ -125,9 +125,9 @@ pre{white-space:pre-wrap;border:1px solid #bbb;padding:1rem}mark.ev{padding:0 .0
 <div class="doctext">{% for seg in segments %}{% if seg.candidates %}<mark class="ev{% for c in seg.candidates %} ev-{{ c }}{% endfor %}" title="{{ seg.candidates|join('+') }}">{{ seg.text }}</mark>{% else %}{{ seg.text }}{% endif %}{% endfor %}</div></section>
 
 <section><h2>2. İnsan anotasyonu ile modeli karşılaştır</h2>
-<p class="hint">Sol sütun insan anotasyonudur; sağ sütun G0 model çıktısıdır.</p>
+<p class="hint">Sol sütun insan anotasyonudur; sağ sütun modelin ({{ doc.generation }}) çıktısıdır.</p>
 <p class="summary">{{ diff_summary.difference_count }} farklı · {{ diff_summary.same_count }} aynı referans grubu</p>
-<table><thead><tr><th>Referans</th><th>İnsan anotasyonu<br><small>Tamamlayan: {{ doc.human_attribution.display_name }}</small>{% if doc.human_attribution.last_editor_name and doc.human_attribution.last_editor_name != doc.human_attribution.display_name %}<br><small>Son düzenleyen: {{ doc.human_attribution.last_editor_name }}</small>{% endif %}</th><th>Model çıktısı<br><small>G0 · {{ doc.model_name }}</small></th><th>Sonuç</th></tr></thead><tbody>
+<table><thead><tr><th>Referans</th><th>İnsan anotasyonu<br><small>Tamamlayan: {{ doc.human_attribution.display_name }}</small>{% if doc.human_attribution.last_editor_name and doc.human_attribution.last_editor_name != doc.human_attribution.display_name %}<br><small>Son düzenleyen: {{ doc.human_attribution.last_editor_name }}</small>{% endif %}</th><th>Model çıktısı<br><small>{{ doc.generation }} · {{ doc.model_name }}</small></th><th>Sonuç</th></tr></thead><tbody>
 {% for row in diff %}<tr class="{{ row.status }}">
   <td>{{ row.core.kanun_no }} · {{ row.core.kanun_ad }}<br><small>madde {{ row.core.madde or "—" }}</small></td>
   <td>{{ refcell(row.a) }}</td><td>{{ refcell(row.b) }}</td>
@@ -135,11 +135,16 @@ pre{white-space:pre-wrap;border:1px solid #bbb;padding:1rem}mark.ev{padding:0 .0
 </tr>{% else %}<tr><td colspan="4" class="muted">İki adayda da referans yok.</td></tr>{% endfor %}
 </tbody></table></section>
 
+{% if doc.judge_suggestion %}<section><h2>Hakemin önerisi</h2>
+<p class="hint">Yerel dil modeli hakemin bu belge için önerdiği referans listesi. Doğruluk kanıtı değildir; belge metnine göre kontrol edin.</p>
+{{ refcell(doc.judge_suggestion.final_references) }}</section>{% endif %}
+
 <form method="post" action="{{ url_for('submit_review', internal_doc_id=doc.internal_doc_id) }}">
   <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="row_version" value="{{ doc.row_version }}">
   <section class="decision"><h2>3. Karar ver</h2><p>Belgedeki tüm hedef kanun/madde referanslarını doğru veren adayı seçin.</p>
     <div class="decision-grid"><button name="action" value="accept_human" accesskey="h">İnsan anotasyonu doğru<span>{{ doc.human_attribution.display_name }} · Kısayol: H</span></button>
-    <button name="action" value="accept_model" accesskey="m">Model çıktısı doğru<span>G0 · Kısayol: M</span></button></div>
+    <button name="action" value="accept_model" accesskey="m">Model çıktısı doğru<span>{{ doc.generation }} · Kısayol: M</span></button>
+    {% if doc.judge_suggestion %}<button name="action" value="judge_override" accesskey="j">Hakemin önerisi doğru<span>Yerel hakem · Kısayol: J</span></button>{% endif %}</div>
   </section>
   <details class="secondary"><summary>Karar veremiyorum — bu belgeyi ertele</summary><div class="defer-row">
     <label>Erteleme gerekçesi<input name="reason" placeholder="Örn. metin eksik veya hukuki yorum gerekli"></label><button name="action" value="defer">Gerekçeyle ertele</button></div>
@@ -156,7 +161,7 @@ pre{white-space:pre-wrap;border:1px solid #bbb;padding:1rem}mark.ev{padding:0 .0
 
 <details class="technical"><summary>Teknik ayrıntılar</summary>
   <p class="hint">Aktif policy: {{ doc.reference_policy.policy_id }} · İki adaydan çıkarılan boilerplate: {{ doc.reference_policy.removed_reference_count }}</p>
-  <details><summary>Ham insan/model JSON</summary><div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem"><div><strong>İnsan anotasyonu</strong><pre>{{ doc.candidate_a|tojson(indent=2) }}</pre></div><div><strong>G0 model çıktısı</strong><pre>{{ doc.candidate_b|tojson(indent=2) }}</pre></div></div></details>
+  <details><summary>Ham insan/model JSON</summary><div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem"><div><strong>İnsan anotasyonu</strong><pre>{{ doc.candidate_a|tojson(indent=2) }}</pre></div><div><strong>Model çıktısı ({{ doc.generation }})</strong><pre>{{ doc.candidate_b|tojson(indent=2) }}</pre></div></div></details>
   {% if doc.judge_suggestion %}<details><summary>Otomatik yardımcı görüş</summary><pre>{{ doc.judge_suggestion|tojson(indent=2) }}</pre></details>{% endif %}
 </details>
 
@@ -199,8 +204,8 @@ pre{white-space:pre-wrap;border:1px solid #bbb;padding:1rem}mark.ev{padding:0 .0
   document.addEventListener('keydown', function(e){
     var t=(e.target.tagName||''); if(t==='INPUT'||t==='TEXTAREA'||t==='SELECT') return;
     var k=e.key.toLowerCase();
-    if(k==='h'||k==='m'){
-      var val = k==='h' ? 'accept_human' : 'accept_model';
+    if(k==='h'||k==='m'||k==='j'){
+      var val = {h:'accept_human', m:'accept_model', j:'judge_override'}[k];
       var btn=document.querySelector('button[value='+val+']');
       if(btn){ e.preventDefault(); btn.click(); }
     } else if(k==='d'){
@@ -413,7 +418,17 @@ def _review_requirements(
     audit_ids = {str(value) for value in audit["sample_internal_doc_ids"]}
     escalation_path = config.public_root / "batches" / batch_id / "green_escalation.json"
     escalated = escalation_path.exists()
-    required: set[str] = set(audit_ids)
+    # The judge's pilot exam comes first: `judge-lock` needs every pilot
+    # document finalized, and only after the lock can the judge help with the
+    # rest. A GREEN pilot document is not necessarily in the GREEN audit
+    # sample, so without this it would never reach the expert at all.
+    pilot_path = config.public_root / "batches" / batch_id / "judge_pilot_selection.json"
+    pilot_ids = (
+        {str(value) for value in json.loads(pilot_path.read_text(encoding="utf-8"))["internal_doc_ids"]}
+        if pilot_path.exists()
+        else set()
+    )
+    required: set[str] = set(audit_ids) | pilot_ids
     for document in documents:
         if document["router_bucket"] in {"RED", "YELLOW"}:
             required.add(document["internal_doc_id"])
@@ -422,14 +437,16 @@ def _review_requirements(
     priority: dict[str, int] = {}
     for document in documents:
         doc_id = document["internal_doc_id"]
-        if document["router_bucket"] == "RED":
+        if doc_id in pilot_ids:
             priority[doc_id] = 0
-        elif document["router_bucket"] == "YELLOW":
+        elif document["router_bucket"] == "RED":
             priority[doc_id] = 1
-        elif doc_id in audit_ids:
+        elif document["router_bucket"] == "YELLOW":
             priority[doc_id] = 2
-        elif escalated and document["router_bucket"] == "GREEN":
+        elif doc_id in audit_ids:
             priority[doc_id] = 3
+        elif escalated and document["router_bucket"] == "GREEN":
+            priority[doc_id] = 4
     return required, priority
 
 
@@ -507,6 +524,7 @@ def _document_for_review(
         "candidate_mapping": mapping,
         "human_attribution": human_attribution(metadata, imported_attribution),
         "model_name": config.model.model_id.rsplit("/", 1)[-1],
+        "generation": generation,
         "judge_suggestion": judge_suggestion,
         "review_status": review["status"],
         "row_version": review["row_version"],
@@ -869,9 +887,9 @@ def create_hitl_app(
                     if not reason:
                         raise ContractError("defer requires a reason")
                 elif requested_action == "judge_override":
+                    # The judge's list taken as the truth -- the third answer the
+                    # expert can give, alongside the annotator's and the model's.
                     action = "judge_override"
-                    if not reason:
-                        raise ContractError("judge_override requires a reason")
                     judge_model = _locked_judge(config, batch_id)
                     if not judge_model:
                         raise GateBlocked("no production judge is locked")

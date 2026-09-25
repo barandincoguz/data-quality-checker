@@ -27,6 +27,13 @@
 >   `keys/serve_env.sh`). 5055'teki ekran **eski** M01 turunundur.
 > - Belge kimliği anahtarı: `data/sensitive/data_quality_checker_gt750/keys/gt750_loop.key` —
 >   R01…R05'in hepsinde aynısı kullanılmalı.
+> - **Üç kaynaklı hata (26 Eylül):** `loop-errors --round N` bursiyer / model / hakemi uzmanın
+>   kararına karşı puanlar (kaçırılan, fazladan, detay = doğru madde yanlış fıkra/bent, dayanak =
+>   bursiyer alıntısı metinde yok; P/R/F1) → `artifacts/data_quality_checker_gt750/loop/rounds/round_NNN_errors.json`;
+>   `loop-mark --stage adjudicated` bunu kendisi yazar. Kararlar hakem kilidinden **önce**
+>   (hakem gizli = hakemin kör sınavı) ve **sonra** (hakem görünür) diye ayrı. Uzman ekranında
+>   pilot 60 belge kuyrukta **en önde** (önceden 12 yeşil pilot belgesi kuyrukta yoktu → kilit
+>   hiç açılamazdı); kilitten sonra "Hakemin önerisi doğru" düğmesi (`judge_override`, kısayol J).
 > - **KAYIT (makalenin kaynağı):** her aşamadan sonra
 >   `cd /Users/student2/ner-project && /opt/llm-lab/.venv/bin/python Journal/analysis/scripts/dq_loop_gt750_record.py`
 >   + `Journal/experiments/dq_loop_gt750/LEDGER.md`'ye giriş. Makine yükü örnekleyicisi

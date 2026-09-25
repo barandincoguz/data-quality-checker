@@ -552,14 +552,16 @@ def expert_workload(records: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     own precisely so a deferred document is never mistaken for either a
     finished one or a merely slow one.
 
-    **`seconds_to_decision` is wall time on an open review, not attention.**
-    An expert can open a document and return to it an hour later; the
-    interval still counts in full. It is reported as p50/p95 over
-    `updated_at_epoch - created_at_epoch`, computed only over rows where a
-    decision was actually reached (`status` is `"finalized"` or
-    `"deferred"`); a `"pending"` row has no decision yet, so its interval
-    would describe how long the document has sat untouched, not a
-    decision, and is excluded.
+    **`seconds_to_decision` is time with the review page open, not attention.**
+    It is each record's `seconds_on_page` -- the page stamps when it was
+    opened, the decision event stores the interval, summed over every
+    decision on the document (`loop_bindings.round_records`). An expert can
+    open a document and return to it an hour later; the interval still
+    counts in full. It used to be `updated_at_epoch - created_at_epoch`, but a
+    review row is created when the batch is prepared, so that measured the
+    batch's age. A decided row without a recorded page time is left out of the
+    sample rather than guessed; `expert_seconds_total` is the sum over the
+    sample. A `"pending"` row has no decision yet and is excluded.
 
     Returns a dict with `document_count`, `documents_requiring_review_count`
     (router `RED`/`YELLOW`, the GREEN audit sample, `GREEN` under an active
@@ -640,9 +642,8 @@ def expert_workload(records: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         if status == "deferred":
             deferred_count += 1
 
-        decision_seconds.append(
-            float(record["updated_at_epoch"]) - float(record["created_at_epoch"])
-        )
+        if record.get("seconds_on_page") is not None:
+            decision_seconds.append(float(record["seconds_on_page"]))
 
         if action == "revise":
             revise_count += 1
@@ -666,6 +667,7 @@ def expert_workload(records: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         "action_distribution": {**action_counts, "total": sum(action_counts.values())},
         "deferred_count": deferred_count,
         "seconds_to_decision_sample_count": len(decision_seconds),
+        "expert_seconds_total": round(sum(decision_seconds), 1) if decision_seconds else None,
         "seconds_to_decision_p50": (
             round(_percentile(sorted_seconds, 50), 4) if sorted_seconds else None
         ),

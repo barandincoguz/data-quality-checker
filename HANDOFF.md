@@ -34,6 +34,14 @@
 >   (hakem gizli = hakemin kör sınavı) ve **sonra** (hakem görünür) diye ayrı. Uzman ekranında
 >   pilot 60 belge kuyrukta **en önde** (önceden 12 yeşil pilot belgesi kuyrukta yoktu → kilit
 >   hiç açılamazdı); kilitten sonra "Hakemin önerisi doğru" düğmesi (`judge_override`, kısayol J).
+> - **Uzman ekranı gerçek tarayıcıyla sınandı (26 Eylül, canlı R01'in kopyasında, 19/19):**
+>   her düğme ve kısayol yazdığını söylediği şeyi yazıyor. Düzeltilenler: kısayollar Cmd/Ctrl ile
+>   ya da düzeltme paneli açıkken karar göndermiyor (önceden Cmd+M "model doğru" kaydediyordu);
+>   elle yazılan teknik JSON artık kayboluyor değil kaydediliyor; çift tık tek karar; gerekçesiz
+>   erteleme sayfada uyarı; ham JSON hata sayfaları Türkçe sayfa oldu; yedek bir kez başarısız
+>   olunca sonraki sayfa yedeği tamamlıyor (önceden yeniden başlatmaya kadar 500). **Karar süresi**
+>   artık sayfanın açık kaldığı süre (`seconds_on_page`, olay kaydında); önceden belgenin
+>   hazırlandığı andan beri geçen süreydi. Tarayıcı testi: `tests/test_hitl_browser.py`.
 > - **KAYIT (makalenin kaynağı):** her aşamadan sonra
 >   `cd /Users/student2/ner-project && /opt/llm-lab/.venv/bin/python Journal/analysis/scripts/dq_loop_gt750_record.py`
 >   + `Journal/experiments/dq_loop_gt750/LEDGER.md`'ye giriş. Makine yükü örnekleyicisi

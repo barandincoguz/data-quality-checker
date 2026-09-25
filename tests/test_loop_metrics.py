@@ -461,21 +461,26 @@ def test_expert_workload_action_distribution_counts_each_action_and_the_total() 
 
 def test_expert_workload_seconds_to_decision_p50_and_p95_exclude_pending_rows() -> None:
     records = [
-        _review_row(created_at_epoch=0.0, updated_at_epoch=10.0),
-        _review_row(created_at_epoch=0.0, updated_at_epoch=20.0),
-        _review_row(created_at_epoch=0.0, updated_at_epoch=30.0),
-        _review_row(
-            status="pending",
-            action=None,
-            final=None,
-            created_at_epoch=0.0,
-            updated_at_epoch=0.0,
-        ),
+        _review_row(seconds_on_page=10.0),
+        _review_row(seconds_on_page=20.0),
+        _review_row(seconds_on_page=30.0),
+        _review_row(status="pending", action=None, final=None),
     ]
     metrics = expert_workload(records)
     assert metrics["seconds_to_decision_sample_count"] == 3
     assert metrics["seconds_to_decision_p50"] == pytest.approx(20.0)
     assert metrics["seconds_to_decision_p95"] == pytest.approx(30.0)
+    assert metrics["expert_seconds_total"] == pytest.approx(60.0)
+
+
+def test_decision_time_is_time_on_the_page_not_time_since_preparation() -> None:
+    """A review row is created when the batch is prepared; its age says nothing
+    about the expert. A decision with no page time recorded is not sampled."""
+    records = [_review_row(created_at_epoch=0.0, updated_at_epoch=86_400.0)]
+    metrics = expert_workload(records)
+    assert metrics["seconds_to_decision_sample_count"] == 0
+    assert metrics["seconds_to_decision_p50"] is None
+    assert metrics["expert_seconds_total"] is None
 
 
 def test_expert_workload_edit_distance_only_measures_revise_rows() -> None:

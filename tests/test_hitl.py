@@ -661,3 +661,115 @@ def test_the_expert_may_paraphrase_the_supporting_passage(tmp_path) -> None:
         ]
     )
     assert len(kept) == 1
+
+
+def _latest_review_event(config) -> dict:
+    with Store(config.database_path) as store:
+        row = store.connection.execute(
+            "SELECT payload_json FROM batch_events WHERE event_type='expert_review_updated' "
+            "ORDER BY event_id DESC LIMIT 1"
+        ).fetchone()
+    return json.loads(row[0])
+
+
+def test_the_page_records_how_long_the_expert_had_it_open(tmp_path) -> None:
+    """Review rows are created when the batch is prepared, so updated - created
+    measured time since preparation, not the expert's time on the document."""
+    import time
+
+    config, app = fixture(tmp_path)
+    client = app.test_client()
+    csrf = authenticated(client)
+    doc_id = client.get("/api/queue").get_json()["queue"][0]["internal_doc_id"]
+    assert 'name="opened_at"' in client.get(f"/review/{doc_id}").get_data(as_text=True)
+    response = client.post(
+        f"/review/{doc_id}",
+        data={
+            "csrf_token": csrf,
+            "row_version": "0",
+            "action": "accept_human",
+            "opened_at": str(time.time() - 42),
+        },
+    )
+    assert response.status_code == 302
+    assert 41 <= _latest_review_event(config)["seconds_on_page"] < 60
+
+
+def test_a_rejected_form_submission_shows_the_expert_a_page_not_raw_json(tmp_path) -> None:
+    _, app = fixture(tmp_path)
+    client = app.test_client()
+    csrf = authenticated(client)
+    doc_id = client.get("/api/queue").get_json()["queue"][0]["internal_doc_id"]
+    response = client.post(
+        f"/review/{doc_id}", data={"csrf_token": csrf, "row_version": "0", "action": "defer"}
+    )
+    assert response.status_code == 400
+    html = response.get_data(as_text=True)
+    assert "Karar kaydedilmedi" in html and "ertele" in html.lower()
+    assert f"/review/{doc_id}" in html
+    stale = client.post(
+        f"/review/{doc_id}", data={"csrf_token": csrf, "row_version": "7", "action": "accept_human"}
+    )
+    assert stale.status_code == 409
+    assert "yenileyin" in stale.get_data(as_text=True)
+
+
+def test_page_time_reaches_the_round_workload(tmp_path) -> None:
+    import time
+
+    from data_quality_checker.loop_bindings import round_records
+    from data_quality_checker.loop_metrics import expert_workload
+
+    config, app = fixture(tmp_path)
+    client = app.test_client()
+    csrf = authenticated(client)
+    doc_id = client.get("/api/queue").get_json()["queue"][0]["internal_doc_id"]
+    for action, reason in (("defer", "ikinci görüş"), ("accept_human", "")):
+        version = client.get(f"/api/documents/{doc_id}").get_json()["row_version"]
+        client.post(
+            f"/review/{doc_id}",
+            data={"csrf_token": csrf, "row_version": str(version), "action": action,
+                  "reason": reason, "opened_at": str(time.time() - 30)},
+        )
+    with Store(config.database_path) as store:
+        records = round_records(config, store, batch_id="batch", generation="G0", judge_model="none")
+    assert 59 <= records[0]["seconds_on_page"] < 70
+    assert 59 <= expert_workload(records)["expert_seconds_total"] < 70
+
+
+def test_a_failed_backup_is_caught_up_on_the_next_page_not_only_at_restart(tmp_path) -> None:
+    """After a backup failure every page used to fail on the stale-backup check
+    (HTTP 500) until the app was restarted."""
+    config, app = fixture(tmp_path, count=2)
+    client = app.test_client()
+    csrf = authenticated(client)
+    first, second = [row["internal_doc_id"] for row in client.get("/api/queue").get_json()["queue"]]
+    backup_root = config.sensitive_root / "review_backups"
+    shutil.rmtree(backup_root)
+    backup_root.write_text("blocks directory creation", encoding="utf-8")
+    saved = client.post(
+        f"/api/reviews/{first}",
+        json={"action": "accept_human", "row_version": 0},
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert saved.status_code == 503
+
+    blocked = client.get(f"/review/{second}")
+    assert blocked.status_code == 503
+    assert "yedeği" in blocked.get_data(as_text=True)
+
+    backup_root.unlink()
+    page = client.get(f"/review/{second}")
+    assert page.status_code == 200
+    assert "1 karar yedeklendi" in page.get_data(as_text=True)
+
+
+def test_an_empty_queue_shows_a_finished_page(tmp_path) -> None:
+    _, app = fixture(tmp_path)
+    client = app.test_client()
+    csrf = authenticated(client)
+    doc_id = client.get("/api/queue").get_json()["queue"][0]["internal_doc_id"]
+    client.post(f"/review/{doc_id}", data={"csrf_token": csrf, "row_version": "0", "action": "accept_human"})
+    done = client.get("/review/next")
+    assert done.status_code == 200
+    assert "tamamlandı" in done.get_data(as_text=True)

@@ -6,6 +6,7 @@ import hmac
 import json
 import os
 import secrets
+import time
 from typing import Any
 
 from flask import (
@@ -22,7 +23,7 @@ from .atomic import write_json_atomic
 from .config import AppConfig
 from .constants import EXPERT_ACTIONS
 from .contracts import REFERENCE_FIELDS, validate_reference_list
-from .errors import ConfigurationError, ContractError, GateBlocked, VersionConflict
+from .errors import ConfigurationError, ContractError, GateBlocked, IntegrityError, VersionConflict
 from .judges import ensure_green_audit_plan
 from .normalization import (
     compact_references,
@@ -78,6 +79,80 @@ Korumalı snapshot henüz doğrulanamadı. Kararı tekrar göndermeyin;
 uygulama bir sonraki açılışta yedeği otomatik tamamlayacaktır.</div>
 <a href="{{ url_for('next_review') }}">İnceleme kuyruğuna dön</a></main>
 """
+
+BACKUP_BLOCKED_TEMPLATE = """
+<!doctype html><meta charset="utf-8"><title>DQCheck kayıt uyarısı</title>
+<style>
+body{font-family:system-ui;background:#f5f6f8;margin:0;color:#20242a}
+main{max-width:620px;margin:12vh auto;background:white;padding:2rem;border:1px solid #d9dde3;border-radius:.7rem}
+.warn{border-left:5px solid #b42318;background:#fef3f2;padding:1rem;line-height:1.5}
+</style>
+<main><h1>Kayıt yedeği alınamıyor</h1>
+<div class="warn" role="alert"><strong>Verdiğiniz kararlar ana veritabanında duruyor.</strong>
+Korumalı kayıt yedeği şu an alınamıyor; yeni karar vermeden önce sorumluya haber verin.
+Sorun giderilince bu sayfayı yenilemeniz yeterli.</div></main>
+"""
+
+QUEUE_DONE_TEMPLATE = """
+<!doctype html><meta charset="utf-8"><title>DQCheck — kuyruk tamamlandı</title>
+<style>
+body{font-family:system-ui;background:#f5f6f8;margin:0;color:#20242a}
+main{max-width:620px;margin:12vh auto;background:white;padding:2rem;border:1px solid #d9dde3;border-radius:.7rem}
+.ok{border-left:5px solid #146c3a;background:#ecfdf3;padding:1rem;line-height:1.5}
+</style>
+<main><h1>İnceleme kuyruğu tamamlandı</h1>
+<div class="ok">{{ batch_id }} partisinde incelenmesi gereken belge kalmadı. Teşekkürler.</div></main>
+"""
+
+
+def _verified_backup(*, config: AppConfig, store: Store, batch_id: str) -> dict[str, Any]:
+    """The backup status for the page, caught up first if a decision outran it.
+
+    A decision whose backup failed is already committed; startup would take the
+    missing backup, and so does the next page instead of failing on it until a
+    restart. `create_review_backup` snapshots the live store and verifies it,
+    so a backup that still cannot be made raises here rather than being skipped.
+    """
+    try:
+        return review_backup_status(config=config, store=store, batch_id=batch_id)
+    except IntegrityError:
+        create_review_backup(config=config, store=store, batch_id=batch_id)
+        return review_backup_status(config=config, store=store, batch_id=batch_id)
+
+
+FORM_ERROR_TEMPLATE = """
+<!doctype html><meta charset="utf-8"><title>DQCheck — karar kaydedilmedi</title>
+<style>
+body{font-family:system-ui;background:#f5f6f8;margin:0;color:#20242a}
+main{max-width:620px;margin:12vh auto;background:white;padding:2rem;border:1px solid #d9dde3;border-radius:.7rem}
+.warn{border-left:5px solid #b54708;background:#fff7e6;padding:1rem;line-height:1.5}
+a{display:inline-block;margin-top:1rem;color:#155eef;font-weight:700}.hint{color:#59636e;font-size:.85rem}
+</style>
+<main><h1>Karar kaydedilmedi</h1>
+<div class="warn" role="alert">{{ message }}</div>
+<p class="hint">Teknik ayrıntı: {{ detail }}</p>
+<a href="{{ url_for('review_document', internal_doc_id=internal_doc_id) }}">Belgeye dön</a></main>
+"""
+
+# What the expert reads when a form submission is refused. The JSON API keeps
+# the English `detail`; a person at the form gets a sentence and a way back.
+_FORM_ERROR_MESSAGES = {
+    "defer requires a reason": "Ertelemek için bir gerekçe yazın.",
+    "references_json is invalid": (
+        "Teknik JSON alanındaki metin geçerli bir liste değil. Düzeltip yeniden kaydedin "
+        "ya da tabloyu kullanın."
+    ),
+    "no production judge is locked": "Hakem henüz kilitlenmedi; hakemin önerisi seçilemez.",
+    "locked judge has no valid result": "Hakemin bu belge için geçerli bir önerisi yok.",
+}
+
+
+def _form_error_message(detail: str) -> str:
+    for prefix, message in _FORM_ERROR_MESSAGES.items():
+        if detail.startswith(prefix):
+            return message
+    return "Gönderilen karar geçersiz."
+
 
 REVIEW_TEMPLATE = """
 <!doctype html><meta charset="utf-8"><title>DQCheck Review</title>
@@ -140,7 +215,7 @@ pre{white-space:pre-wrap;border:1px solid #bbb;padding:1rem}mark.ev{padding:0 .0
 {{ refcell(doc.judge_suggestion.final_references) }}</section>{% endif %}
 
 <form method="post" action="{{ url_for('submit_review', internal_doc_id=doc.internal_doc_id) }}">
-  <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="row_version" value="{{ doc.row_version }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="row_version" value="{{ doc.row_version }}"><input type="hidden" name="opened_at" value="{{ opened_at }}">
   <section class="decision"><h2>3. Karar ver</h2><p>Belgedeki tüm hedef kanun/madde referanslarını doğru veren adayı seçin.</p>
     <div class="decision-grid"><button name="action" value="accept_human" accesskey="h">İnsan anotasyonu doğru<span>{{ doc.human_attribution.display_name }} · Kısayol: H</span></button>
     <button name="action" value="accept_model" accesskey="m">Model çıktısı doğru<span>{{ doc.generation }} · Kısayol: M</span></button>
@@ -148,6 +223,7 @@ pre{white-space:pre-wrap;border:1px solid #bbb;padding:1rem}mark.ev{padding:0 .0
   </section>
   <details class="secondary"><summary>Karar veremiyorum — bu belgeyi ertele</summary><div class="defer-row">
     <label>Erteleme gerekçesi<input name="reason" placeholder="Örn. metin eksik veya hukuki yorum gerekli"></label><button name="action" value="defer">Gerekçeyle ertele</button></div>
+    <p class="warn" id="defer-msg" hidden>Ertelemek için bir gerekçe yazın.</p>
   </details>
   <details class="secondary" id="revision-panel"><summary>İkisi de tam doğru değil — referansları düzelt</summary>
     <p class="hint">Başlangıç olarak insan anotasyonunu veya modeli seçin; yalnız yanlış alanları değiştirin.</p>
@@ -179,37 +255,57 @@ pre{white-space:pre-wrap;border:1px solid #bbb;padding:1rem}mark.ev{padding:0 .0
       if(any) out.push(o);
     }); return out;
   }
-  function sync(){ textarea.value = JSON.stringify(collect()); }
+  // Whichever the expert edited last -- the table or the technical JSON --
+  // is what gets saved; the table must not silently overwrite typed JSON.
+  var typedJson = false;
+  textarea.addEventListener('input', function(){ typedJson = true; });
+  function sync(){ if(!typedJson) textarea.value = JSON.stringify(collect()); }
+  function tableEdited(){ typedJson = false; sync(); }
   function addRow(ref){
     ref = ref||{}; var tr=document.createElement('tr');
     FIELDS.forEach(function(f){
       var td=document.createElement('td'), inp=document.createElement('input');
       inp.dataset.field=f; inp.value=ref[f]||''; inp.size=(f==='source_text')?40:8;
       if(f==='source_text') inp.className='source-input';
-      inp.addEventListener('input', sync); td.appendChild(inp); tr.appendChild(td);
+      inp.addEventListener('input', tableEdited); td.appendChild(inp); tr.appendChild(td);
     });
     var td=document.createElement('td'), del=document.createElement('button');
     del.type='button'; del.textContent='sil';
-    del.addEventListener('click', function(){ tr.remove(); sync(); });
+    del.addEventListener('click', function(){ tr.remove(); tableEdited(); });
     td.appendChild(del); tr.appendChild(td); rows.appendChild(tr);
   }
-  function fill(list){ rows.innerHTML=''; (list||[]).forEach(addRow); if(!rows.children.length) addRow(); sync(); }
+  function fill(list){ rows.innerHTML=''; (list||[]).forEach(addRow); if(!rows.children.length) addRow(); tableEdited(); }
   document.getElementById('fill-a').addEventListener('click', function(){ fill(DATA.a); });
   document.getElementById('fill-b').addEventListener('click', function(){ fill(DATA.b); });
   var jb=document.getElementById('fill-judge');
   if(jb && DATA.judge){ jb.addEventListener('click', function(){ fill(DATA.judge.final_references||[]); }); }
   document.getElementById('add-row').addEventListener('click', function(){ addRow(); });
   document.querySelector('button[value=revise]').addEventListener('click', sync);
+  var reasonInput = document.querySelector('input[name=reason]');
+  document.querySelector('button[value=defer]').addEventListener('click', function(e){
+    if(!reasonInput.value.trim()){
+      e.preventDefault(); document.getElementById('defer-msg').hidden=false; reasonInput.focus();
+    }
+  });
+  // One decision per page: a double click or a repeated shortcut must not send
+  // a second, stale-version submission after the first one saved.
+  var form = document.querySelector('form[action]'), sent = false;
+  form.addEventListener('submit', function(e){ if(sent){ e.preventDefault(); } sent = true; });
+  window.addEventListener('pageshow', function(){ sent = false; });
   fill(DATA.a);
   document.addEventListener('keydown', function(e){
     var t=(e.target.tagName||''); if(t==='INPUT'||t==='TEXTAREA'||t==='SELECT') return;
+    // Cmd+H / Ctrl+M are the system's, and a letter typed while the revision
+    // panel is open was meant for a cell: neither may submit a decision.
+    if(e.metaKey||e.ctrlKey||e.altKey||e.repeat) return;
+    if(document.getElementById('revision-panel').open) return;
     var k=e.key.toLowerCase();
     if(k==='h'||k==='m'||k==='j'){
       var val = {h:'accept_human', m:'accept_model', j:'judge_override'}[k];
       var btn=document.querySelector('button[value='+val+']');
       if(btn){ e.preventDefault(); btn.click(); }
     } else if(k==='d'){
-      var reason=document.querySelector('input[name=reason]'); if(reason){ e.preventDefault(); reason.focus(); }
+      var reason=document.querySelector('input[name=reason]'); if(reason){ e.preventDefault(); reason.closest('details').open=true; reason.focus(); }
     }
   });
 })();
@@ -798,7 +894,7 @@ def create_hitl_app(
         with Store(config.database_path, busy_timeout_ms=config.runtime.busy_timeout_ms) as store:
             queue = review_queue(config=config, store=store, batch_id=batch_id)
         if not queue:
-            return jsonify({"status": "review_complete", "batch_id": batch_id})
+            return render_template_string(QUEUE_DONE_TEMPLATE, batch_id=batch_id)
         return redirect(url_for("review_document", internal_doc_id=queue[0]["internal_doc_id"]))
 
     @app.get("/api/documents/<internal_doc_id>")
@@ -830,11 +926,10 @@ def create_hitl_app(
                 generation=generation,
             )
             queue = review_queue(config=config, store=store, batch_id=batch_id)
-            durability = review_backup_status(
-                config=config,
-                store=store,
-                batch_id=batch_id,
-            )
+            try:
+                durability = _verified_backup(config=config, store=store, batch_id=batch_id)
+            except (IntegrityError, OSError):
+                return render_template_string(BACKUP_BLOCKED_TEMPLATE), 503
         diff = ab_diff(document["candidate_a"], document["candidate_b"])
         return render_template_string(
             REVIEW_TEMPLATE,
@@ -845,6 +940,7 @@ def create_hitl_app(
             durability=durability,
             segments=evidence_segments(document["text"], document["evidence_spans"]),
             csrf_token=session["csrf_token"],
+            opened_at=f"{time.time():.3f}",
         )
 
     @app.post("/api/reviews/<internal_doc_id>")
@@ -856,6 +952,14 @@ def create_hitl_app(
             requested_action = str(payload.get("action") or "")
             reason = str(payload.get("reason") or "").strip() or None
             reviewer = str(payload.get("reviewer") or "local_expert")
+            # The review row is created when the batch is prepared, so its age
+            # is not the expert's time. The page stamps when it was opened.
+            try:
+                seconds_on_page: float | None = round(time.time() - float(payload["opened_at"]), 1)
+            except (KeyError, TypeError, ValueError):
+                seconds_on_page = None
+            if seconds_on_page is not None and seconds_on_page < 0:
+                seconds_on_page = None
             with (
                 review_backup_lock(config=config, batch_id=batch_id),
                 Store(
@@ -923,6 +1027,7 @@ def create_hitl_app(
                         "status": status,
                         "action": action,
                         "row_version": expected_version + 1,
+                        "seconds_on_page": seconds_on_page,
                     },
                 )
                 escalated = bool(
@@ -974,8 +1079,26 @@ def create_hitl_app(
                 return jsonify(response)
             return redirect(url_for("next_review"))
         except VersionConflict as exc:
+            if not request.is_json:
+                return render_template_string(
+                    FORM_ERROR_TEMPLATE,
+                    message=(
+                        "Bu belge siz sayfayı açtıktan sonra değişti (başka bir sekmede karar "
+                        "verilmiş olabilir). Belgeye dönüp sayfayı yenileyin ve kararı yeniden "
+                        "kontrol edin."
+                    ),
+                    detail=str(exc),
+                    internal_doc_id=internal_doc_id,
+                ), 409
             return jsonify({"error": "version_conflict", "detail": str(exc)}), 409
         except (ContractError, GateBlocked, KeyError, TypeError, ValueError) as exc:
+            if not request.is_json:
+                return render_template_string(
+                    FORM_ERROR_TEMPLATE,
+                    message=_form_error_message(str(exc)),
+                    detail=str(exc),
+                    internal_doc_id=internal_doc_id,
+                ), 400
             return jsonify({"error": "invalid_review", "detail": str(exc)}), 400
 
     return app

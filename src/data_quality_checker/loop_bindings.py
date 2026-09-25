@@ -338,6 +338,19 @@ def round_records(
         else set()
     )
 
+    # Time the expert had each document's page open, over every decision on it
+    # (a deferral and the later decision both cost time). None = never measured.
+    seconds_on_page: dict[str, float] = {}
+    for (payload_json,) in store.connection.execute(
+        "SELECT payload_json FROM batch_events WHERE batch_id=? AND event_type='expert_review_updated'",
+        (batch_id,),
+    ):
+        event = json.loads(payload_json)
+        seconds = event.get("seconds_on_page")
+        if isinstance(seconds, (int, float)):
+            doc_id = str(event["internal_doc_id"])
+            seconds_on_page[doc_id] = seconds_on_page.get(doc_id, 0.0) + float(seconds)
+
     records: list[dict[str, Any]] = []
     for document in documents:
         internal_doc_id = document["internal_doc_id"]
@@ -379,6 +392,7 @@ def round_records(
                 "action": review["action"],
                 "created_at_epoch": review["created_at_epoch"],
                 "updated_at_epoch": review["updated_at_epoch"],
+                "seconds_on_page": seconds_on_page.get(internal_doc_id),
                 "annotator": json.loads(document["human_references_json"]),
                 "model": model,
                 "judge": judge,

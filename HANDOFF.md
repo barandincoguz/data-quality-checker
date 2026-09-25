@@ -27,6 +27,10 @@
 >   `keys/serve_env.sh`). 5055'teki ekran **eski** M01 turunundur.
 > - Belge kimliği anahtarı: `data/sensitive/data_quality_checker_gt750/keys/gt750_loop.key` —
 >   R01…R05'in hepsinde aynısı kullanılmalı.
+> - **KAYIT (makalenin kaynağı):** her aşamadan sonra
+>   `cd /Users/student2/ner-project && /opt/llm-lab/.venv/bin/python Journal/analysis/scripts/dq_loop_gt750_record.py`
+>   + `Journal/experiments/dq_loop_gt750/LEDGER.md`'ye giriş. Makine yükü örnekleyicisi
+>   tmux `gt750-load`'da hep açık olmalı (`Journal/analysis/scripts/dq_loop_machine_load.sh`).
 > - GPU paylaşımlı: M000'ın ilk 3 saatini student4'ün toplu değerlendirmesi yedi (Metal
 >   bellek yetersizliği). Uzun eğitimler `artifacts/data_quality_checker_gt750/loop/supervise_m0.sh`
 >   gibi GPU boşken deneyen bir gözetmenle koşulmalı.

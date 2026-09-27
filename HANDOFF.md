@@ -53,9 +53,16 @@
 >   ("dayanak" satırı kaldırıldı), yeşil örneklem katmanı ve kanal seçimi (artık HTML varsa HTML)
 >   alıntıdan arındırıldı; R01 yeşil örneklemi yeniden seçildi (eskisi
 >   `green_audit.superseded_2026-09-27_source_text_stratum.json`).
-> - **Açık karar (kullanıcı):** bulucunun yerleştiremediği referans (uzun belgede eğitim penceresi
->   için) — simülasyonda 948'de 6, hepsi yanlış/biçimsiz referans. `round_training_documents`
->   şimdilik uzman listesiyle durur (yanlış veri üretmez).
+> - **Bulucu + madde yazımı (27 Eylül, `e9a3cc8`):** bulucu alıntısız yeniden yazıldı (GT750:
+>   %92,7 altın alıntıda, 3 ret, yazıma %100 dayanıklı); "geçiçi/GEÇİCİ/Geçici Madde N", "ve
+>   izleyen/devamı", "Değişik N", "466-469" iki motorda tek kimlik (bent harfleri katlanmaz).
+>   Evaluator değişti → M000 doğrulaması yeniden puanlandı
+>   (`artifacts/data_quality_checker_gt750/loop/rescored/2026-09-27_article_spelling/`; seçim ve
+>   kapı aynı). R01 eski kuralla yönlendirildi (yeni kuralla 2 kırmızı yeşil olurdu; bırakıldı).
+>   M001'de her sürüm referansının penceresi bulucuyla bulunur.
+> - **Açık karar (kullanıcı):** bulucunun yerleştiremediği referans — canlı R01'de retlerin
+>   neredeyse hepsi gerçekten yanlış referans. `round_training_documents` şimdilik uzman listesiyle
+>   durur (yanlış veri üretmez).
 > - **KAYIT (makalenin kaynağı):** her aşamadan sonra
 >   `cd /Users/student2/ner-project && /opt/llm-lab/.venv/bin/python Journal/analysis/scripts/dq_loop_gt750_record.py`
 >   + `Journal/experiments/dq_loop_gt750/LEDGER.md`'ye giriş. Makine yükü örnekleyicisi

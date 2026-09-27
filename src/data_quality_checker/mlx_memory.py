@@ -76,6 +76,9 @@ def metal_cache_limit(limit_bytes: int = 0) -> None:
 
 
 WY_CHUNK = 64
+# Names the training recurrence a whole-document run was measured and trained
+# under; it is part of that run's identity (`loop_train.train_round`).
+RECURRENCE_ID = "wy_chunk_parallel_v1"
 _LOG_FLOOR = 1e-30
 # Modules that bind `gated_delta_update` by name at import (qwen3_5 does:
 # `from .gated_delta import gated_delta_update`) -- each must be patched.

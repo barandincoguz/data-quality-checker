@@ -333,6 +333,11 @@ def test_a_loop_round_trains_whole_documents_in_its_own_run(tmp_path: Path, monk
     assert whole["run_id"] != windowed["run_id"]
     run_config = json.loads(Path(whole["run_config_path"]).read_text())
     assert run_config["training_view_mode"] == "full_documents"
+    # The recurrence implementation is part of the run: a run measured under one
+    # (preflight memory, resume equivalence) is never continued under another.
+    from data_quality_checker.mlx_memory import RECURRENCE_ID
+
+    assert run_config["recurrence"] == RECURRENCE_ID
     assert (
         json.loads(Path(windowed["run_config_path"]).read_text())["training_view_mode"] == "windows"
     )

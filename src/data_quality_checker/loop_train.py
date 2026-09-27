@@ -106,6 +106,7 @@ def _write_round_scaffolding(
     execute: bool,
     split_policy: str = LOOP_SPLIT_POLICY,
     view_mode: str = "windows",
+    recurrence: str | None = None,
 ) -> tuple[Path, Path]:
     """Write exactly what `g0_training._base_run_context` demands of a run.
 
@@ -144,6 +145,7 @@ def _write_round_scaffolding(
         # prompt no longer mentions. The preflight writes the real view.
         "recovery": {"long_run_allowed": False},
         "training_view_mode": view_mode,
+        **({"recurrence": recurrence} if recurrence else {}),
     }
     write_json_atomic(run_dir / "run_config.json", run_config)
     # The contract states this round's own split. A bare TrainingContract()
@@ -261,10 +263,18 @@ def train_round(
         "training_set_size": len(composed["train"]),
     }
     view_mode = training_view_mode(config)
+    recurrence: str | None = None
     if view_mode != "windows":
         # A different view is a different run: it must never resume into the
         # windowed run's directory (absent for "windows", so those ids stand).
+        # So is a different training recurrence: the preflight measured memory
+        # and resume equivalence under one, and a run is never continued under
+        # another.
+        from .mlx_memory import RECURRENCE_ID
+
+        recurrence = RECURRENCE_ID
         fingerprint_payload["training_view_mode"] = view_mode
+        fingerprint_payload["recurrence"] = recurrence
     run_fingerprint = fingerprint_json(fingerprint_payload)
     run_id = f"dqcheck_loop_{run_fingerprint[:12]}"
     data_dir = config.sensitive_root / "loop" / run_id / "data"
@@ -288,6 +298,7 @@ def train_round(
         execute=execute,
         split_policy=split_policy,
         view_mode=view_mode,
+        recurrence=recurrence,
     )
 
     result: dict[str, Any] = {

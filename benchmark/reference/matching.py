@@ -51,8 +51,51 @@ RE_ARTICLE_LETTER_SUFFIX = re.compile(
     r"^(?P<head>.+?)/(?P<suffix>[A-Za-zÇĞİÖŞÜçğıöşü])$"
 )
 
-#: ``466-469`` and ``466 ila 469`` are the same span written two ways.
-RE_NUMERIC_ARTICLE_RANGE = re.compile(r"^(?P<start>\d+)\s*-\s*(?P<end>\d+)$")
+#: ``466-469``, ``466 – 469`` and ``466 ila 469`` are the same span written two ways.
+RE_NUMERIC_ARTICLE_RANGE = re.compile(r"^(?P<start>\d+)\s*[-–]\s*(?P<end>\d+)$")
+
+#: Prose after an article that cites it onwards (GT750 data, 27 Sep 2026):
+#: "229 ve müteakip", "794 ve izleyen", "603 ve devamı", "ve takip eden", and
+#: the typo "mütakip". The article is the number before it. Matched folded.
+RE_FOLDED_CONTINUATION = re.compile(
+    r"\s+ve\s+(?:muteakip|mutakip|izleyen|devam\w*|takip\s+eden|sonraki)(?:\s+madde\w*)?$"
+)
+RE_FOLDED_LEADING_WORD = re.compile(r"^(?P<word>[a-z]+)\.?\s*(?P<rest>.*)$")
+_FOLDED_QUALIFIERS = ("mukerrer", "gecici")
+
+
+def _within_one_edit(left: str, right: str) -> bool:
+    if abs(len(left) - len(right)) > 1:
+        return False
+    if len(left) == len(right):
+        return sum(a != b for a, b in zip(left, right)) <= 1
+    short, long_ = sorted((left, right), key=len)
+    return any(long_[:i] + long_[i + 1 :] == short for i in range(len(long_)))
+
+
+def _canonical_folded_article(folded: str) -> str:
+    """One spelling per article, on already-folded text.
+
+    Mirrors ``data_quality_checker.normalization.normalize_article`` (pinned by
+    ``tests/test_engine_agreement.py``): the continuation prose goes, "değişik
+    3" is article 3, "geçici madde 3" is "geçici 3", and a qualifier is read
+    through one typing slip ("gecici" for "geçiçi", "mukrrer"). "ek" is too
+    short to allow a slip.
+    """
+    folded = RE_FOLDED_CONTINUATION.sub("", folded).strip()
+    leading = RE_FOLDED_LEADING_WORD.match(folded)
+    if leading and leading.group("word") == "degisik":
+        folded = leading.group("rest").strip()
+        leading = RE_FOLDED_LEADING_WORD.match(folded)
+    if leading:
+        word = leading.group("word")
+        qualifier = "ek" if word == "ek" else next(
+            (q for q in _FOLDED_QUALIFIERS if len(word) >= 5 and _within_one_edit(word, q)), None
+        )
+        if qualifier:
+            rest = re.sub(r"^madde\w*\s+", "", leading.group("rest"))
+            folded = f"{qualifier} {rest}".strip()
+    return re.sub(r"\s+", " ", folded)
 
 
 #: Turkish letters that survive NFKD with no combining mark of their own.
@@ -72,7 +115,7 @@ def _fold_article_text(text: str) -> str:
     canonical = RE_NUMERIC_ARTICLE_RANGE.sub(r"\g<start> ila \g<end>", text)
     decomposed = unicodedata.normalize("NFKD", canonical)
     without_marks = "".join(ch for ch in decomposed if not unicodedata.combining(ch))
-    return without_marks.translate(_TURKISH_FOLD).casefold()
+    return _canonical_folded_article(without_marks.translate(_TURKISH_FOLD).casefold())
 
 
 def split_article_subparagraph(

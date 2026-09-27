@@ -125,11 +125,11 @@ def round_training_documents(config: Any, *, batch_ids: Sequence[str]) -> dict[s
     on documents the pipeline could not process would poison the very data this
     loop exists to clean.
 
-    A reference the DQ-Loop harvests from the model has no `source_text`: the
-    model does not emit one and the annotator never wrote the reference down.
-    `context_windows.py` needs a verbatim substring to build a training row,
-    so between reading the release and returning it this function runs the
-    build-time locator, `attach_missing_spans`, to fill those gaps -- without
+    `context_windows.py` needs a verbatim substring to place each reference in
+    a training window. The annotator's `source_text` is not used for that (it
+    decides nothing, user rule 27 Sep 2026) and a reference taken from the model
+    or the judge has none, so every released reference is placed by the
+    build-time locator, `attach_missing_spans` -- without
     ever writing the located span back into the release or the database, which
     stay the faithful record of what the expert decided. Every reference the
     locator could not place is collected into one `ContractError` naming all
@@ -169,7 +169,18 @@ def round_training_documents(config: Any, *, batch_ids: Sequence[str]) -> dict[s
                         f"document {doc_id!r} is duplicated while assembling "
                         f"batch {batch_id!r}'s release"
                     )
-                documents[doc_id] = {"text": text, "references": references}
+                # The annotator's quote decides nothing, not even placement (user
+                # rule, 27 Sep 2026): every released reference is placed by the
+                # locator below. The release on disk keeps what was written.
+                documents[doc_id] = {
+                    "text": text,
+                    "references": [
+                        {**reference, "source_text": ""}
+                        if isinstance(reference, dict)
+                        else reference
+                        for reference in references
+                    ],
+                }
                 batch_document_count += 1
         if not found:
             raise ContractError(f"no release found for batch {batch_id!r} under {directory}")

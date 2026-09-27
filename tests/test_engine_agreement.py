@@ -117,7 +117,29 @@ CASES = [
         _row("0193", "Gelir Vergisi Kanunu", "37"),
         True,
     ),
+    # -- spellings found in the GT750 data that name one article (27 Sep 2026) --
+    ("qualifier typo geçiçi", _row("3218", "", "geçiçi 3"), _row("3218", "", "geçici 3"), True),
+    (
+        "qualifier typo mükrrer",
+        _row("213", "", "mükrrer 242"),
+        _row("213", "", "Mükerrer 242"),
+        True,
+    ),
+    ("dotted capital GEÇİCİ", _row("193", "", "GEÇİCİ 67"), _row("193", "", "geçici 67"), True),
+    ("geçici madde N", _row("193", "", "Geçici Madde 67"), _row("193", "", "geçici 67"), True),
+    ("ek madde N", _row("213", "", "Ek Madde 1"), _row("213", "", "ek 1"), True),
+    ("ve mütakip typo", _row("213", "", "229 ve mütakip"), _row("213", "", "229"), True),
+    ("ve izleyen", _row("6098", "", "794 ve izleyen"), _row("6098", "", "794"), True),
+    ("ve devamı", _row("6098", "", "603 ve devamı"), _row("6098", "", "603"), True),
+    ("ve takip eden", _row("213", "", "229 ve takip eden maddeleri"), _row("213", "", "229"), True),
+    ("değişik N is article N", _row("3065", "", "Değişik 3"), _row("3065", "", "3"), True),
+    ("dash range", _row("6098", "", "466-469"), _row("6098", "", "466 ila 469"), True),
+    ("ilâ range", _row("6098", "", "473 ilâ 475"), _row("6098", "", "473 ila 475"), True),
     # -- and the provisions that must stay apart --
+    ("geçici N is not article N", _row("193", "", "geçici 3"), _row("193", "", "3"), False),
+    ("ek N is not article N", _row("213", "", "ek 3"), _row("213", "", "3"), False),
+    ("mükerrer N is not article N", _row("193", "", "mükerrer 20"), _row("193", "", "20"), False),
+    ("geçici 3 is not geçici 4", _row("193", "", "geçiçi 3"), _row("193", "", "geçici 4"), False),
     (
         "ek madde A is not article 32",
         _row("5520", "Kurumlar Vergisi Kanunu", "32"),
@@ -157,3 +179,15 @@ def test_both_engines_agree(label: str, left: dict, right: dict, same: bool) -> 
     evaluator = _evaluator_says_same(left, right)
     assert loop == same, f"{label}: loop engine"
     assert evaluator == same, f"{label}: evaluator engine"
+
+
+def test_turkish_bent_letters_are_never_folded() -> None:
+    """(c) and (ç) are different subparagraphs: Turkish legislation letters its
+    bents in the Turkish alphabet. 320 "c" and 24 "ç" rows in our data are not
+    one letter typed two ways, and neither are g/ğ, ı/i, o/ö, s/ş, u/ü."""
+    from data_quality_checker.normalization import full_identity, normalize_reference
+
+    for plain, dotted in (("c", "ç"), ("g", "ğ"), ("i", "ı"), ("o", "ö"), ("s", "ş"), ("u", "ü")):
+        left = normalize_reference(_row("193", "", "94", bent=plain))
+        right = normalize_reference(_row("193", "", "94", bent=dotted))
+        assert full_identity(left) != full_identity(right), (plain, dotted)

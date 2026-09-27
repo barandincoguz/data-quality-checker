@@ -50,7 +50,21 @@ _ARTICLE_SUFFIX_RE = re.compile(
     re.IGNORECASE,
 )
 _PARENS_RE = re.compile(r"^[\[(]\s*(.*?)\s*[\])]$")
-_MUTEAKIP_RE = re.compile(r"\s+ve\s+m[uü]teakip(\s+maddeler\w*)?\s*$", re.IGNORECASE)
+# "229 ve müteakip maddelerinde" cites article 229 onwards; the article is 229.
+# The same prose comes as "ve izleyen", "ve devamı", "ve takip eden", and with
+# the typo "mütakip" -- all found in the GT750 data (27 Sep 2026).
+_MUTEAKIP_RE = re.compile(
+    r"\s+ve\s+(?:m[uü]teakip|m[uü]takip|izleyen|devam\w*|takip\s+eden|sonraki)"
+    r"(?:\s+madde\w*)?\s*$",
+    re.IGNORECASE,
+)
+_ARTICLE_RANGE_RE = re.compile(r"^(\d+)\s*(?:-|–|ila|ilâ)\s*(\d+)$", re.IGNORECASE)
+_LEADING_WORD_RE = re.compile(r"^(?P<word>[^\W\d_]+)\.?\s*(?P<rest>.*)$")
+# An article's qualifier names a different article ("geçici 3" is not 3), so
+# it is kept -- but spelled one way. Compared folded and allowing one typing
+# slip ("geçiçi", "mükrrer"): the number carries the identity, so folding the
+# qualifier cannot merge two articles. "ek" is too short to allow a slip.
+_QUALIFIERS = {"mukerrer": "mükerrer", "gecici": "geçici"}
 # A trailing "/" plus a *lowercase* letter is a sub-part written inline
 # ("6/b"); a trailing "/" plus an *uppercase* letter is part of the
 # article's own name inserted by amendment (e.g. 5520 art. "32/A") and must
@@ -156,14 +170,43 @@ def normalize_law_name(value: Any, *, law_number: str = "") -> str:
     return _SPACE_RE.sub(" ", text).strip(_LAW_NAME_PUNCT)
 
 
+def _within_one_edit(left: str, right: str) -> bool:
+    if abs(len(left) - len(right)) > 1:
+        return False
+    if len(left) == len(right):
+        return sum(a != b for a, b in zip(left, right)) <= 1
+    short, long_ = sorted((left, right), key=len)
+    return any(long_[:i] + long_[i + 1 :] == short for i in range(len(long_)))
+
+
+def article_qualifier(word: str) -> str | None:
+    """The canonical qualifier ("geçici", "mükerrer", "ek") a word spells, if any."""
+    folded = _fold(word)
+    if folded == "ek":
+        return "ek"
+    for plain, canonical in _QUALIFIERS.items():
+        if len(folded) >= 5 and _within_one_edit(folded, plain):
+            return canonical
+    return None
+
+
 def normalize_article(value: Any) -> str:
     text = normalize_text(value).strip(" .,:;\"'")
     text = _MUTEAKIP_RE.sub("", text).strip()
     text = _ARTICLE_SUFFIX_RE.sub("", text).strip()
-    text = re.sub(r"^(mukerrer|mükerrer)\s*", "mükerrer ", text, flags=re.IGNORECASE)
-    text = re.sub(r"^gecici\s*", "geçici ", text, flags=re.IGNORECASE)
-    text = re.sub(r"^ek\s*", "ek ", text, flags=re.IGNORECASE)
-    return _SPACE_RE.sub(" ", text).strip().casefold()
+    leading = _LEADING_WORD_RE.match(text)
+    if leading and _fold(leading.group("word")) == "degisik":
+        # "Değişik 3" is article 3 as amended, not a different article.
+        text = leading.group("rest").strip()
+        leading = _LEADING_WORD_RE.match(text)
+    if leading and (qualifier := article_qualifier(leading.group("word"))):
+        rest = re.sub(r"^madde\w*\s+", "", leading.group("rest"), flags=re.IGNORECASE)
+        text = f"{qualifier} {rest}"
+    text = _SPACE_RE.sub(" ", text).strip().casefold()
+    article_range = _ARTICLE_RANGE_RE.match(text)
+    if article_range:
+        text = f"{article_range.group(1)} ila {article_range.group(2)}"
+    return text
 
 
 def normalize_extension(value: Any) -> str:

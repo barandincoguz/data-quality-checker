@@ -150,27 +150,27 @@ class _Cfg:
 
 
 def test_reads_both_trust_levels(tmp_path: Path) -> None:
-    # This reference already carries its own source_text -- as a release row
-    # always does, per REFERENCE_FIELDS -- so the build-time locator this
-    # function also runs (Task 10) has nothing to fill in and passes it
-    # through unchanged; the locator itself is exercised by
-    # tests/test_reference_locator.py.
+    # The annotator's quote ("bir") is replaced by the located citation: it
+    # decides nothing (27 Sep 2026); the locator is tested in test_reference_locator.py.
+    text = "193 sayılı Gelir Vergisi Kanununun 94 üncü maddesi uygulanır."
     _release(
         tmp_path,
         "round1",
         expert=[
             {
                 "internal_doc_id": "d1",
-                "text": "bir",
-                "references": [{"kanun_no": "193", "source_text": "bir"}],
+                "text": text,
+                "references": [{"kanun_no": "193", "madde": "94", "source_text": "bir"}],
             }
         ],
         consensus=[{"internal_doc_id": "d2", "text": "iki", "references": []}],
     )
     documents = round_training_documents(_Cfg(tmp_path), batch_ids=["round1"])
     assert set(documents) == {"d1", "d2"}
-    assert documents["d1"]["text"] == "bir"
-    assert documents["d1"]["references"] == [{"kanun_no": "193", "source_text": "bir"}]
+    assert documents["d1"]["text"] == text
+    [reference] = documents["d1"]["references"]
+    assert reference["madde"] == "94" and reference["source_text"] in text
+    assert reference["source_text"] != "bir"
 
 
 def test_reads_several_rounds(tmp_path: Path) -> None:
@@ -259,3 +259,34 @@ def test_an_empty_release_is_rejected_naming_the_batch(tmp_path: Path) -> None:
     with pytest.raises(ContractError) as excinfo:
         round_training_documents(_Cfg(tmp_path), batch_ids=["round1"])
     assert "round1" in str(excinfo.value)
+
+
+def test_an_annotator_quote_never_places_a_released_reference(tmp_path: Path) -> None:
+    """User rule (27 Sep 2026): the annotator's source_text decides nothing -- not
+    even where a reference sits in a training window. The locator places every
+    released reference; the release itself keeps what was written."""
+    text = "5520 sayılı Kurumlar Vergisi Kanununun 10 uncu maddesinde indirimler sayılmıştır."
+    write_sealed_release(
+        tmp_path,
+        "round1",
+        expert=[
+            {
+                "internal_doc_id": "d1",
+                "text": text,
+                "references": [
+                    {
+                        "kanun_no": "5520",
+                        "kanun_ad": "Kurumlar Vergisi Kanunu",
+                        "madde": "10",
+                        "fikra": "",
+                        "bent": "",
+                        "source_text": "bursiyerin metinde olmayan alıntısı",
+                    }
+                ],
+            }
+        ],
+        consensus=[],
+    )
+    documents = round_training_documents(_Cfg(tmp_path), batch_ids=["round1"])
+    placed = documents["d1"]["references"][0]["source_text"]
+    assert placed in text and "10 uncu maddesinde" in placed

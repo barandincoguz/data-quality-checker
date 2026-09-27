@@ -143,3 +143,67 @@ def test_a_series_whose_every_article_carries_its_own_ordinal() -> None:
     for madde in ("19", "20"):
         assert locate_reference_span(text, _ref("6758", madde)) is not None, madde
     assert locate_reference_span(text, _ref("6758", "21")) is None
+
+
+def test_a_number_in_the_paragraph_chain_is_not_an_article() -> None:
+    """R: "23 üncü maddesinin 1 inci fıkrasının (a) bendi" cites article 23, never article 1."""
+    text = "5520 sayılı Kurumlar Vergisi Kanununun 23 üncü maddesinin 1 inci fıkrasının (a) bendi uyarınca"
+    assert locate_reference_span(text, _ref("5520", "1")) is None
+    assert locate_reference_span(text, _ref("5520", "23")) is not None
+
+
+def test_a_bare_subparagraph_number_is_not_an_article() -> None:
+    text = "Bu hüküm, maddenin (6) numaralı bendine göre uygulanır."
+    assert locate_reference_span(text, _ref("5520", "6")) is None
+
+
+def test_an_article_written_as_an_ordinal_word() -> None:
+    text = "5520 sayılı Kurumlar Vergisi Kanununun birinci maddesinde sayılan kurumlar"
+    span = locate_reference_span(text, _ref("5520", "1"))
+    assert span is not None and "birinci maddesinde" in span
+
+
+def test_the_law_outranks_the_paragraph_chain() -> None:
+    """A mention of the right article of another law must never beat the right law's
+    own mention because its paragraph chain happens to fit."""
+    text = (
+        "193 sayılı Gelir Vergisi Kanununun 94 üncü maddesinin birinci fıkrasında hüküm vardır. "
+        "5520 sayılı Kurumlar Vergisi Kanununda da düzenleme olup, bu Kanunun 94 üncü maddesinin "
+        "ikinci fıkrasında da benzeri yer alır."
+    )
+    reference = {**_ref("193", "94"), "fikra": "2"}
+    span = locate_reference_span(text, reference)
+    assert span is not None and span.startswith("193 sayılı")
+
+
+def test_spelling_of_the_article_never_moves_the_placement() -> None:
+    text = "3218 sayılı Serbest Bölgeler Kanununun geçici 3 üncü maddesinin 2 nci fıkrasında"
+    places = {
+        locate_reference_span(text, {**_ref("3218", spelling), "fikra": "2"})
+        for spelling in ("geçici 3", "Geçici 3", "GEÇİCİ 3", "geçiçi 3", "Geçici Madde 3")
+    }
+    assert len(places) == 1 and None not in places
+
+
+def test_an_article_named_on_its_own_beats_a_range_that_contains_it() -> None:
+    text = (
+        "6098 sayılı Borçlar Kanununun 620-645 inci maddelerinde adi ortaklık düzenlenmiştir. "
+        "Anılan Kanunun 622 nci maddesinde ise sermaye payı açıklanmıştır."
+    )
+    span = locate_reference_span(text, _ref("6098", "622"))
+    assert span is not None and "622 nci" in span
+
+
+def test_a_lowercase_l_read_as_one_by_the_text_extraction() -> None:
+    """ "Damga Vergisi Kanununun l inci maddesinde" (R01 d000216, GT750 doc_119)."""
+    text = "488 sayılı Damga Vergisi Kanununun l inci maddesinde, bu Kanuna ekli (1) sayılı tabloda"
+    span = locate_reference_span(text, _ref("488", "1"))
+    assert span is not None and "l inci maddesinde" in span
+
+
+def test_an_article_without_its_qualifier_is_a_different_article() -> None:
+    """VUK 257 and mükerrer 257 are two articles; placing one on the other would
+    hide the annotator's error (R01 d000096, d000101, d000244)."""
+    text = "Anılan 213 sayılı Kanunun mükerrer 257 nci maddesinin birinci fıkrası"
+    assert locate_reference_span(text, _ref("213", "257")) is None
+    assert locate_reference_span(text, _ref("213", "mükerrer 257")) is not None

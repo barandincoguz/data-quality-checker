@@ -49,6 +49,11 @@ def _normalise_accumulated_gradient(
     return tree_map(lambda value: value / target_tokens, gradient)
 
 
+# Padding buckets for whole-document training: each is compiled once; the
+# finer steps above 4,096 keep a long document near its own length.
+FULL_DOCUMENT_BUCKETS = (1024, 2048, 3072, 4096, 5120, 6144, 7168, 8192, 10241)
+
+
 @dataclass(frozen=True)
 class StatefulTrainingConfig:
     seed: int = 42
@@ -73,6 +78,10 @@ class StatefulTrainingConfig:
     sequence_length_buckets: tuple[int, ...] = (1024, 2048, 4096, 8192, 10241)
     checkpoint_every_updates: int = 25
     checkpoint_max_seconds: int = 600
+    # "stock": mlx_lm's training path as it is. "chunked": whole-document
+    # training -- chunked checkpointed linear-attention recurrence, chunked
+    # vocabulary loss, Metal cache released (`mlx_memory`). Same arithmetic.
+    memory_mode: str = "stock"
 
 
 class NoThinkChatDataset:
@@ -234,6 +243,13 @@ class StatefulMlxTrainer:
             self.lora_parameters,
             use_dora=False,
         )
+        if self.config.memory_mode not in {"stock", "chunked"}:
+            raise ContractError(f"unknown memory_mode {self.config.memory_mode!r}")
+        if self.config.memory_mode == "chunked":
+            from .mlx_memory import install_chunked_recurrence, metal_cache_limit
+
+            install_chunked_recurrence()
+            metal_cache_limit(0)
         if self.config.gradient_checkpointing:
             if not getattr(self.model, "layers", None):
                 raise ContractError("model exposes no layers for gradient checkpointing")
@@ -264,14 +280,25 @@ class StatefulMlxTrainer:
             bias_correction=self.config.adam_bias_correction,
         )
 
+        chunked_loss = None
+        if self.config.memory_mode == "chunked":
+            from .mlx_memory import chunked_completion_loss, hidden_and_head
+
+            hidden_of, head = hidden_and_head(self.model)
+
+            def chunked_loss(inputs: Any, targets: Any, mask: Any) -> Any:
+                return chunked_completion_loss(hidden_of(inputs), head, targets, mask)
+
         def completion_loss(model: Any, batch: Any, lengths: Any) -> tuple[Any, Any]:
             inputs = batch[:, :-1]
             targets = batch[:, 1:]
-            logits = model(inputs)
             steps = mx.arange(1, targets.shape[1] + 1)
             mask = mx.logical_and(steps >= lengths[:, 0:1], steps < lengths[:, 1:])
-            ce = nn.losses.cross_entropy(logits, targets) * mask
             ntoks = mask.sum()
+            if chunked_loss is not None:
+                return chunked_loss(inputs, targets, mask), ntoks
+            logits = model(inputs)
+            ce = nn.losses.cross_entropy(logits, targets) * mask
             return ce.astype(mx.float32).sum(), ntoks
 
         value_and_grad = nn.value_and_grad(self.model, completion_loss)

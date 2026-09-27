@@ -26,11 +26,29 @@ from .fingerprints import fingerprint_json, sha256_file
 from .g0 import SEQUENCE_LENGTH_CANDIDATES
 from .heartbeat import RunLease
 from .locking import process_exists
-from .mlx_stateful import NoThinkChatDataset, StatefulTrainingConfig
+from .mlx_stateful import FULL_DOCUMENT_BUCKETS, NoThinkChatDataset, StatefulTrainingConfig
 
 # Exact-model probes on this 96 GiB host rejected 1792 and above while 1536
 # passed with headroom. Re-smoke the new training view at that established cap.
 TRAINING_SEQUENCE_LENGTH_CANDIDATES = (1536,)
+
+
+def training_sequence_candidates(view_mode: str, *, longest_train_tokens: int) -> tuple[int, ...]:
+    """Training lengths the backward smoke tries, in order.
+
+    Windows: the accepted 1,536. Whole documents: the one length that holds the
+    longest training document -- no fallback, because falling back would cut
+    documents into windows, the very thing this mode exists to stop.
+    """
+    if view_mode != "full_documents":
+        return TRAINING_SEQUENCE_LENGTH_CANDIDATES
+    fitting = [c for c in SEQUENCE_LENGTH_CANDIDATES if c >= longest_train_tokens]
+    if not fitting:
+        raise GateBlocked(
+            f"the longest training document ({longest_train_tokens} tokens) exceeds every "
+            f"sequence length candidate {SEQUENCE_LENGTH_CANDIDATES}"
+        )
+    return (fitting[0],)
 
 
 def _utc_now() -> str:
@@ -307,13 +325,20 @@ def _training_request(
     sequence_length: int,
     target_updates: int,
     resume_checkpoint: Path | None = None,
+    view_mode: str = "windows",
 ) -> dict[str, Any]:
+    memory = (
+        {"memory_mode": "chunked", "sequence_length_buckets": FULL_DOCUMENT_BUCKETS}
+        if view_mode == "full_documents"
+        else {}
+    )
     training = StatefulTrainingConfig(
         warmup_updates=1,
         total_updates=2,
         max_sequence_length=sequence_length,
         checkpoint_every_updates=1,
         checkpoint_max_seconds=600,
+        **memory,
     )
     request: dict[str, Any] = {
         "action": "train",
@@ -412,7 +437,12 @@ def run_compute_acceptance_preflight(
         training_view_manifest_path: Path | None = None
         training_view_rows: list[dict[str, Any]] | None = None
         training_view_dataset: NoThinkChatDataset | None = None
-        for candidate in TRAINING_SEQUENCE_LENGTH_CANDIDATES:
+        view_mode = str(run_config.get("training_view_mode", "windows"))
+        training_candidates = training_sequence_candidates(
+            view_mode,
+            longest_train_tokens=int(tokenizer_info["summary"]["split_maximum_tokens"]["train"]),
+        )
+        for candidate in training_candidates:
             candidate_view_path = data_dir / f"train_context_{candidate}.jsonl"
             candidate_view_doc_ids_path = data_dir / f"train_context_{candidate}_doc_ids.json"
             candidate_view_manifest_path = data_dir / f"train_context_{candidate}_manifest.json"
@@ -426,6 +456,11 @@ def run_compute_acceptance_preflight(
                 model_fingerprint=snapshot_manifest["fingerprint"],
                 max_sequence_length=candidate,
             )
+            if view_mode == "full_documents" and candidate_view["windowed_document_count"]:
+                raise GateBlocked(
+                    f"{candidate_view['windowed_document_count']} training documents do not fit "
+                    f"whole in {candidate} tokens; whole-document training does not cut documents"
+                )
             candidate_rows = _load_jsonl(candidate_view_path)
             candidate_dataset = NoThinkChatDataset(candidate_view_path, tokenizer_info["tokenizer"])
             probe_index = max(
@@ -440,6 +475,7 @@ def run_compute_acceptance_preflight(
                     compute_root=compute_root,
                     stage=f"training_memory_smoke_{candidate}",
                     request=_training_request(
+                        view_mode=view_mode,
                         model_path=model_path,
                         train_path=probe_path,
                         checkpoint_root=compute_root
@@ -579,6 +615,7 @@ def run_compute_acceptance_preflight(
             compute_root=compute_root,
             stage="resume_uninterrupted",
             request=_training_request(
+                view_mode=view_mode,
                 model_path=model_path,
                 train_path=resume_path,
                 checkpoint_root=compute_root / "checkpoints" / "uninterrupted",
@@ -592,6 +629,7 @@ def run_compute_acceptance_preflight(
             compute_root=compute_root,
             stage="resume_interrupted",
             request=_training_request(
+                view_mode=view_mode,
                 model_path=model_path,
                 train_path=resume_path,
                 checkpoint_root=compute_root / "checkpoints" / "resumed",
@@ -605,6 +643,7 @@ def run_compute_acceptance_preflight(
             compute_root=compute_root,
             stage="resume_restored",
             request=_training_request(
+                view_mode=view_mode,
                 model_path=model_path,
                 train_path=resume_path,
                 checkpoint_root=compute_root / "checkpoints" / "resumed",

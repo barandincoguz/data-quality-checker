@@ -69,6 +69,16 @@ from .loop_training import compose_round_training_ids, round_training_documents
 LOOP_SPLIT_POLICY = "loop-300-50-150"
 
 
+def training_view_mode(config: AppConfig) -> str:
+    """How a round's documents reach the trainer.
+
+    The GT750 loop trains whole documents ("full_documents"): the 1,536-token
+    windows were a memory limit of mlx_lm's training path, lifted by
+    `mlx_memory` (27 Sep 2026). Everything else keeps its windows.
+    """
+    return "full_documents" if has_loop_settings(config) else "windows"
+
+
 def full_epoch_updates(training_view: Path, *, gradient_accumulation: int) -> int:
     """One pass over this round's windowed view.
 
@@ -95,6 +105,7 @@ def _write_round_scaffolding(
     source_summary: dict[str, Any],
     execute: bool,
     split_policy: str = LOOP_SPLIT_POLICY,
+    view_mode: str = "windows",
 ) -> tuple[Path, Path]:
     """Write exactly what `g0_training._base_run_context` demands of a run.
 
@@ -132,6 +143,7 @@ def _write_round_scaffolding(
         # documents whose targets still carry `source_text`, a field the system
         # prompt no longer mentions. The preflight writes the real view.
         "recovery": {"long_run_allowed": False},
+        "training_view_mode": view_mode,
     }
     write_json_atomic(run_dir / "run_config.json", run_config)
     # The contract states this round's own split. A bare TrainingContract()
@@ -248,6 +260,11 @@ def train_round(
         "cleaned_batch_ids": list(cleaned_batch_ids),
         "training_set_size": len(composed["train"]),
     }
+    view_mode = training_view_mode(config)
+    if view_mode != "windows":
+        # A different view is a different run: it must never resume into the
+        # windowed run's directory (absent for "windows", so those ids stand).
+        fingerprint_payload["training_view_mode"] = view_mode
     run_fingerprint = fingerprint_json(fingerprint_payload)
     run_id = f"dqcheck_loop_{run_fingerprint[:12]}"
     data_dir = config.sensitive_root / "loop" / run_id / "data"
@@ -270,6 +287,7 @@ def train_round(
         source_summary=source_summary,
         execute=execute,
         split_policy=split_policy,
+        view_mode=view_mode,
     )
 
     result: dict[str, Any] = {

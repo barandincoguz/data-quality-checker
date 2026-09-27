@@ -313,3 +313,53 @@ def test_full_epoch_horizon_is_derived_from_the_training_view(tmp_path):
     view.write_text("\n".join("{}" for _ in range(2194)) + "\n")
 
     assert full_epoch_updates(view, gradient_accumulation=4) == 549
+
+
+def test_a_loop_round_trains_whole_documents_in_its_own_run(tmp_path: Path, monkeypatch) -> None:
+    """The GT750 loop trains without cutting documents into windows (27 Sep 2026).
+    A different training view must never resume into the windowed run's directory."""
+    from data_quality_checker import loop_train
+    from data_quality_checker.g0 import validate_canonical_sources
+
+    config = canonical_fixture(tmp_path)
+    windowed = train_round(config, generation="M000", split=SPLIT, cleaned_batch_ids=[])
+    source = validate_canonical_sources(config)
+    monkeypatch.setattr(loop_train, "has_loop_settings", lambda config: True)
+    monkeypatch.setattr(
+        loop_train, "validate_loop_sources", lambda config: {**source, "split": SPLIT}
+    )
+    monkeypatch.setattr(loop_train, "loop_split_policy", lambda config: "loop-test")
+    whole = loop_train.train_round(config, generation="M000", split=SPLIT, cleaned_batch_ids=[])
+    assert whole["run_id"] != windowed["run_id"]
+    run_config = json.loads(Path(whole["run_config_path"]).read_text())
+    assert run_config["training_view_mode"] == "full_documents"
+    assert (
+        json.loads(Path(windowed["run_config_path"]).read_text())["training_view_mode"] == "windows"
+    )
+
+
+def test_whole_document_training_uses_the_chunked_memory_mode_and_finer_buckets() -> None:
+    from data_quality_checker.g0_training import _candidate_training_config
+
+    whole = _candidate_training_config(
+        peak_learning_rate=2.5e-5,
+        sequence_length=8192,
+        training_rows=500,
+        training_view_mode="full_documents",
+    )
+    assert whole.memory_mode == "chunked"
+    assert 7168 in whole.sequence_length_buckets and 5120 in whole.sequence_length_buckets
+    windowed = _candidate_training_config(
+        peak_learning_rate=2.5e-5, sequence_length=1536, training_rows=2823
+    )
+    assert windowed.memory_mode == "stock"
+
+
+def test_whole_document_training_takes_the_length_of_the_longest_document() -> None:
+    from data_quality_checker.errors import GateBlocked
+    from data_quality_checker.mlx_compute import training_sequence_candidates
+
+    assert training_sequence_candidates("full_documents", longest_train_tokens=7109) == (8192,)
+    assert training_sequence_candidates("windows", longest_train_tokens=7109) == (1536,)
+    with pytest.raises(GateBlocked):
+        training_sequence_candidates("full_documents", longest_train_tokens=40000)

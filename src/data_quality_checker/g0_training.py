@@ -28,7 +28,7 @@ from .g0 import (
 )
 from .heartbeat import RunLease
 from .mlx_compute import _run_worker
-from .mlx_stateful import StatefulTrainingConfig
+from .mlx_stateful import FULL_DOCUMENT_BUCKETS, StatefulTrainingConfig
 from .reference_policy import DEFAULT_REFERENCE_POLICY_ID, apply_reference_policy
 
 PILOT_LEARNING_RATES = {
@@ -169,8 +169,17 @@ def _candidate_training_config(
     training_rows: int,
     schedule_total_updates: int | None = None,
     warmup_updates_override: int | None = None,
+    training_view_mode: str = "windows",
 ) -> StatefulTrainingConfig:
     contract = TrainingContract()
+    # Whole documents: the chunked memory path (`mlx_memory`) and finer padding
+    # buckets, so a 4,100-token document is not padded to 8,192.
+    whole = training_view_mode == "full_documents"
+    memory = (
+        {"memory_mode": "chunked", "sequence_length_buckets": FULL_DOCUMENT_BUCKETS}
+        if whole
+        else {}
+    )
     # The first development trajectory consumes every balanced training-view
     # row once. More epochs require a new reviewed trajectory after validation;
     # this avoids silently repeating overlap-expanded references.
@@ -204,6 +213,7 @@ def _candidate_training_config(
         gradient_checkpointing=contract.gradient_checkpointing,
         checkpoint_every_updates=contract.checkpoint_every_optimizer_updates,
         checkpoint_max_seconds=contract.checkpoint_max_minutes * 60,
+        **memory,
     )
 
 
@@ -298,6 +308,7 @@ def _candidate_contract(
         training_rows=training_rows,
         schedule_total_updates=PILOT_SCHEDULE_OVERRIDES.get(candidate_id),
         warmup_updates_override=PILOT_WARMUP_OVERRIDES.get(candidate_id),
+        training_view_mode=str(run_config.get("training_view_mode", "windows")),
     )
     trajectory = asdict(training)
     trajectory["sequence_length_buckets"] = list(training.sequence_length_buckets)

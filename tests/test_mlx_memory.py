@@ -33,31 +33,6 @@ def _loss(fn, q, k, v, g, beta):
     return (y.astype(mx.float32) ** 2).sum() + state.sum()
 
 
-def test_the_chunked_recurrence_gives_the_stock_outputs_and_gradients_exactly() -> None:
-    import mlx_lm.models.gated_delta as gated_delta
-
-    args = _inputs()
-    stock = mx.value_and_grad(partial(_loss, gated_delta.gated_delta_ops), argnums=(0, 1, 2, 3, 4))(
-        *args
-    )
-    chunked = mx.value_and_grad(
-        partial(_loss, partial(mlx_memory.chunked_gated_delta_ops, chunk=64)),
-        argnums=(0, 1, 2, 3, 4),
-    )(*args)
-    assert float(stock[0]) == float(chunked[0])
-    for left, right in zip(stock[1], chunked[1]):
-        assert float(mx.abs(left - right).max()) == 0.0
-
-
-def test_installing_the_chunked_recurrence_is_reversible() -> None:
-    import mlx_lm.models.gated_delta as gated_delta
-
-    stock = gated_delta.gated_delta_ops
-    with mlx_memory.chunked_recurrence():
-        assert gated_delta.gated_delta_ops is not stock
-    assert gated_delta.gated_delta_ops is stock
-
-
 def test_the_chunked_loss_is_the_full_loss() -> None:
     mx.random.seed(1)
     hidden = mx.random.normal((1, 2500, 32))
@@ -73,3 +48,95 @@ def test_the_chunked_loss_is_the_full_loss() -> None:
     full = (nn.losses.cross_entropy(head(hidden), targets) * mask).astype(mx.float32).sum()
     chunked = mlx_memory.chunked_completion_loss(hidden, head, targets, mask, chunk=1024)
     assert abs(float(full) - float(chunked)) <= 1e-4 * abs(float(full))
+
+
+def _model_like_inputs(T: int, Hk: int = 2, Hv: int = 4, Dk: int = 16, Dv: int = 8, seed: int = 3):
+    """Shaped and scaled like GatedDeltaNet's call: rms-normed q/k, decay in (0, 1)."""
+    mx.random.seed(seed)
+    q = mx.random.normal((1, T, Hk, Dk))
+    k = mx.random.normal((1, T, Hk, Dk))
+    inv = Dk**-0.5
+    q = (inv**2) * mx.fast.rms_norm(q, None, 1e-6)
+    k = inv * mx.fast.rms_norm(k, None, 1e-6)
+    v = mx.random.normal((1, T, Hv, Dv))
+    g = mx.exp(-mx.exp(mx.random.normal((Hv,))) * mx.log1p(mx.exp(mx.random.normal((1, T, Hv)))))
+    beta = mx.sigmoid(mx.random.normal((1, T, Hv)))
+    state = 0.1 * mx.random.normal((1, Hv, Dv, Dk))
+    return q, k, v, g, beta, state
+
+
+@pytest.mark.parametrize("T", [5, 64, 300])
+def test_the_chunk_parallel_recurrence_equals_the_stock_one(T: int) -> None:
+    """Same recurrence, computed 64 steps at a time with matrix products (the WY
+    form): outputs, final state and every gradient agree to float32 precision."""
+    import mlx_lm.models.gated_delta as gated_delta
+
+    args = _model_like_inputs(T)
+
+    def loss(fn, q, k, v, g, beta, state):
+        y, s = fn(q, k, v, g, beta, state)
+        return (y.astype(mx.float32) * mx.cos(mx.arange(y.size).reshape(y.shape))).sum() + (
+            s * s
+        ).sum()
+
+    stock_y, stock_s = gated_delta.gated_delta_ops(*args)
+    wy_y, wy_s = mlx_memory.chunk_parallel_gated_delta_ops(*args)
+    assert float(mx.abs(stock_y - wy_y).max()) <= 1e-4 * max(1.0, float(mx.abs(stock_y).max()))
+    assert float(mx.abs(stock_s - wy_s).max()) <= 1e-4 * max(1.0, float(mx.abs(stock_s).max()))
+    argnums = (0, 1, 2, 3, 4, 5)
+    stock = mx.value_and_grad(partial(loss, gated_delta.gated_delta_ops), argnums=argnums)(*args)
+    wy = mx.value_and_grad(
+        partial(loss, mlx_memory.chunk_parallel_gated_delta_ops), argnums=argnums
+    )(*args)
+    for left, right in zip(stock[1], wy[1]):
+        scale = max(1.0, float(mx.abs(left).max()))
+        assert float(mx.abs(left - right).max()) <= 1e-3 * scale
+
+
+@pytest.mark.parametrize("decay_scale", [1.0, 40.0])
+def test_the_chunk_parallel_update_is_stable_where_the_decay_vanishes(decay_scale: float) -> None:
+    """Training differentiates the decay's own parameters (A_log, a, dt_bias). With
+    a strong decay (g ~ e^-100, below float32) a log taken of g would divide the
+    gradient by ~0; the update-level path takes log g = -exp(A_log) softplus(a +
+    dt_bias) directly, so every gradient stays finite and matches the stock path."""
+    import mlx_lm.models.gated_delta as gated_delta
+
+    mx.random.seed(5)
+    T, Hk, Hv, Dk, Dv = 150, 2, 4, 16, 8
+    inv = Dk**-0.5
+    q = (inv**2) * mx.fast.rms_norm(mx.random.normal((1, T, Hk, Dk)), None, 1e-6)
+    k = inv * mx.fast.rms_norm(mx.random.normal((1, T, Hk, Dk)), None, 1e-6)
+    v = mx.random.normal((1, T, Hv, Dv))
+    a = mx.random.normal((1, T, Hv))
+    b = mx.random.normal((1, T, Hv))
+    A_log = mx.log(mx.full((Hv,), decay_scale))
+    dt_bias = mx.zeros((Hv,))
+
+    def loss(fn, q, k, v, a, b, A_log, dt_bias):
+        y, s = fn(q, k, v, a, b, A_log, dt_bias, None, None, use_kernel=False)
+        return (y.astype(mx.float32) * mx.cos(mx.arange(y.size).reshape(y.shape))).sum() + (
+            s * s
+        ).sum()
+
+    argnums = (0, 1, 2, 3, 4, 5, 6)
+    stock = mx.value_and_grad(partial(loss, gated_delta.gated_delta_update), argnums=argnums)(
+        q, k, v, a, b, A_log, dt_bias
+    )
+    wy = mx.value_and_grad(
+        partial(loss, mlx_memory.chunk_parallel_gated_delta_update), argnums=argnums
+    )(q, k, v, a, b, A_log, dt_bias)
+    assert abs(float(stock[0]) - float(wy[0])) <= 1e-4 * max(1.0, abs(float(stock[0])))
+    for left, right in zip(stock[1], wy[1]):
+        assert bool(mx.all(mx.isfinite(right)))
+        scale = max(1.0, float(mx.abs(left).max()))
+        assert float(mx.abs(left - right).max()) <= 1e-3 * scale
+
+
+def test_installing_patches_the_models_own_reference_and_is_reversible() -> None:
+    import mlx_lm.models.gated_delta as gated_delta
+    import mlx_lm.models.qwen3_5 as qwen3_5
+
+    before = (gated_delta.gated_delta_ops, qwen3_5.gated_delta_update)
+    with mlx_memory.chunked_recurrence():
+        assert qwen3_5.gated_delta_update is not before[1]
+    assert (gated_delta.gated_delta_ops, qwen3_5.gated_delta_update) == before

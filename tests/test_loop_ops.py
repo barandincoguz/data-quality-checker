@@ -152,3 +152,21 @@ def test_serve_judge_and_release_commands_refuse_the_wrong_model(monkeypatch):
     for handler in (commands.serve, commands.pilot_judges, commands.release):
         with pytest.raises(GateBlocked, match="M000"):
             handler(args, loop)
+
+
+def test_a_candidate_is_trained_and_selected_but_never_sealed(tmp_path, monkeypatch):
+    """Whole-document M000 is trained to be compared with the sealed one first
+    (27 Sep 2026): nothing may overwrite round_000_model.json or the registry."""
+    config = _config(tmp_path)
+    monkeypatch.setattr(
+        loop_ops,
+        "_train_and_select",
+        lambda config, **kw: {"run_id": "dqcheck_loop_x", "selection": {"core_f1": 0.9}},
+    )
+    monkeypatch.setattr(loop_ops, "seal_round_model", lambda **kw: pytest.fail("sealed"))
+    monkeypatch.setattr(loop_ops, "training_view_mode", lambda config: "full_documents")
+    record = loop_ops.train_loop_candidate(config, round_index=0, resume=False)
+    path = tmp_path / "public" / "loop" / "candidates" / "round_000_full_documents.json"
+    assert json.loads(path.read_text()) == record
+    assert record["sealed"] is False and record["run_id"] == "dqcheck_loop_x"
+    assert not (tmp_path / "public" / "loop" / "rounds" / "round_000_model.json").exists()

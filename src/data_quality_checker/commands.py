@@ -273,8 +273,10 @@ def _print_json(result: Any) -> int:
 
 
 def loop_train(args: Namespace, config: AppConfig) -> int:
-    from .loop_ops import train_loop_round
+    from .loop_ops import train_loop_candidate, train_loop_round
 
+    if getattr(args, "no_seal", False):
+        return _print_json(train_loop_candidate(config, round_index=args.round, resume=args.resume))
     return _print_json(train_loop_round(config, round_index=args.round, resume=args.resume))
 
 

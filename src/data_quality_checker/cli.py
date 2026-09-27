@@ -255,6 +255,11 @@ def build_parser() -> argparse.ArgumentParser:
     loop_train = subparsers.add_parser("loop-train", help="train round N's model (GT750 loop)")
     loop_train.add_argument("--round", type=int, required=True)
     loop_train.add_argument("--resume", action="store_true")
+    loop_train.add_argument(
+        "--no-seal",
+        action="store_true",
+        help="train and select on validation, but do not seal it as the round's model",
+    )
     loop_train.set_defaults(handler=commands.loop_train)
 
     loop_predict = subparsers.add_parser(

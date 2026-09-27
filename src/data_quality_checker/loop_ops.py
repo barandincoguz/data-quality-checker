@@ -38,7 +38,7 @@ from .heartbeat import RunLease
 from .loop_bindings import write_error_report
 from .loop_rounds import advance_round, resume_round, rounds_state_dir, write_round_state
 from .loop_sources import has_loop_settings, validate_loop_sources
-from .loop_train import train_round
+from .loop_train import train_round, training_view_mode
 
 LOOP_CANDIDATE = "loop-lr2.5e-5-full-epoch"
 
@@ -214,6 +214,26 @@ def _train_and_select(config: Any, *, round_index: int, resume: bool) -> dict[st
         "training_documents": result["training_documents"],
         "selection": finalize_selection(candidate_root),
     }
+
+
+def train_loop_candidate(config: Any, *, round_index: int, resume: bool) -> dict[str, Any]:
+    """Train and select round N's model on validation, without sealing it.
+
+    For comparing a changed recipe with the sealed model before adopting it
+    (whole-document M000, 27 Sep 2026). Nothing is written to the round record or
+    the model registry; adopting later is `loop-train --round N --resume`, which
+    finds this same finished run (same run id) and seals it without retraining.
+    """
+    if round_index >= 1:
+        stage = resume_round(rounds_state_dir(config), round_index).stage
+        if stage != "adjudicated":
+            raise GateBlocked(f"round {round_index} is at {stage!r}; run loop-mark --stage adjudicated first")
+    trained = _train_and_select(config, round_index=round_index, resume=resume)
+    mode = training_view_mode(config)
+    record = {"schema_version": 1, "round": round_index, "generation": round_label(round_index),
+              "training_view_mode": mode, "sealed": False, **trained}
+    write_json_atomic(_loop_dir(config) / "candidates" / f"round_{round_index:03d}_{mode}.json", record)
+    return record
 
 
 def train_loop_round(

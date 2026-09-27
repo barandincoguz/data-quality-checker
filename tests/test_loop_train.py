@@ -353,6 +353,9 @@ def test_whole_document_training_uses_the_chunked_memory_mode_and_finer_buckets(
         training_view_mode="full_documents",
     )
     assert whole.memory_mode == "chunked"
+    # Compiling the step made it slower and larger (28 Sep 2026, real model):
+    # whole documents train uncompiled.
+    assert whole.compile_gradient_step is False
     assert 7168 in whole.sequence_length_buckets and 5120 in whole.sequence_length_buckets
     windowed = _candidate_training_config(
         peak_learning_rate=2.5e-5, sequence_length=1536, training_rows=2823

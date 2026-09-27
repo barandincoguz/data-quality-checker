@@ -328,7 +328,11 @@ def _training_request(
     view_mode: str = "windows",
 ) -> dict[str, Any]:
     memory = (
-        {"memory_mode": "chunked", "sequence_length_buckets": FULL_DOCUMENT_BUCKETS}
+        {
+            "memory_mode": "chunked",
+            "sequence_length_buckets": FULL_DOCUMENT_BUCKETS,
+            "compile_gradient_step": False,
+        }
         if view_mode == "full_documents"
         else {}
     )

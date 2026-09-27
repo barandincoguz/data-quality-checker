@@ -176,7 +176,13 @@ def _candidate_training_config(
     # buckets, so a 4,100-token document is not padded to 8,192.
     whole = training_view_mode == "full_documents"
     memory = (
-        {"memory_mode": "chunked", "sequence_length_buckets": FULL_DOCUMENT_BUCKETS}
+        {
+            "memory_mode": "chunked",
+            "sequence_length_buckets": FULL_DOCUMENT_BUCKETS,
+            # Uncompiled: 22 s / 28 GB against the compiled step's 36 s / 39 GB
+            # on the longest document (28 Sep 2026).
+            "compile_gradient_step": False,
+        }
         if whole
         else {}
     )

@@ -140,3 +140,38 @@ def test_installing_patches_the_models_own_reference_and_is_reversible() -> None
     with mlx_memory.chunked_recurrence():
         assert qwen3_5.gated_delta_update is not before[1]
     assert (gated_delta.gated_delta_ops, qwen3_5.gated_delta_update) == before
+
+
+def test_nearly_identical_keys_do_not_break_the_chunk_parallel_update() -> None:
+    """Repeated text gives nearly identical keys; with a strong update and weak
+    decay the lower-triangular system is ill-suited to repeated squaring (the
+    powers of L grow like binomial coefficients and cancel) -- the first real
+    preflight (28 Sep 2026) got a non-finite adapter from exactly this. Forward
+    substitution is the recurrence itself, and must match the stock path."""
+    import mlx_lm.models.gated_delta as gated_delta
+
+    mx.random.seed(11)
+    T, Hk, Hv, Dk, Dv = 256, 2, 4, 128, 32
+    inv = Dk**-0.5
+    base = mx.random.normal((1, 1, Hk, Dk))
+    k = inv * mx.fast.rms_norm(base + 0.05 * mx.random.normal((1, T, Hk, Dk)), None, 1e-6)
+    q = (inv**2) * mx.fast.rms_norm(mx.random.normal((1, T, Hk, Dk)), None, 1e-6)
+    v = mx.random.normal((1, T, Hv, Dv))
+    a = mx.full((1, T, Hv), -6.0)
+    b = mx.full((1, T, Hv), 4.0)
+    A_log, dt_bias = mx.zeros((Hv,)), mx.zeros((Hv,))
+
+    def loss(fn, q, k, v, a, b):
+        y, s = fn(q, k, v, a, b, A_log, dt_bias, None, None, use_kernel=False)
+        return (y.astype(mx.float32) ** 2).sum() + (s * s).sum()
+
+    stock = mx.value_and_grad(
+        partial(loss, gated_delta.gated_delta_update), argnums=(0, 1, 2, 3, 4)
+    )(q, k, v, a, b)
+    wy = mx.value_and_grad(
+        partial(loss, mlx_memory.chunk_parallel_gated_delta_update), argnums=(0, 1, 2, 3, 4)
+    )(q, k, v, a, b)
+    assert abs(float(stock[0]) - float(wy[0])) <= 1e-3 * abs(float(stock[0]))
+    for left, right in zip(stock[1], wy[1]):
+        assert bool(mx.all(mx.isfinite(right)))
+        assert float(mx.abs(left - right).max()) <= 1e-2 * max(1.0, float(mx.abs(left).max()))

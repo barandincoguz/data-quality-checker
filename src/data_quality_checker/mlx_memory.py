@@ -78,12 +78,34 @@ def metal_cache_limit(limit_bytes: int = 0) -> None:
 WY_CHUNK = 64
 # Names the training recurrence a whole-document run was measured and trained
 # under; it is part of that run's identity (`loop_train.train_round`).
-RECURRENCE_ID = "wy_chunk_parallel_v1"
+# v1 inverted by repeated squaring and got a non-finite adapter on real text;
+# v2 inverts by forward substitution (28 Sep 2026).
+RECURRENCE_ID = "wy_chunk_parallel_v2"
 _LOG_FLOOR = 1e-30
 # Modules that bind `gated_delta_update` by name at import (qwen3_5 does:
 # `from .gated_delta import gated_delta_update`) -- each must be patched.
 _UPDATE_HOMES = ("gated_delta", "qwen3_5", "qwen3_next")
 _STOCK: dict[str, Any] = {}
+
+
+def _unit_lower_inverse(L: Any) -> Any:
+    """(I + L)^-1 for strictly lower-triangular L, by forward substitution.
+
+    Row i of X = (I + L)^-1 is e_i - L[i, :i] X[:i]: the recurrence itself,
+    grouped by chunk, so exactly as stable as it. Repeated squaring,
+    (I - L)(I + L^2)(I + L^4)..., is exact in theory but its powers grow like
+    binomial coefficients when keys repeat -- the first real preflight got a
+    non-finite adapter from it (28 Sep 2026).
+    """
+    import mlx.core as mx
+
+    C = L.shape[-1]
+    eye = mx.broadcast_to(mx.eye(C, dtype=mx.float32), L.shape)
+    rows = [eye[..., 0:1, :]]
+    for i in range(1, C):
+        solved = mx.concatenate(rows, axis=-2)  # X[:i]
+        rows.append(eye[..., i : i + 1, :] - L[..., i : i + 1, :i] @ solved)
+    return mx.concatenate(rows, axis=-2)
 
 
 def _chunk_parallel(
@@ -97,8 +119,8 @@ def _chunk_parallel(
 
     Inside a chunk starting from S_0, with A_t the decay product up to step t:
     (I + L) U = diag(b) (V - diag(A) K S_0^T),  L_tj = b_t (A_t / A_j)(k_t . k_j)
-    for j < t. L is strictly lower triangular, so (I + L)^-1 = (I - L)(I + L^2)
-    (I + L^4)... exactly, in log2(chunk) products. Then Y = diag(A) Q S_0^T +
+    for j < t. L is strictly lower triangular: (I + L)^-1 by forward
+    substitution (`_unit_lower_inverse`). Then Y = diag(A) Q S_0^T +
     ((Q K^T) * D) U with D_tj = A_t / A_j (j <= t), and S_C = A_C S_0 +
     (U * A_C / A)^T K. Only the state crosses chunk boundaries.
     """
@@ -135,12 +157,7 @@ def _chunk_parallel(
     decay_strict = mx.where(strict, decay_lower, 0.0)
 
     L = bc[..., :, None] * (kc @ mx.swapaxes(kc, -1, -2)) * decay_strict
-    eye = mx.eye(C, dtype=mx.float32)
-    power = -L
-    inverse = eye + power
-    for _ in range(max(0, (C - 1).bit_length() - 1)):
-        power = power @ power
-        inverse = inverse @ (eye + power)
+    inverse = _unit_lower_inverse(L)
 
     u_values = inverse @ (bc[..., None] * vc)  # [B,H,N,C,Dv]
     w_keys = inverse @ (bc[..., None] * a[..., None] * kc)  # [B,H,N,C,Dk]

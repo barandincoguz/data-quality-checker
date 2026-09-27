@@ -397,7 +397,6 @@ def round_records(
                 "model": model,
                 "judge": judge,
                 "final": final,
-                "document_text": document["text"],
             }
         )
     return records
@@ -413,7 +412,6 @@ def _agreement(records: list[dict[str, Any]]) -> dict[str, Any]:
                 "annotator": record["annotator"],
                 "model": record["model"],
                 "judge": record["judge"],
-                "document_text": record["document_text"],
             }
             for record in documents_with_finalized_truth(records)
         ]

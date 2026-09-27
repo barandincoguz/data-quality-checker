@@ -130,6 +130,7 @@ def reroute(args: Namespace, config: AppConfig) -> int:
 
 def pilot_judges(args: Namespace, config: AppConfig) -> int:
     from .judges import run_judge_pilot
+    from .loop_ops import assert_round_generation
 
     raw_judge_models = getattr(args, "judge_models", None)
     judge_models: tuple[str, ...] | None = None
@@ -143,6 +144,7 @@ def pilot_judges(args: Namespace, config: AppConfig) -> int:
         if duplicates:
             raise ContractError(f"--judge-models contains duplicate model ids: {duplicates}")
         judge_models = tuple(parsed)
+    assert_round_generation(config, args.batch_id, args.generation)
     result = run_judge_pilot(
         config=config,
         batch_id=args.batch_id,
@@ -170,6 +172,9 @@ def judge_lock(args: Namespace, config: AppConfig) -> int:
 
 def serve(args: Namespace, config: AppConfig) -> int:
     from .hitl import create_hitl_app
+    from .loop_ops import assert_round_generation
+
+    assert_round_generation(config, args.batch_id, args.generation)
 
     app = create_hitl_app(config=config, batch_id=args.batch_id, generation=args.generation)
     app.run(host="127.0.0.1", port=args.port, debug=False, use_reloader=False)
@@ -199,9 +204,12 @@ def review_backup(args: Namespace, config: AppConfig) -> int:
 
 
 def release(args: Namespace, config: AppConfig) -> int:
+    from .loop_ops import assert_round_generation
     from .release import release_batch
 
-    result = release_batch(config=config, batch_id=args.batch_id)
+    assert_round_generation(config, args.batch_id, args.generation)
+
+    result = release_batch(config=config, batch_id=args.batch_id, generation=args.generation)
     print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
     return 0
 

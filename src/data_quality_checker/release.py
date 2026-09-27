@@ -122,7 +122,13 @@ def _judge_required_ids(*, documents: list[dict[str, Any]], escalation: bool) ->
     return required
 
 
-def release_batch(*, config: AppConfig, batch_id: str) -> dict[str, Any]:
+def release_batch(*, config: AppConfig, batch_id: str, generation: str = "G0") -> dict[str, Any]:
+    """Seal a batch's decisions under the model generation that predicted it.
+
+    A DQ-Loop batch R0k is predicted by M(k-1), not G0. The generation is named,
+    never guessed: releasing against another generation's predictions would
+    stamp the wrong model into the provenance of the next round's training data.
+    """
     ready = validate_ready(config, batch_id)
     sensitive_batch = config.sensitive_root / "batches" / batch_id
     public_batch = config.public_root / "batches" / batch_id
@@ -141,7 +147,12 @@ def release_batch(*, config: AppConfig, batch_id: str) -> dict[str, Any]:
             if batch is None or batch["status"] not in {"processed", "released"}:
                 raise GateBlocked("release requires a processed batch")
             documents = store.list_documents(batch_id)
-            predictions = store.list_predictions(batch_id, "G0")
+            predictions = store.list_predictions(batch_id, generation)
+            if not predictions:
+                raise GateBlocked(
+                    f"batch {batch_id} has no {generation} predictions; available generations: "
+                    f"{store.list_prediction_generations(batch_id) or 'none'}"
+                )
             if len(documents) != int(ready["document_count"]):
                 raise GateBlocked("release document coverage differs from READY")
             if len(predictions) != len(documents):
@@ -334,6 +345,7 @@ def release_batch(*, config: AppConfig, batch_id: str) -> dict[str, Any]:
                     "release_id": release_id,
                     "release_path": str(target),
                     "manifest_sha256": manifest_sha256,
+                    "generation": generation,
                     "counts": manifest["counts"],
                     "status": "released",
                     "idempotent_existing_release": True,
@@ -371,6 +383,7 @@ def release_batch(*, config: AppConfig, batch_id: str) -> dict[str, Any]:
                     "escalated": escalation,
                 },
                 "locked_judge": locked_model,
+                "generation": generation,
                 "counts": {
                     "documents": len(documents),
                     "expert_adjudicated": len(expert_rows),
@@ -412,6 +425,7 @@ def release_batch(*, config: AppConfig, batch_id: str) -> dict[str, Any]:
                 "release_id": release_id,
                 "release_path": str(target),
                 "manifest_sha256": manifest_sha256,
+                "generation": generation,
                 "counts": sealed_manifest["counts"],
                 "status": "released",
                 "idempotent_existing_release": False,

@@ -201,14 +201,15 @@ def _select_channel(
     # 983 pdf texts and is the source of the VUK 213/413 boilerplate.
     #
     # What pdf has and html lacks is the header ("Sayı :", date, subject).
-    # Evidence coverage says that costs nothing: annotator spans do not live
-    # there. A document with a higher pdf coverage still selects pdf.
-    if html_text and html_coverage >= pdf_coverage:
+    #
+    # The choice no longer reads the annotator's quotes: source_text decides
+    # nothing (user rule, 27 September 2026). HTML whenever present, else pdf.
+    # The two coverages are still recorded, as a record only. On the GT750
+    # pool this changes nothing -- all 1,191 documents already chose HTML.
+    if html_text:
         return html_text, "htmlText", pdf_coverage, html_coverage
     if pdf_text:
         return pdf_text, "pdfText", pdf_coverage, html_coverage
-    if html_text:
-        return html_text, "htmlText", pdf_coverage, html_coverage
     return "", "missing", pdf_coverage, html_coverage
 
 

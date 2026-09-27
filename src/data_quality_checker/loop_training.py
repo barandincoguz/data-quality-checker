@@ -86,6 +86,34 @@ def write_round_training_manifest(
     return {"path": str(path), "manifest_sha256": sha256_file(path)}
 
 
+def sealed_release_dir(config: Any, batch_id: str) -> Path:
+    """The one sealed release `release_batch` wrote for this batch, verified.
+
+    `release_batch` promotes each release into `releases/<batch>/<release_id>/`
+    and seals it with a manifest and `SHA256SUMS.txt`. This used to read
+    `releases/<batch>/*.jsonl` directly -- a layout only hand-written test
+    fixtures ever had -- so the first real round would have found no release.
+    Every file is checked against the seal before a row is trusted.
+    """
+    from .release import _verify_release
+
+    parent = Path(config.sensitive_root) / "releases" / batch_id
+    sealed = (
+        sorted(path for path in parent.glob("release_*") if (path / "manifest.json").is_file())
+        if parent.is_dir()
+        else []
+    )
+    if not sealed:
+        raise ContractError(f"no release found for batch {batch_id!r} under {parent}")
+    if len(sealed) > 1:
+        raise ContractError(
+            f"batch {batch_id!r} has {len(sealed)} sealed releases under {parent}; expected one"
+        )
+    manifest = json.loads((sealed[0] / "manifest.json").read_text(encoding="utf-8"))
+    _verify_release(sealed[0], expected_document_count=int(manifest["counts"]["documents"]))
+    return sealed[0]
+
+
 def round_training_documents(config: Any, *, batch_ids: Sequence[str]) -> dict[str, dict[str, Any]]:
     """Read finished rounds' releases into training rows.
 
@@ -110,7 +138,7 @@ def round_training_documents(config: Any, *, batch_ids: Sequence[str]) -> dict[s
     """
     documents: dict[str, dict[str, Any]] = {}
     for batch_id in batch_ids:
-        directory = Path(config.sensitive_root) / "releases" / batch_id
+        directory = sealed_release_dir(config, batch_id)
         found = False
         batch_document_count = 0
         for name in ("expert_adjudicated", "consensus_clean"):

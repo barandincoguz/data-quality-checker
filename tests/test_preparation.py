@@ -535,34 +535,3 @@ def test_a_malformed_record_elsewhere_does_not_block_an_unrelated_subset(
     with Store(config.database_path) as store:
         documents = store.list_documents("subset-with-bad-record")
     assert {row["raw_document_id"] for row in documents} == {"target-a", "target-b"}
-
-
-def test_html_takes_the_tie_and_pdf_still_wins_on_higher_coverage() -> None:
-    """HTML is the priority channel, but coverage still overrules it.
-
-    Ties are the common case -- 931 of 983 corpus documents carrying both
-    channels -- so whoever takes them decides almost every document. HTML earns
-    them: always present, cleaner extraction, no electronic-signature block. A
-    pdf that actually covers more evidence is still selected.
-    """
-    from data_quality_checker.preparation import _select_channel
-
-    reference = {
-        "kanun_no": "213",
-        "kanun_ad": "Vergi Usul Kanunu",
-        "madde": "5",
-        "fikra": "",
-        "bent": "",
-        "source_text": "213 sayılı Vergi Usul Kanununun 5 inci maddesi",
-    }
-    span = reference["source_text"]
-
-    tie = {"pdfText": f"PDF metni {span} devam", "htmlText": f"<p>HTML metni {span} devam</p>"}
-    _, channel, pdf_coverage, html_coverage = _select_channel(tie, [reference])
-    assert pdf_coverage == html_coverage
-    assert channel == "htmlText"
-
-    pdf_richer = {"pdfText": f"PDF metni {span} devam", "htmlText": "<p>Dayanağı olmayan metin</p>"}
-    _, channel, pdf_coverage, html_coverage = _select_channel(pdf_richer, [reference])
-    assert pdf_coverage > html_coverage
-    assert channel == "pdfText"

@@ -35,20 +35,14 @@ SPLIT = {"train": [1, 2, 3], "valid": [10, 11], "test": [20, 21]}
 
 
 def release_fixture(config, batch_id: str, doc_ids: list[str]) -> None:
-    directory = Path(config.sensitive_root) / "releases" / batch_id
-    directory.mkdir(parents=True, exist_ok=True)
-    (directory / "expert_adjudicated.jsonl").write_text(
-        "".join(
-            json.dumps(
-                {"internal_doc_id": doc_id, "text": f"text-{doc_id}", "references": []},
-                ensure_ascii=False,
-            )
-            + "\n"
-            for doc_id in doc_ids
-        ),
-        encoding="utf-8",
+    from test_loop_training import write_sealed_release
+
+    write_sealed_release(
+        Path(config.sensitive_root),
+        batch_id,
+        [{"internal_doc_id": d, "text": f"text-{d}", "references": []} for d in doc_ids],
+        [],
     )
-    (directory / "consensus_clean.jsonl").write_text("", encoding="utf-8")
 
 
 def test_round_zero_trains_on_canonical_only(tmp_path: Path) -> None:
@@ -297,13 +291,19 @@ def test_a_loop_config_trains_on_the_sealed_split_only(tmp_path, monkeypatch):
 
     sealed = {"train": [1, 2], "valid": [3], "test": [4]}
     monkeypatch.setattr(loop_train, "has_loop_settings", lambda config: True)
-    monkeypatch.setattr(loop_train, "validate_loop_sources", lambda config: {
-        "documents": {}, "split": sealed, "summary": {}})
+    monkeypatch.setattr(
+        loop_train,
+        "validate_loop_sources",
+        lambda config: {"documents": {}, "split": sealed, "summary": {}},
+    )
 
     with pytest.raises(ContractError, match="sealed"):
-        loop_train.train_round(object(), generation="M000",
-                               split={"train": [1], "valid": [3], "test": [4]},
-                               cleaned_batch_ids=[])
+        loop_train.train_round(
+            object(),
+            generation="M000",
+            split={"train": [1], "valid": [3], "test": [4]},
+            cleaned_batch_ids=[],
+        )
 
 
 def test_full_epoch_horizon_is_derived_from_the_training_view(tmp_path):

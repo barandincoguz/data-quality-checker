@@ -34,7 +34,7 @@ def config_for(tmp_path: Path):
     return load_config(path)
 
 
-def fixture(tmp_path: Path, *, count: int):
+def fixture(tmp_path: Path, *, count: int, generation: str = "G0"):
     config = config_for(tmp_path)
     reference = {
         "kanun_no": "213",
@@ -74,7 +74,7 @@ def fixture(tmp_path: Path, *, count: int):
     process_batch(
         config=config,
         batch_id="batch",
-        generation="G0",
+        generation=generation,
         resume=False,
         fake_backend=True,
     )
@@ -181,3 +181,41 @@ def test_immutable_release_tampering_is_detected(tmp_path) -> None:
 
     with pytest.raises(IntegrityError, match="size mismatch|checksum mismatch"):
         release_batch(config=config, batch_id="batch")
+
+
+def test_a_round_batch_is_released_under_the_model_that_predicted_it(tmp_path) -> None:
+    """Loop batches are predicted by M000, M001, ...; the release used to look
+    for G0 predictions only, so no loop round could ever be released."""
+    config = fixture(tmp_path, count=31, generation="M000")
+    finalize_green_audit(config)
+    with pytest.raises(GateBlocked, match="M000"):
+        release_batch(config=config, batch_id="batch")
+    summary = release_batch(config=config, batch_id="batch", generation="M000")
+    assert summary["counts"]["training_export"] == 31
+    assert summary["generation"] == "M000"
+
+
+def test_the_next_round_trains_on_the_release_the_release_command_wrote(tmp_path) -> None:
+    """The round reader looked in releases/<batch>/, the release lives in
+    releases/<batch>/<release_id>/ -- only fixtures written by hand agreed."""
+    from data_quality_checker.loop_training import round_training_documents
+
+    config = fixture(tmp_path, count=31)
+    finalize_green_audit(config)
+    release_batch(config=config, batch_id="batch")
+    documents = round_training_documents(config, batch_ids=["batch"])
+    assert len(documents) == 31
+
+
+def test_the_round_reader_refuses_a_tampered_release(tmp_path) -> None:
+    from data_quality_checker.errors import ContractError
+    from data_quality_checker.loop_training import round_training_documents
+
+    config = fixture(tmp_path, count=31)
+    finalize_green_audit(config)
+    summary = release_batch(config=config, batch_id="batch")
+    expert = Path(summary["release_path"]) / "expert_adjudicated.jsonl"
+    expert.chmod(0o644)
+    expert.write_text(expert.read_text() + "\n", encoding="utf-8")
+    with pytest.raises((ContractError, IntegrityError)):
+        round_training_documents(config, batch_ids=["batch"])

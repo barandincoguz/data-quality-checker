@@ -314,7 +314,8 @@ pre{white-space:pre-wrap;border:1px solid #bbb;padding:1rem}mark.ev{padding:0 .0
 """
 
 
-_DIFF_FIELDS = ("fikra", "bent", "source_text")
+# The annotator's quote is shown (highlighting), never compared: it decides nothing.
+_DIFF_FIELDS = ("fikra", "bent")
 _DIFF_STATUS_LABELS = {
     "same": "Aynı",
     "only_a": "Yalnız insan anotasyonunda",
@@ -332,7 +333,7 @@ def ab_diff(
     References are grouped by ``core_identity`` in first-appearance order across
     A then B. Each group reports a ``status``. A one-to-one group whose
     identities disagree is ``differs``, carrying the subset of
-    ``fikra``/``bent``/``source_text`` that actually differ; a group that is
+    ``fikra``/``bent`` that actually differ (never ``source_text``); a group that is
     not one-to-one is ``set_differs``, meaning the two sides cite different
     provisions under the same article rather than the same one differently.
 
@@ -520,7 +521,10 @@ def _review_requirements(
     # sample, so without this it would never reach the expert at all.
     pilot_path = config.public_root / "batches" / batch_id / "judge_pilot_selection.json"
     pilot_ids = (
-        {str(value) for value in json.loads(pilot_path.read_text(encoding="utf-8"))["internal_doc_ids"]}
+        {
+            str(value)
+            for value in json.loads(pilot_path.read_text(encoding="utf-8"))["internal_doc_ids"]
+        }
         if pilot_path.exists()
         else set()
     )
@@ -614,7 +618,13 @@ def _document_for_review(
         "router_bucket": document["router_bucket"],
         "guidance": review_guidance(str(document["router_bucket"])),
         "text": document["text"],
-        "warnings": json.loads(document["warnings_json"]),
+        # Quote warnings would tell the expert the annotator's quote is off --
+        # a signal about a field that decides nothing, so it is not shown.
+        "warnings": [
+            warning
+            for warning in json.loads(document["warnings_json"])
+            if not str(warning.get("code", "")).startswith("source_text")
+        ],
         "candidate_a": candidate_a,
         "candidate_b": candidate_b,
         "candidate_mapping": mapping,
@@ -1009,9 +1019,7 @@ def create_hitl_app(
                     validated_final = None
                     status = "deferred"
                 else:
-                    validated_final = validate_final_references(
-                        final
-                    )
+                    validated_final = validate_final_references(final)
                     status = "finalized"
                 review, review_event_id = store.update_review_with_event(
                     batch_id=batch_id,

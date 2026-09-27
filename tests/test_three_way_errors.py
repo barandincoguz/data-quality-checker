@@ -68,35 +68,6 @@ def test_rater_agreement_counts_detail_errors_per_source() -> None:
     assert result["per_rater"]["judge"]["detail_errors"] == 0
 
 
-def test_grounding_is_checked_for_the_annotator_on_correct_articles_only() -> None:
-    text = "193 sayılı Gelir Vergisi Kanununun 94. maddesi uygulanır."
-    result = rater_agreement(
-        [
-            {
-                "expert": [ref("193", "94"), ref("193", "51", "1"), ref("3065", "13")],
-                "annotator": [
-                    ref("193", "94", source="193 sayılı Gelir Vergisi Kanununun 94. maddesi"),
-                    ref("193", "51", "1", source="metinde olmayan ifade"),
-                    ref("3065", "13"),
-                    ref("5520", "10", source="bu da metinde yok"),
-                ],
-                "model": [ref("193", "94")],
-                "judge": None,
-                "document_text": text,
-            }
-        ]
-    )
-    grounding = result["per_rater"]["annotator"]["grounding"]
-    assert grounding == {
-        "checked_references": 3,
-        "source_text_empty": 1,
-        "source_text_not_in_document": 1,
-    }
-    # The model and the judge are never given a source_text to write, by design.
-    assert result["per_rater"]["model"]["grounding"] is None
-    assert result["per_rater"]["judge"]["grounding"] is None
-
-
 def test_workload_counts_a_judge_pilot_document_as_required_review() -> None:
     records = [
         {"router_bucket": "GREEN", "in_judge_pilot": True, "status": "pending"},

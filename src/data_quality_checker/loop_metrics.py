@@ -50,10 +50,9 @@ from typing import Any
 from .constants import EXPERT_ACTIONS, REVIEW_STATUSES
 from .errors import ContractError, IntegrityError
 from .g0_training import canonical_evaluate
-from .normalization import compact_references, core_identity, normalize_reference
+from .normalization import compact_references, core_identity
 from .performance import _percentile, summarize_operational_records
 from .reference_policy import apply_reference_policy
-from .text import evidence_match_mode
 
 Identity = tuple[str, str, str, str]
 
@@ -88,39 +87,6 @@ def _details_by_core(
     for reference in compact_references(kept):
         details[core_identity(reference)].add((reference["fikra"], reference["bent"]))
     return details
-
-
-def annotator_grounding(
-    annotator: Iterable[Mapping[str, Any]],
-    *,
-    expert: Iterable[Mapping[str, Any]],
-    document_text: str,
-) -> dict[str, int]:
-    """Grounding errors of the annotator's rows whose article the expert kept.
-
-    A row with a wrong article is already a spurious reference; counting it
-    here too would charge one mistake twice. Only the annotator is checked:
-    the model and the judge are never given a `source_text` to write
-    (`judges._decision_fields_only`), so the question does not apply to them.
-    The test is the one preparation already uses (`text.evidence_match_mode`).
-    """
-    expert_set = _core_identity_set(expert) or set()
-    kept, _ = apply_reference_policy(list(annotator))
-    checked = empty = not_in_document = 0
-    for reference in kept:
-        if core_identity(normalize_reference(reference)) not in expert_set:
-            continue
-        checked += 1
-        source = str(reference.get("source_text") or "")
-        if not source.strip():
-            empty += 1
-        elif evidence_match_mode(source, document_text) is None:
-            not_in_document += 1
-    return {
-        "checked_references": checked,
-        "source_text_empty": empty,
-        "source_text_not_in_document": not_in_document,
-    }
 
 
 def attribute_errors(
@@ -286,13 +252,10 @@ def rater_agreement(records: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     involving that rater (its own precision/recall, any pairwise kappa it is
     part of, and Fleiss' kappa).
 
-    A record may also carry `document_text`; the annotator's grounding
-    (`annotator_grounding`) is then counted over the records that have it.
-
     Emits, per rater, precision/recall/F1/exact-set-agreement each with
-    their tp/fp/fn or match/document counts, `detail_errors` (right article,
-    wrong `fikra`/`bent`) and `grounding` (annotator only; `None` for the model
-    and the judge, which write no `source_text`); `joint_miss_count` -- references
+    their tp/fp/fn or match/document counts and `detail_errors` (right article,
+    wrong `fikra`/`bent`). The annotator's `source_text` is never read: it
+    decides nothing (user rule, 27 September 2026); `joint_miss_count` -- references
     the expert kept that *no* rater produced, counted only over documents
     where all three raters have data, since a document where a rater is
     simply missing cannot honestly be called a joint miss -- alongside its
@@ -306,7 +269,6 @@ def rater_agreement(records: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     per_rater_exact_matches = {name: 0 for name in _RATER_NAMES}
     per_rater_documents = {name: 0 for name in _RATER_NAMES}
     per_rater_detail = {name: 0 for name in _RATER_NAMES}
-    grounding: dict[str, int] | None = None
 
     joint_miss_count = 0
     total_expert_reference_count = 0
@@ -350,14 +312,6 @@ def rater_agreement(records: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
             per_rater_detail[name] += len(rater["detail_mismatch"])
             if not rater["missed"] and not rater["spurious"]:
                 per_rater_exact_matches[name] += 1
-
-        if attribution["annotator"]["available"] and record.get("document_text") is not None:
-            counts = annotator_grounding(
-                record["annotator"], expert=record["expert"], document_text=record["document_text"]
-            )
-            grounding = {
-                key: (grounding or {}).get(key, 0) + value for key, value in counts.items()
-            }
 
         if all(attribution[name]["available"] for name in _RATER_NAMES):
             joint_miss_eligible_document_count += 1
@@ -407,7 +361,6 @@ def rater_agreement(records: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
                 "exact_set_documents": 0,
                 "exact_set_agreement": None,
                 "detail_errors": None,
-                "grounding": None,
             }
             continue
         precision = _rate(tp, tp + fp)
@@ -424,7 +377,6 @@ def rater_agreement(records: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
             "exact_set_documents": documents,
             "exact_set_agreement": per_rater_exact_matches[name] / documents,
             "detail_errors": per_rater_detail[name],
-            "grounding": grounding if name == "annotator" else None,
         }
 
     pairwise = {

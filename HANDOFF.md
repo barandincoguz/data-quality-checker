@@ -28,8 +28,7 @@
 > - Belge kimliği anahtarı: `data/sensitive/data_quality_checker_gt750/keys/gt750_loop.key` —
 >   R01…R05'in hepsinde aynısı kullanılmalı.
 > - **Üç kaynaklı hata (26 Eylül):** `loop-errors --round N` bursiyer / model / hakemi uzmanın
->   kararına karşı puanlar (kaçırılan, fazladan, detay = doğru madde yanlış fıkra/bent, dayanak =
->   bursiyer alıntısı metinde yok; P/R/F1) → `artifacts/data_quality_checker_gt750/loop/rounds/round_NNN_errors.json`;
+>   kararına karşı puanlar (kaçırılan, fazladan, detay = doğru madde yanlış fıkra/bent; P/R/F1) → `artifacts/data_quality_checker_gt750/loop/rounds/round_NNN_errors.json`;
 >   `loop-mark --stage adjudicated` bunu kendisi yazar. Kararlar hakem kilidinden **önce**
 >   (hakem gizli = hakemin kör sınavı) ve **sonra** (hakem görünür) diye ayrı. Uzman ekranında
 >   pilot 60 belge kuyrukta **en önde** (önceden 12 yeşil pilot belgesi kuyrukta yoktu → kilit
@@ -42,6 +41,21 @@
 >   olunca sonraki sayfa yedeği tamamlıyor (önceden yeniden başlatmaya kadar 500). **Karar süresi**
 >   artık sayfanın açık kaldığı süre (`seconds_on_page`, olay kaydında); önceden belgenin
 >   hazırlandığı andan beri geçen süreydi. Tarayıcı testi: `tests/test_hitl_browser.py`.
+> - **Mekanizma denetimi (27 Eylül; 1. tur canlının kopyasında uçtan uca, gerçek komutlarla):**
+>   `release` sabit "G0" arıyordu → hiçbir tur sürüme çıkamazdı; artık
+>   `release --batch-id R0k --generation M00(k-1)`. M001 eğitimi sürümü `releases/<parti>/`
+>   altında arıyordu, gerçek sürüm `releases/<parti>/<sürüm_kimliği>/` → artık mühürlü sürüm
+>   özetleriyle doğrulanıp okunuyor. **Tur modeli koruması:** loop ayarında `serve`,
+>   `pilot-judges`, `release` R0k için yalnız M(k-1)'i kabul eder. R01 = GT750 M000
+>   (`dqcheck_loop_519d9b43e168` @400, eğitim = mühürlü 500; test/doğrulama hiç görülmedi).
+> - **Kullanıcı kuralı (27 Eylül): bursiyer `source_text` hiçbir karşılaştırmaya/karara girmez**
+>   (yalnız vurgulama); 213/413 her karşılaştırmada iki taraftan düşer. Ekran farkı, hata atfı
+>   ("dayanak" satırı kaldırıldı), yeşil örneklem katmanı ve kanal seçimi (artık HTML varsa HTML)
+>   alıntıdan arındırıldı; R01 yeşil örneklemi yeniden seçildi (eskisi
+>   `green_audit.superseded_2026-09-27_source_text_stratum.json`).
+> - **Açık karar (kullanıcı):** bulucunun yerleştiremediği referans (uzun belgede eğitim penceresi
+>   için) — simülasyonda 948'de 6, hepsi yanlış/biçimsiz referans. `round_training_documents`
+>   şimdilik uzman listesiyle durur (yanlış veri üretmez).
 > - **KAYIT (makalenin kaynağı):** her aşamadan sonra
 >   `cd /Users/student2/ner-project && /opt/llm-lab/.venv/bin/python Journal/analysis/scripts/dq_loop_gt750_record.py`
 >   + `Journal/experiments/dq_loop_gt750/LEDGER.md`'ye giriş. Makine yükü örnekleyicisi

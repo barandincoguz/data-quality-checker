@@ -45,10 +45,13 @@ from collections.abc import Mapping
 from typing import Any
 
 # Turkish ordinal suffixes that can follow an article number before "madde".
-_ORDINAL_SUFFIX = (
-    r"(?:\s*['’`´]?\s*(?:inci|ıncı|nci|ncı|uncu|üncü|üncu|ncu|i̇nci))?"
-)
+_ORDINAL_SUFFIX = r"(?:\s*['’`´]?\s*(?:inci|ıncı|nci|ncı|uncu|üncü|üncu|ncu|i̇nci))?"
 _CONTEXT_WINDOW = 90  # characters of context kept on each side of a match
+# One article in a series: an optional prefix, the number, an optional
+# subdivision after a slash ("150/e", "17/4-k").
+_SERIES_ITEM = (
+    r"(?:(?:mükerrer|ek|geçici)\s+)?\d+(?:\s*/\s*[\wçğıöşü]+(?:-[\wçğıöşü]+)?)?" + _ORDINAL_SUFFIX
+)
 
 
 def _article_candidates(text: str, madde: str) -> list[tuple[int, int]]:
@@ -60,20 +63,32 @@ def _article_candidates(text: str, madde: str) -> list[tuple[int, int]]:
         rf"\b{core}{_ORDINAL_SUFFIX}\s*(?:\.|['’])?\s*madde\w*",  # "5 inci maddesinde"
         rf"madde\w*\s*{core}\b",  # "madde 5"
         rf"\b{core}\s*/\s*\w+",  # "17/4-k"
+        # "220 ve müteakip maddelerinde": the article and the ones after it
+        rf"\b{core}{_ORDINAL_SUFFIX}\s*ve\s+(?:müteakip|takip\s+eden|izleyen)\s+madde\w*",
     ]
     matches: list[tuple[int, int]] = []
     for pattern in patterns:
         for match in re.finditer(pattern, text, flags=re.IGNORECASE):
             matches.append((match.start(), match.end()))
-    # A comma series sharing one trailing ordinal + "maddeleri": in
+    # A series sharing one trailing ordinal + "maddeleri": in
     # "2, 3 ve 4 üncü maddeleri" only the last number carries the suffix, yet
-    # every number in the series names an article. Common drafting shape.
+    # every number in the series names an article. Common drafting shape. An
+    # item may carry a prefix ("mükerrer 257") or a subdivision ("150/e"), and
+    # "638-642 inci madde" names every article from 638 to 642 (R01, 27 Sep).
     series = re.compile(
-        r"(?:\d+\s*(?:,|ve)\s*)+\d+" + _ORDINAL_SUFFIX + r"\s*madde\w*",
+        rf"{_SERIES_ITEM}(?:\s*(?:,|ve|ile|-)\s*{_SERIES_ITEM})+"
+        + _ORDINAL_SUFFIX
+        + r"\s*(?:\.|['’])?\s*madde\w*",
         flags=re.IGNORECASE,
     )
     for match in series.finditer(text):
-        if re.search(rf"(?<!\d){core}(?!\d)", match.group(0)):
+        group = match.group(0)
+        named = re.search(rf"(?<![\d/]){core}(?![\d])", group, flags=re.IGNORECASE)
+        in_range = madde.strip().isdigit() and any(
+            int(low) <= int(madde) <= int(high)
+            for low, high in re.findall(r"(?<![\d/])(\d+)\s*-\s*(\d+)(?![\d/])", group)
+        )
+        if named or in_range:
             matches.append((match.start(), match.end()))
     return matches
 

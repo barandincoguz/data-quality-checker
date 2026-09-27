@@ -201,11 +201,10 @@ def _stratified_round_robin(
     for document in documents:
         metadata = json.loads(document["metadata_json"])
         references, _ = apply_reference_policy(json.loads(document["human_references_json"]))
-        coverage = max(float(document["pdf_coverage"]), float(document["html_coverage"]))
+        # No stratum on quote coverage: the annotator's source_text decides nothing.
         key = (
             metadata.get("annotation_completed"),
             min(len(references), 4),
-            "full" if coverage == 1.0 else "partial" if coverage > 0 else "zero",
             document["selected_channel"],
             min(len(document["text"]) // 5000, 4),
         )
@@ -254,7 +253,6 @@ def ensure_green_audit_plan(*, config: AppConfig, store: Store, batch_id: str) -
         "stratification_fields": [
             "annotation_completion",
             "reference_count",
-            "evidence_coverage",
             "selected_channel",
             "text_length",
         ],

@@ -94,13 +94,54 @@ def test_manifest_records_the_batch_manifest_seal_when_given(tmp_path: Path) -> 
     assert payload["batch_manifest_sha256"] == "def456"
 
 
-def _release(root: Path, batch_id: str, expert: list[dict], consensus: list[dict]) -> None:
-    directory = root / "releases" / batch_id
+def write_sealed_release(
+    root: Path,
+    batch_id: str,
+    expert: list[dict],
+    consensus: list[dict],
+    quarantine: list[dict] = (),
+    *,
+    raw_expert: str | None = None,
+) -> Path:
+    """A release in the layout `release_batch` writes: sealed, one directory.
+
+    `root` is the sensitive root. `raw_expert` replaces the expert file's text
+    (still sealed), to put a malformed line inside an otherwise valid seal.
+    """
+    from data_quality_checker.fingerprints import sha256_file
+    from data_quality_checker.release import LAYER_FILES
+
+    directory = root / "releases" / batch_id / "release_fixture"
     directory.mkdir(parents=True, exist_ok=True)
-    for name, rows in (("expert_adjudicated", expert), ("consensus_clean", consensus)):
-        (directory / f"{name}.jsonl").write_text(
-            "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows), encoding="utf-8"
-        )
+    as_text = lambda rows: "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows)  # noqa: E731
+    texts = {
+        "expert_adjudicated.jsonl": as_text(expert) if raw_expert is None else raw_expert,
+        "consensus_clean.jsonl": as_text(consensus),
+        "quarantine.jsonl": as_text(quarantine),
+        "training_export.jsonl": as_text([*expert, *consensus]),
+    }
+    for name, text in texts.items():
+        (directory / name).write_text(text, encoding="utf-8")
+    files = [
+        {
+            "path": name,
+            "size": (directory / name).stat().st_size,
+            "sha256": sha256_file(directory / name),
+        }
+        for name in LAYER_FILES
+    ]
+    documents = len(expert) + len(consensus) + len(quarantine)
+    manifest = {"batch_id": batch_id, "counts": {"documents": documents}, "files": files}
+    (directory / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    (directory / "SHA256SUMS.txt").write_text(
+        "".join(f"{sha256_file(directory / n)}  {n}\n" for n in (*LAYER_FILES, "manifest.json")),
+        encoding="utf-8",
+    )
+    return directory
+
+
+def _release(root: Path, batch_id: str, expert: list[dict], consensus: list[dict]) -> None:
+    write_sealed_release(root, batch_id, expert, consensus)
 
 
 class _Cfg:
@@ -183,16 +224,12 @@ def test_quarantined_documents_are_never_read(tmp_path: Path) -> None:
     even a later refactor toward something like ``glob("*.jsonl")`` must not be
     able to sneak it in silently.
     """
-    _release(
+    write_sealed_release(
         tmp_path,
         "round1",
         expert=[{"internal_doc_id": "d1", "text": "bir", "references": []}],
         consensus=[{"internal_doc_id": "d2", "text": "iki", "references": []}],
-    )
-    quarantine_path = tmp_path / "releases" / "round1" / "quarantine.jsonl"
-    quarantine_path.write_text(
-        json.dumps({"internal_doc_id": "dQ", "text": "uc", "references": []}) + "\n",
-        encoding="utf-8",
+        quarantine=[{"internal_doc_id": "dQ", "text": "uc", "references": []}],
     )
     documents = round_training_documents(_Cfg(tmp_path), batch_ids=["round1"])
     assert set(documents) == {"d1", "d2"}
@@ -200,17 +237,17 @@ def test_quarantined_documents_are_never_read(tmp_path: Path) -> None:
 
 
 def test_a_malformed_line_is_rejected_naming_file_and_line_number(tmp_path: Path) -> None:
-    directory = tmp_path / "releases" / "round1"
-    directory.mkdir(parents=True, exist_ok=True)
-    (directory / "expert_adjudicated.jsonl").write_text(
-        json.dumps({"internal_doc_id": "d1", "text": "bir", "references": []})
-        + "\n"
-        + "{not json"
-        + "\n",
-        encoding="utf-8",
+    from data_quality_checker.errors import IntegrityError
+
+    write_sealed_release(
+        tmp_path,
+        "round1",
+        expert=[{"internal_doc_id": "d1", "text": "bir", "references": []}],
+        consensus=[],
+        raw_expert=json.dumps({"internal_doc_id": "d1", "text": "bir", "references": []})
+        + "\n{not json\n",
     )
-    (directory / "consensus_clean.jsonl").write_text("", encoding="utf-8")
-    with pytest.raises(ContractError) as excinfo:
+    with pytest.raises(IntegrityError) as excinfo:
         round_training_documents(_Cfg(tmp_path), batch_ids=["round1"])
     message = str(excinfo.value)
     assert "expert_adjudicated.jsonl" in message

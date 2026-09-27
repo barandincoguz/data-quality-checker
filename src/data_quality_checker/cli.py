@@ -236,6 +236,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     release = subparsers.add_parser("release", help="create an immutable atomic release")
     release.add_argument("--batch-id", required=True)
+    release.add_argument(
+        "--generation",
+        type=_generation,
+        default="G0",
+        help="the model generation that predicted this batch (a loop batch R0k: M(k-1))",
+    )
     release.set_defaults(handler=commands.release)
 
     status = subparsers.add_parser("status", help="show batch coverage and lifecycle state")

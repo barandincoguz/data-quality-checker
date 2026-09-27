@@ -52,7 +52,8 @@ def test_ab_diff_reports_field_level_difference_for_matched_core() -> None:
     assert len(rows) == 1
     row = rows[0]
     assert row["status"] == "differs"
-    assert set(row["field_diffs"]) == {"fikra", "source_text"}
+    # The quotes differ too, but the quote decides nothing (27 Sep 2026 rule).
+    assert set(row["field_diffs"]) == {"fikra"}
     assert "bent" not in row["field_diffs"]
 
 
@@ -227,7 +228,7 @@ def test_ab_diff_still_separates_an_additional_article_from_a_subparagraph() -> 
 
 
 def test_ab_diff_names_a_set_difference_as_what_it_is() -> None:
-    """"Alan farkı" sent the expert looking for a field that does not differ.
+    """ "Alan farkı" sent the expert looking for a field that does not differ.
 
     When both sides cite the same article but list different paragraphs under
     it, nothing differs field-by-field -- the group simply is not one-to-one,

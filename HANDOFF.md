@@ -72,6 +72,17 @@
 >   varsayılanı `windows`, tam belge yalnız `"loop": {"training_view": "full_documents"}` ile.
 >   Kanıt `artifacts/data_quality_checker_gt750/loop/candidates/round_000_ablation.json`; tam belge
 >   adayı mühürlenmedi. M000 ve R01 tahminleri olduğu gibi geçerli.
+> - **İKİ HAT, HER TUR (kullanıcı kararı 28 Eylül — "tam belge modelini her zaman sakla"):** tam belge
+>   modeli ikinci hat olarak tutulur ve her turda **aynı temizlenmiş veriyle** eğitilir; mühürlenmez,
+>   hiçbir partiyi tahmin etmez (Ar-Ge: ileride kullanılabilir). Tur k'nın sırası: sürüm +
+>   `loop-mark --stage adjudicated` → `loop-train --round k` (pencereli, mühürlü M00k) →
+>   `loop-predict --round k+1` (uzman işe başlayabilir) → `loop-train --round k --view full_documents`
+>   (ikinci hat; uzman çalışırken koşabilir, GPU'yu hakem pilotuyla çakıştırma) →
+>   `loop-compare --round k` (iki hat + her hattın kendi önceki turuna göre kazancı, yalnız doğrulama).
+>   İkinci hattın kaydı `loop/candidates/round_NNN_full_documents.json` (+ `_registry.json`, adaptör
+>   sha256); herhangi bir partide `process_batch(registry_path=...)` ile koşturulabilir. Mühürleme
+>   yalnız pencereli görünümü kabul eder. Tam belge M000'ın R01 tahminleri:
+>   `data/sensitive/gt750_whatif_full_root/` (kopya; merak ölçümü, makaleye girmez).
 > - **KAYIT (makalenin kaynağı):** her aşamadan sonra
 >   `cd /Users/student2/ner-project && /opt/llm-lab/.venv/bin/python Journal/analysis/scripts/dq_loop_gt750_record.py`
 >   + `Journal/experiments/dq_loop_gt750/LEDGER.md`'ye giriş. Makine yükü örnekleyicisi

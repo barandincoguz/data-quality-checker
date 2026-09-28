@@ -83,6 +83,7 @@
 >   sha256); herhangi bir partide `process_batch(registry_path=...)` ile koşturulabilir. Mühürleme
 >   yalnız pencereli görünümü kabul eder. Tam belge M000'ın R01 tahminleri:
 >   `data/sensitive/gt750_whatif_full_root/` (kopya; merak ölçümü, makaleye girmez).
+>   **Önkayıt:** test en sonda açılınca iki son model de puanlanır, yalnız raporlanır (seçim değişmez).
 > - **KAYIT (makalenin kaynağı):** her aşamadan sonra
 >   `cd /Users/student2/ner-project && /opt/llm-lab/.venv/bin/python Journal/analysis/scripts/dq_loop_gt750_record.py`
 >   + `Journal/experiments/dq_loop_gt750/LEDGER.md`'ye giriş. Makine yükü örnekleyicisi

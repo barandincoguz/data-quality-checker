@@ -63,6 +63,15 @@
 > - **Açık karar (kullanıcı):** bulucunun yerleştiremediği referans — canlı R01'de retlerin
 >   neredeyse hepsi gerçekten yanlış referans. `round_training_documents` şimdilik uzman listesiyle
 >   durur (yanlış veri üretmez).
+> - **Eğitim biçimi ablasyonu (28 Eylül) — döngü PENCERELİ sürer:** M000 iki biçimde eğitildi:
+>   pencereli (1.536 token; mühürlü M000, `dqcheck_loop_519d9b43e168` @400, doğrulama F1 0,927) ve
+>   tam belge (`dqcheck_loop_02fd08a7a9d1` @125, 0,920; doğrusal dikkat parça-paralel WY formülüyle,
+>   `mlx_memory.py`; en uzun belge 7.109 token 24,2 GB; 2 sa 22 dk). Eşleştirilmiş bootstrap %95
+>   [−0,026, +0,014] → anlamlı fark yok; doğrulama F1 kuralı pencereliyi seçti. **Kullanıcı kararı:**
+>   döngü pencereli sürer, M001+ M000 gibi (stok yineleme) eğitilir; `loop_train.training_view_mode`
+>   varsayılanı `windows`, tam belge yalnız `"loop": {"training_view": "full_documents"}` ile.
+>   Kanıt `artifacts/data_quality_checker_gt750/loop/candidates/round_000_ablation.json`; tam belge
+>   adayı mühürlenmedi. M000 ve R01 tahminleri olduğu gibi geçerli.
 > - **KAYIT (makalenin kaynağı):** her aşamadan sonra
 >   `cd /Users/student2/ner-project && /opt/llm-lab/.venv/bin/python Journal/analysis/scripts/dq_loop_gt750_record.py`
 >   + `Journal/experiments/dq_loop_gt750/LEDGER.md`'ye giriş. Makine yükü örnekleyicisi

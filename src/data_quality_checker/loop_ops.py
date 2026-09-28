@@ -25,7 +25,7 @@ from .constants import JUDGE_MODEL_KEY
 from .errors import ContractError, GateBlocked
 from .fingerprints import sha256_file
 from .g0 import assert_test_improves_base
-from .g0_finalize import finalize_selection, round_label, seal_round_model
+from .g0_finalize import build_g0_registry, finalize_selection, round_label, seal_round_model
 from .g0_training import (
     MAX_GENERATION_TOKENS,
     WINDOW_FALLBACK_MAX_GENERATION_TOKENS,
@@ -36,11 +36,16 @@ from .g0_training import (
 )
 from .heartbeat import RunLease
 from .loop_bindings import write_error_report
+from .loop_metrics import model_round_metrics, paired_delta
 from .loop_rounds import advance_round, resume_round, rounds_state_dir, write_round_state
 from .loop_sources import has_loop_settings, validate_loop_sources
 from .loop_train import train_round, training_view_mode
 
 LOOP_CANDIDATE = "loop-lr2.5e-5-full-epoch"
+# The loop's own, sealed line is windowed; the whole-document model is the kept
+# second line, trained every round on the same data and never sealed (28 Sep 2026).
+SEALED_VIEW = "windows"
+SECOND_LINE_VIEW = "full_documents"
 
 
 def batch_id_for(round_index: int) -> str:
@@ -192,7 +197,9 @@ def _base_validation_f1(config: Any, run_id: str, *, worker=None, evaluator=None
     return float(core["f1"])
 
 
-def _train_and_select(config: Any, *, round_index: int, resume: bool) -> dict[str, Any]:
+def _train_and_select(
+    config: Any, *, round_index: int, resume: bool, view: str | None = None
+) -> dict[str, Any]:
     source = validate_loop_sources(config)
     cleaned = [batch_id_for(k) for k in range(1, round_index + 1)]
     result = train_round(
@@ -204,6 +211,7 @@ def _train_and_select(config: Any, *, round_index: int, resume: bool) -> dict[st
         candidate_id=LOOP_CANDIDATE,
         target_updates=None,
         resume=resume,
+        view=view,
     )
     candidate_root = (
         Path(config.training_runs_root) / result["run_id"] / "development" / LOOP_CANDIDATE
@@ -216,29 +224,55 @@ def _train_and_select(config: Any, *, round_index: int, resume: bool) -> dict[st
     }
 
 
-def train_loop_candidate(config: Any, *, round_index: int, resume: bool) -> dict[str, Any]:
-    """Train and select round N's model on validation, without sealing it.
+def _candidate_path(config: Any, round_index: int, view: str) -> Path:
+    return _loop_dir(config) / "candidates" / f"round_{round_index:03d}_{view}.json"
 
-    For comparing a changed recipe with the sealed model before adopting it
-    (whole-document M000, 27 Sep 2026). Nothing is written to the round record or
-    the model registry; adopting later is `loop-train --round N --resume`, which
-    finds this same finished run (same run id) and seals it without retraining.
+
+def train_loop_candidate(
+    config: Any, *, round_index: int, resume: bool, view: str | None = None
+) -> dict[str, Any]:
+    """Train and select round N's model on validation, never sealing it.
+
+    The whole-document line (user decision, 28 Sep 2026): every round also
+    trains the whole-document model, on exactly the documents and references
+    the sealed windowed model trains on, so the two lines stay comparable round
+    after round (`compare_views`). It never predicts a batch and never enters
+    `g0/`: nothing is written to the round record or the round's registry.
+    Its own inference registry (adapter checksum included) sits in the record,
+    and beside it as `*_registry.json`, so it can be run on any batch later
+    through `process_batch(registry_path=...)`.
     """
     if round_index >= 1:
         stage = resume_round(rounds_state_dir(config), round_index).stage
         if stage != "adjudicated":
             raise GateBlocked(f"round {round_index} is at {stage!r}; run loop-mark --stage adjudicated first")
-    trained = _train_and_select(config, round_index=round_index, resume=resume)
-    mode = training_view_mode(config)
+    mode = training_view_mode(config, view)
+    trained = _train_and_select(config, round_index=round_index, resume=resume, view=mode)
+    context = _base_run_context(config, trained["run_id"])
+    registry = build_g0_registry(
+        model_snapshot_path=Path(context["run_config"]["model_snapshot"]["snapshot_path"]),
+        adapter_path=Path(trained["selection"]["adapter_path"]),
+        max_sequence_length=int(context["run_config"]["selected_sequence_length"]),
+    )
     record = {"schema_version": 1, "round": round_index, "generation": round_label(round_index),
-              "training_view_mode": mode, "sealed": False, **trained}
-    write_json_atomic(_loop_dir(config) / "candidates" / f"round_{round_index:03d}_{mode}.json", record)
+              "training_view_mode": mode, "sealed": False, **trained, "registry": registry}
+    path = _candidate_path(config, round_index, mode)
+    write_json_atomic(path, record)
+    write_json_atomic(path.with_name(f"{path.stem}_registry.json"), registry, mode=0o644)
     return record
 
 
 def train_loop_round(
     config: Any, *, round_index: int, resume: bool, worker=None, evaluator=None
 ) -> dict[str, Any]:
+    if training_view_mode(config) != SEALED_VIEW:
+        # The model that predicts the next batch is the windowed one (28 Sep
+        # 2026). Switching the loop's line is a decision, recorded, not a config.
+        raise GateBlocked(
+            f"the loop's sealed models are {SEALED_VIEW!r}; train the whole-document "
+            f"line with `loop-train --round {round_index} --view {SECOND_LINE_VIEW}`, "
+            "which never seals"
+        )
     if round_index >= 1:
         # Check before hours of training, not after: M(k) trains only on a released R0k.
         stage = resume_round(rounds_state_dir(config), round_index).stage
@@ -338,6 +372,141 @@ def error_report(config: Any, *, round_index: int) -> dict[str, Any]:
         judge_model=JUDGE_MODEL_KEY,
         path=rounds_state_dir(config) / f"round_{round_index:03d}_errors.json",
     )
+
+
+_METRIC_KEYS = ("tp", "fp", "fn", "precision", "recall", "f1")
+
+
+def _line_runs(config: Any, round_index: int) -> dict[str, dict[str, Any]]:
+    sealed_path = _model_record_path(config, round_index)
+    second_path = _candidate_path(config, round_index, SECOND_LINE_VIEW)
+    missing = [str(path) for path in (sealed_path, second_path) if not path.is_file()]
+    if missing:
+        raise GateBlocked(
+            f"round {round_index} needs both lines trained first; missing: {', '.join(missing)}"
+        )
+    sealed = json.loads(sealed_path.read_text(encoding="utf-8"))
+    second = json.loads(second_path.read_text(encoding="utf-8"))
+    runs = {
+        SEALED_VIEW: {"run_id": sealed["run_id"], "sealed_as": round_label(round_index)},
+        SECOND_LINE_VIEW: {"run_id": second["run_id"], "sealed_as": None},
+    }
+    for view, record in ((SEALED_VIEW, sealed), (SECOND_LINE_VIEW, second)):
+        run_config_path = Path(config.training_runs_root) / record["run_id"] / "run_config.json"
+        run_config = json.loads(run_config_path.read_text(encoding="utf-8"))
+        runs[view].update(
+            selected_update=int(record["selection"]["selected_update"]),
+            training_documents=record.get("training_documents"),
+            recurrence=run_config.get("recurrence") or "mlx_lm stock (per-token)",
+        )
+    return runs
+
+
+def _line_summary(metrics: dict[str, Any]) -> dict[str, Any]:
+    docwise = metrics["docwise_f1_distribution"]
+    return {
+        "core": {key: metrics["core"][key] for key in _METRIC_KEYS},
+        "full": {key: metrics["full"][key] for key in _METRIC_KEYS},
+        "perfect_documents": docwise["perfect_f1_count"],
+        "documents": docwise["total_docs"],
+    }
+
+
+def _score_updates(
+    config: Any, run_id: str, *, output_root: Path, only: int | None = None
+) -> tuple[list[int], dict[int, dict[str, Any]]]:
+    """Every validation checkpoint of one run (or only update `only`), by today's evaluator."""
+    validation = (
+        Path(config.training_runs_root) / run_id / "development" / LOOP_CANDIDATE / "validation"
+    )
+    ids_path = Path(config.sensitive_root) / "loop" / run_id / "data" / "valid_doc_ids.json"
+    doc_ids = sorted(json.loads(ids_path.read_text(encoding="utf-8")))
+    scored: dict[int, dict[str, Any]] = {}
+    for directory in sorted(validation.glob("update_*")):
+        update = int(directory.name.split("_")[1])
+        if only is not None and update != only:
+            continue
+        scored[update] = model_round_metrics(
+            config=config,
+            predictions_path=directory / "predictions.json",
+            doc_ids_path=ids_path,
+            output_dir=output_root / directory.name,
+            expected_doc_count=len(doc_ids),
+        )
+    if only is not None and only not in scored:
+        raise GateBlocked(f"{run_id} has no validation predictions for update {only}")
+    return doc_ids, scored
+
+
+def compare_views(config: Any, *, round_index: int) -> dict[str, Any]:
+    """Round N's two lines side by side, on validation only (the test split stays closed).
+
+    The sealed windowed model and the kept whole-document model trained on the
+    same data: each checkpoint re-scored by today's evaluator, each line's own
+    selected checkpoint compared by paired bootstrap -- the whole-document line
+    against the windowed one, and (from round 1) each line against its own
+    previous round, which is the round's gain from the cleaned batches.
+    Written to `loop/candidates/round_NNN_ablation.json`.
+    """
+    runs = _line_runs(config, round_index)
+    output_root = Path(config.sensitive_root) / "loop" / "compare" / f"round_{round_index:03d}"
+    curves: dict[str, list[dict[str, Any]]] = {}
+    selected: dict[str, dict[str, Any]] = {}
+    universe: list[int] | None = None
+    for view, run in runs.items():
+        doc_ids, scored = _score_updates(config, run["run_id"], output_root=output_root / view)
+        if universe is not None and doc_ids != universe:
+            raise ContractError("the two lines were validated on different documents")
+        universe = doc_ids
+        if run["selected_update"] not in scored:
+            raise GateBlocked(f"{run['run_id']} has no validation predictions for its selected update")
+        curves[view] = [{"update": update, **_line_summary(scored[update])} for update in sorted(scored)]
+        run["last_update"] = max(scored)
+        selected[view] = scored[run["selected_update"]]
+    payload: dict[str, Any] = {
+        "schema_version": 1,
+        "generated_at": datetime.now(UTC).isoformat(),
+        "round": round_index,
+        "generation": round_label(round_index),
+        "question": "windowed (sealed) vs whole-document (kept second line), trained on the same data",
+        "split": f"validation, {len(universe or [])} documents; the test split stays closed",
+        "selection_rule": "pre-registered: highest validation core F1, each line its own checkpoint",
+        "runs": runs,
+        "selected": {view: _line_summary(metrics) for view, metrics in selected.items()},
+        "validation_curves": curves,
+        "paired_bootstrap_full_minus_windows": paired_delta(
+            selected[SEALED_VIEW]["core_per_document"],
+            selected[SECOND_LINE_VIEW]["core_per_document"],
+        ),
+        "decision": (
+            "the loop's model is the windowed line (decision 2026-09-28); "
+            "the whole-document line is kept, trained every round, never sealed"
+        ),
+    }
+    if round_index >= 1:
+        previous_runs = _line_runs(config, round_index - 1)
+        payload["previous_round"] = {
+            view: {"run_id": run["run_id"], "selected_update": run["selected_update"]}
+            for view, run in previous_runs.items()
+        }
+        payload["paired_bootstrap_vs_previous_round"] = {}
+        for view, run in previous_runs.items():
+            doc_ids, scored = _score_updates(
+                config,
+                run["run_id"],
+                output_root=output_root / f"previous_{view}",
+                only=run["selected_update"],
+            )
+            if doc_ids != universe:
+                raise ContractError("rounds were validated on different documents")
+            payload["paired_bootstrap_vs_previous_round"][view] = paired_delta(
+                scored[run["selected_update"]]["core_per_document"],
+                selected[view]["core_per_document"],
+            )
+    write_json_atomic(
+        _loop_dir(config) / "candidates" / f"round_{round_index:03d}_ablation.json", payload
+    )
+    return payload
 
 
 def mark_stage(config: Any, *, round_index: int, stage: str) -> dict[str, Any]:

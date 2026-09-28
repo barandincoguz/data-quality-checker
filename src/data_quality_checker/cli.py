@@ -260,7 +260,19 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="train and select on validation, but do not seal it as the round's model",
     )
+    loop_train.add_argument(
+        "--view",
+        choices=["windows", "full_documents"],
+        help="full_documents trains the kept whole-document line on the same data; it is never sealed",
+    )
     loop_train.set_defaults(handler=commands.loop_train)
+
+    loop_compare = subparsers.add_parser(
+        "loop-compare",
+        help="compare round N's windowed and whole-document lines on validation (and each with its previous round)",
+    )
+    loop_compare.add_argument("--round", type=int, required=True)
+    loop_compare.set_defaults(handler=commands.loop_compare)
 
     loop_predict = subparsers.add_parser(
         "loop-predict", help="prepare and predict batch R0N with M(N-1) (GT750 loop)"

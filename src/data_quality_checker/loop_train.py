@@ -69,20 +69,28 @@ from .loop_training import compose_round_training_ids, round_training_documents
 LOOP_SPLIT_POLICY = "loop-300-50-150"
 
 
-def training_view_mode(config: AppConfig) -> str:
-    """How a round's documents reach the trainer: "windows" unless asked otherwise.
+TRAINING_VIEWS = ("windows", "full_documents")
+
+
+def training_view_mode(config: AppConfig, view: str | None = None) -> str:
+    """How a round's documents reach the trainer: `view` if given, else "windows".
 
     Both views were trained for the GT750 M000 (28 Sep 2026): windows of 1,536
     tokens (`dqcheck_loop_519d9b43e168`, validation F1 0.927) and whole
     documents with the chunk-parallel recurrence (`dqcheck_loop_02fd08a7a9d1`,
     0.920; paired bootstrap 95% [-0.026, +0.014], not significant). The
-    pre-registered rule -- validation F1 -- chose the windowed model, and the
-    loop continues windowed so every round trains exactly as M000 did. Whole
-    documents remain available to reproduce that ablation, by
-    `"loop": {"training_view": "full_documents"}` in a copy of the preset.
+    pre-registered rule -- validation F1 -- chose the windowed model: the loop's
+    sealed models are windowed, so every round trains exactly as M000 did. The
+    whole-document model is kept as a second line and trained every round on
+    the same data (user decision, 28 Sep 2026), never sealed
+    (`loop_ops.train_loop_candidate`).
     """
-    loop = (getattr(config, "raw", None) or {}).get("loop") or {}
-    return str(loop.get("training_view", "windows"))
+    if view is None:
+        loop = (getattr(config, "raw", None) or {}).get("loop") or {}
+        view = str(loop.get("training_view", "windows"))
+    if view not in TRAINING_VIEWS:
+        raise ContractError(f"training view must be one of {TRAINING_VIEWS}, got {view!r}")
+    return view
 
 
 def full_epoch_updates(training_view: Path, *, gradient_accumulation: int) -> int:
@@ -209,6 +217,7 @@ def train_round(
     candidate_id: str | None = None,
     target_updates: int | None = PILOT_TARGET_UPDATES,
     resume: bool = False,
+    view: str | None = None,
     compute_preflight_runner: Callable[..., dict[str, Any]] | None = None,
     worker_runner: WorkerRunner | None = None,
     evaluator_runner: EvaluatorRunner | None = None,
@@ -268,7 +277,7 @@ def train_round(
         "cleaned_batch_ids": list(cleaned_batch_ids),
         "training_set_size": len(composed["train"]),
     }
-    view_mode = training_view_mode(config)
+    view_mode = training_view_mode(config, view)
     recurrence: str | None = None
     if view_mode != "windows":
         # A different view is a different run: it must never resume into the

@@ -154,19 +154,148 @@ def test_serve_judge_and_release_commands_refuse_the_wrong_model(monkeypatch):
             handler(args, loop)
 
 
-def test_a_candidate_is_trained_and_selected_but_never_sealed(tmp_path, monkeypatch):
-    """Whole-document M000 is trained to be compared with the sealed one first
-    (27 Sep 2026): nothing may overwrite round_000_model.json or the registry."""
-    config = _config(tmp_path)
+def _second_line_fakes(monkeypatch, *, seen=None):
+    def fake_train(config, **kw):
+        if seen is not None:
+            seen.update(kw)
+        return {"run_id": "dqcheck_loop_x", "training_documents": 500,
+                "selection": {"core_f1": 0.9, "selected_update": 125, "adapter_path": "/runs/x/update_125"}}
+
+    monkeypatch.setattr(loop_ops, "_train_and_select", fake_train)
+    monkeypatch.setattr(loop_ops, "seal_round_model", lambda **kw: pytest.fail("sealed"))
     monkeypatch.setattr(
         loop_ops,
-        "_train_and_select",
-        lambda config, **kw: {"run_id": "dqcheck_loop_x", "selection": {"core_f1": 0.9}},
+        "_base_run_context",
+        lambda config, run_id: {"run_config": {"model_snapshot": {"snapshot_path": "/snap"},
+                                               "selected_sequence_length": 10240}},
     )
-    monkeypatch.setattr(loop_ops, "seal_round_model", lambda **kw: pytest.fail("sealed"))
-    monkeypatch.setattr(loop_ops, "training_view_mode", lambda config: "full_documents")
-    record = loop_ops.train_loop_candidate(config, round_index=0, resume=False)
+    monkeypatch.setattr(
+        loop_ops,
+        "build_g0_registry",
+        lambda **kw: {"adapter_path": str(kw["adapter_path"]), "adapter_sha256": "ab" * 32,
+                      "max_sequence_length": kw["max_sequence_length"]},
+    )
+
+
+def test_the_whole_document_line_is_trained_on_the_same_round_and_never_sealed(tmp_path, monkeypatch):
+    """Every round also trains the kept whole-document model (28 Sep 2026): same
+    round, same data, its own run; nothing may touch round_NNN_model.json or g0/,
+    and its inference registry (adapter checksum included) is kept beside it."""
+    config = _config(tmp_path)
+    seen = {}
+    _second_line_fakes(monkeypatch, seen=seen)
+    record = loop_ops.train_loop_candidate(config, round_index=0, resume=False, view="full_documents")
+    assert seen == {"round_index": 0, "resume": False, "view": "full_documents"}
     path = tmp_path / "public" / "loop" / "candidates" / "round_000_full_documents.json"
     assert json.loads(path.read_text()) == record
-    assert record["sealed"] is False and record["run_id"] == "dqcheck_loop_x"
+    assert record["sealed"] is False and record["training_view_mode"] == "full_documents"
+    registry = json.loads(path.with_name("round_000_full_documents_registry.json").read_text())
+    assert registry == record["registry"] and registry["adapter_path"] == "/runs/x/update_125"
+    assert registry["max_sequence_length"] == 10240
     assert not (tmp_path / "public" / "loop" / "rounds" / "round_000_model.json").exists()
+    assert not (tmp_path / "public" / "g0").exists()
+
+
+def test_the_training_view_reaches_the_trainer(tmp_path, monkeypatch):
+    seen = {}
+    monkeypatch.setattr(loop_ops, "validate_loop_sources", lambda c: {"split": {"train": [], "valid": [], "test": []}})
+
+    def fake_train_round(config, **kwargs):
+        seen.update(kwargs)
+        raise RuntimeError("stop")
+
+    monkeypatch.setattr(loop_ops, "train_round", fake_train_round)
+    with pytest.raises(RuntimeError):
+        loop_ops._train_and_select(_config(tmp_path), round_index=1, resume=False, view="full_documents")
+    assert seen["view"] == "full_documents" and seen["cleaned_batch_ids"] == ["R01"]
+
+
+def test_only_the_windowed_line_is_ever_sealed(tmp_path, monkeypatch):
+    """The model that predicts the next batch is the windowed one; a config asking
+    for whole documents must not seal a whole-document model as M(k)."""
+    config = _config(tmp_path)
+    config.raw = {"loop": {"training_view": "full_documents"}}
+    monkeypatch.setattr(loop_ops, "_train_and_select", lambda config, **kw: pytest.fail("trained"))
+    with pytest.raises(GateBlocked, match="--view full_documents"):
+        loop_ops.train_loop_round(config, round_index=0, resume=False)
+
+
+def test_the_view_flag_never_seals_the_whole_document_line(monkeypatch):
+    from data_quality_checker import commands
+
+    calls = []
+    monkeypatch.setattr(loop_ops, "train_loop_candidate", lambda config, **kw: calls.append(("candidate", kw)) or {})
+    monkeypatch.setattr(loop_ops, "train_loop_round", lambda config, **kw: calls.append(("sealed", kw)) or {})
+    args = SimpleNamespace(round=1, resume=True, no_seal=False, view="full_documents")
+    commands.loop_train(args, None)
+    commands.loop_train(SimpleNamespace(round=1, resume=False, no_seal=False, view=None), None)
+    assert calls == [
+        ("candidate", {"round_index": 1, "resume": True, "view": "full_documents"}),
+        ("sealed", {"round_index": 1, "resume": False}),
+    ]
+
+
+def _write_line(tmp_path, *, round_index, view, run_id, selected, updates):
+    public = tmp_path / "public" / "loop"
+    record = {"run_id": run_id, "training_documents": 500, "selection": {"selected_update": selected}}
+    if view == "windows":
+        path = public / "rounds" / f"round_{round_index:03d}_model.json"
+    else:
+        path = public / "candidates" / f"round_{round_index:03d}_full_documents.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(record))
+    run = tmp_path / "runs" / run_id
+    run.mkdir(parents=True)
+    (run / "run_config.json").write_text(json.dumps({"recurrence": None if view == "windows" else "wy"}))
+    for update, tp in updates.items():
+        directory = run / "development" / loop_ops.LOOP_CANDIDATE / "validation" / f"update_{update:07d}"
+        directory.mkdir(parents=True)
+        (directory / "predictions.json").write_text(json.dumps({"tp": tp}))
+    ids = tmp_path / "sensitive" / "loop" / run_id / "data"
+    ids.mkdir(parents=True)
+    (ids / "valid_doc_ids.json").write_text(json.dumps([1, 2, 3, 4]))
+
+
+def test_a_round_compares_both_lines_and_each_with_its_previous_round(tmp_path, monkeypatch):
+    """Validation only: each line's checkpoints re-scored, the lines paired against
+    each other, and from round 1 each line against its own previous round."""
+    config = _config(tmp_path)
+    _write_line(tmp_path, round_index=0, view="windows", run_id="w0", selected=50, updates={25: 1, 50: 2})
+    _write_line(tmp_path, round_index=0, view="full_documents", run_id="f0", selected=25, updates={25: 2})
+    _write_line(tmp_path, round_index=1, view="windows", run_id="w1", selected=25, updates={25: 3})
+    _write_line(tmp_path, round_index=1, view="full_documents", run_id="f1", selected=25, updates={25: 4})
+    scored = []
+
+    def fake_metrics(*, config, predictions_path, doc_ids_path, output_dir, expected_doc_count):
+        tp = json.loads(predictions_path.read_text())["tp"]
+        scored.append(predictions_path.parts[-6])
+        per_doc = {d: {"tp": 1 if d <= tp else 0, "fp": 0, "fn": 0 if d <= tp else 1} for d in (1, 2, 3, 4)}
+        metric = {"tp": tp, "fp": 0, "fn": 4 - tp, "precision": 1.0, "recall": tp / 4, "f1": tp / 4}
+        return {"core": metric, "full": metric, "core_per_document": per_doc,
+                "docwise_f1_distribution": {"perfect_f1_count": tp, "total_docs": 4}}
+
+    monkeypatch.setattr(loop_ops, "model_round_metrics", fake_metrics)
+    round0 = loop_ops.compare_views(config, round_index=0)
+    assert [p["update"] for p in round0["validation_curves"]["windows"]] == [25, 50]
+    assert round0["selected"]["windows"]["core"]["tp"] == 2
+    assert round0["runs"]["windows"]["sealed_as"] == "M000" and round0["runs"]["full_documents"]["sealed_as"] is None
+    assert round0["paired_bootstrap_full_minus_windows"]["document_count"] == 4
+    assert "paired_bootstrap_vs_previous_round" not in round0
+
+    scored.clear()
+    round1 = loop_ops.compare_views(config, round_index=1)
+    assert round1["previous_round"] == {"windows": {"run_id": "w0", "selected_update": 50},
+                                        "full_documents": {"run_id": "f0", "selected_update": 25}}
+    # The previous round's selected checkpoint only, not its whole curve.
+    assert sorted(scored) == ["f0", "f1", "w0", "w1"]
+    gains = round1["paired_bootstrap_vs_previous_round"]
+    assert gains["windows"]["bootstrap_mean"] > 0 and gains["full_documents"]["bootstrap_mean"] > 0
+    path = tmp_path / "public" / "loop" / "candidates" / "round_001_ablation.json"
+    assert json.loads(path.read_text())["round"] == 1
+
+
+def test_comparing_a_round_needs_both_lines(tmp_path):
+    config = _config(tmp_path)
+    _write_line(tmp_path, round_index=0, view="windows", run_id="w0", selected=25, updates={25: 1})
+    with pytest.raises(GateBlocked, match="round_000_full_documents"):
+        loop_ops.compare_views(config, round_index=0)

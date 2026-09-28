@@ -275,9 +275,28 @@ def _print_json(result: Any) -> int:
 def loop_train(args: Namespace, config: AppConfig) -> int:
     from .loop_ops import train_loop_candidate, train_loop_round
 
-    if getattr(args, "no_seal", False):
-        return _print_json(train_loop_candidate(config, round_index=args.round, resume=args.resume))
+    view = getattr(args, "view", None)
+    # The whole-document line is never sealed: `--view full_documents` always
+    # trains a candidate, whatever else is passed.
+    if getattr(args, "no_seal", False) or view == "full_documents":
+        return _print_json(
+            train_loop_candidate(config, round_index=args.round, resume=args.resume, view=view)
+        )
     return _print_json(train_loop_round(config, round_index=args.round, resume=args.resume))
+
+
+def loop_compare(args: Namespace, config: AppConfig) -> int:
+    from .loop_ops import compare_views
+
+    report = compare_views(config, round_index=args.round)
+    return _print_json(
+        {
+            "round": report["round"],
+            "selected": {view: line["core"] for view, line in report["selected"].items()},
+            "full_minus_windows": report["paired_bootstrap_full_minus_windows"],
+            "vs_previous_round": report.get("paired_bootstrap_vs_previous_round"),
+        }
+    )
 
 
 def loop_predict(args: Namespace, config: AppConfig) -> int:

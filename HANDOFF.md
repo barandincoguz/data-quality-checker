@@ -60,6 +60,18 @@
 >   (`artifacts/data_quality_checker_gt750/loop/rescored/2026-09-27_article_spelling/`; seçim ve
 >   kapı aynı). R01 eski kuralla yönlendirildi (yeni kuralla 2 kırmızı yeşil olurdu; bırakıldı).
 >   M001'de her sürüm referansının penceresi bulucuyla bulunur.
+> - **Bulucu sağlamlaştırma (28 Eylül, `5798798`):** GT750 altın alıntı üstünde 4.040 → 4.077 (%93,6);
+>   ret 3 (tablo/tarife, satır almaz); yazım değişikliklerine dayanıklı (madde 3.861/3.861, alan
+>   33.481/33.519); 17 → 12 sn. Kanun okuma: parantezli kısaltma, tireli ad, önüne yapışan sözcük,
+>   değiştiren kanun yalnız "Kanunla/ile", "Kanununa eklenen" alan kanunun, "Bazı Kanunlar … KHK'de
+>   Değişiklik" tek kanun, "2007/13033 sayılı BKK", "520-541" aralık, "Geçici 19 ve 20". **Gardiyan:**
+>   `tests/test_reference_locator_gt750.py` (altındaki 4.077 referans altında kalır; değişiklik bilinçli
+>   olmalı → fikstürü yeniden üret). Denetim araçları ve önce/sonra fotoğrafları
+>   `data/sensitive/locator_audit_2026-09-28/` (`diff.py` kanıt gücüyle sınıflar). M000'ı etkilemez (eğitim
+>   belgeleri kendi doğrulanmış alıntısını kullanır); M001'den itibaren iki hatta aynı. R01 ret: bursiyer
+>   11, M000 16, tam belge 16 — hepsi yanlış/biçimsiz referans veya tablo satırı.
+>   **Yan bulgu (karar bekliyor):** ortak `normalize_law_number` "2007/13033"ü "2007" yapar → aynı yılın iki
+>   kararı yönlendirmede tek kimlik; puanlama motoru ham değeri kullanıyor olabilir (motor uyumu testinde yok).
 > - **Açık karar (kullanıcı):** bulucunun yerleştiremediği referans — canlı R01'de retlerin
 >   neredeyse hepsi gerçekten yanlış referans. `round_training_documents` şimdilik uzman listesiyle
 >   durur (yanlış veri üretmez).

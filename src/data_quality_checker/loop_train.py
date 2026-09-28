@@ -70,13 +70,19 @@ LOOP_SPLIT_POLICY = "loop-300-50-150"
 
 
 def training_view_mode(config: AppConfig) -> str:
-    """How a round's documents reach the trainer.
+    """How a round's documents reach the trainer: "windows" unless asked otherwise.
 
-    The GT750 loop trains whole documents ("full_documents"): the 1,536-token
-    windows were a memory limit of mlx_lm's training path, lifted by
-    `mlx_memory` (27 Sep 2026). Everything else keeps its windows.
+    Both views were trained for the GT750 M000 (28 Sep 2026): windows of 1,536
+    tokens (`dqcheck_loop_519d9b43e168`, validation F1 0.927) and whole
+    documents with the chunk-parallel recurrence (`dqcheck_loop_02fd08a7a9d1`,
+    0.920; paired bootstrap 95% [-0.026, +0.014], not significant). The
+    pre-registered rule -- validation F1 -- chose the windowed model, and the
+    loop continues windowed so every round trains exactly as M000 did. Whole
+    documents remain available to reproduce that ablation, by
+    `"loop": {"training_view": "full_documents"}` in a copy of the preset.
     """
-    return "full_documents" if has_loop_settings(config) else "windows"
+    loop = (getattr(config, "raw", None) or {}).get("loop") or {}
+    return str(loop.get("training_view", "windows"))
 
 
 def full_epoch_updates(training_view: Path, *, gradient_accumulation: int) -> int:

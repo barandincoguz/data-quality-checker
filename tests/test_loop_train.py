@@ -315,32 +315,41 @@ def test_full_epoch_horizon_is_derived_from_the_training_view(tmp_path):
     assert full_epoch_updates(view, gradient_accumulation=4) == 549
 
 
-def test_a_loop_round_trains_whole_documents_in_its_own_run(tmp_path: Path, monkeypatch) -> None:
-    """The GT750 loop trains without cutting documents into windows (27 Sep 2026).
-    A different training view must never resume into the windowed run's directory."""
+def test_the_loop_trains_windows_unless_whole_documents_are_asked_for(tmp_path: Path, monkeypatch) -> None:
+    """Decision (28 Sep 2026): both views were trained for M000; the windowed one
+    won on validation (0.927 vs 0.920, not significant) and the loop continues
+    windowed, so M001+ train exactly as M000 did. Whole documents stay available,
+    explicitly, to reproduce that ablation -- and never share a run directory."""
     from data_quality_checker import loop_train
     from data_quality_checker.g0 import validate_canonical_sources
+    from data_quality_checker.mlx_memory import RECURRENCE_ID
 
     config = canonical_fixture(tmp_path)
     windowed = train_round(config, generation="M000", split=SPLIT, cleaned_batch_ids=[])
     source = validate_canonical_sources(config)
     monkeypatch.setattr(loop_train, "has_loop_settings", lambda config: True)
-    monkeypatch.setattr(
-        loop_train, "validate_loop_sources", lambda config: {**source, "split": SPLIT}
-    )
+    monkeypatch.setattr(loop_train, "validate_loop_sources", lambda config: {**source, "split": SPLIT})
     monkeypatch.setattr(loop_train, "loop_split_policy", lambda config: "loop-test")
+    looped = loop_train.train_round(config, generation="M000", split=SPLIT, cleaned_batch_ids=[])
+    assert json.loads(Path(looped["run_config_path"]).read_text())["training_view_mode"] == "windows"
+    assert looped["run_id"] == windowed["run_id"]
+
+    monkeypatch.setattr(loop_train, "training_view_mode", lambda config: "full_documents")
     whole = loop_train.train_round(config, generation="M000", split=SPLIT, cleaned_batch_ids=[])
     assert whole["run_id"] != windowed["run_id"]
     run_config = json.loads(Path(whole["run_config_path"]).read_text())
     assert run_config["training_view_mode"] == "full_documents"
-    # The recurrence implementation is part of the run: a run measured under one
-    # (preflight memory, resume equivalence) is never continued under another.
-    from data_quality_checker.mlx_memory import RECURRENCE_ID
-
     assert run_config["recurrence"] == RECURRENCE_ID
-    assert (
-        json.loads(Path(windowed["run_config_path"]).read_text())["training_view_mode"] == "windows"
-    )
+
+
+def test_whole_documents_are_asked_for_in_the_loop_block(tmp_path: Path) -> None:
+    from types import SimpleNamespace
+
+    from data_quality_checker.loop_train import training_view_mode
+
+    assert training_view_mode(SimpleNamespace(raw={"loop": {}})) == "windows"
+    assert training_view_mode(SimpleNamespace(raw={"loop": {"training_view": "full_documents"}})) == "full_documents"
+    assert training_view_mode(SimpleNamespace(raw={})) == "windows"
 
 
 def test_whole_document_training_uses_the_chunked_memory_mode_and_finer_buckets() -> None:

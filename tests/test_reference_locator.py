@@ -207,3 +207,136 @@ def test_an_article_without_its_qualifier_is_a_different_article() -> None:
     text = "Anılan 213 sayılı Kanunun mükerrer 257 nci maddesinin birinci fıkrası"
     assert locate_reference_span(text, _ref("213", "257")) is None
     assert locate_reference_span(text, _ref("213", "mükerrer 257")) is not None
+
+
+# --- 28 Sep 2026: law recognition, article ranges, law-level references -----
+# Fixtures cut from GT750 documents (named per test) and R01 d000076.
+
+from data_quality_checker.reference_locator import place_reference  # noqa: E402
+
+
+def _full(kanun_no: str, madde: str, fikra: str = "", bent: str = "", kanun_ad: str = "") -> dict[str, str]:
+    return {"kanun_no": kanun_no, "kanun_ad": kanun_ad, "madde": madde, "fikra": fikra, "bent": bent, "source_text": ""}
+
+
+def test_a_law_title_may_carry_its_acronym_in_parentheses() -> None:
+    """GT750 doc_166: "Katma Değer Vergisi (KDV) Kanununun" is the law written before
+    the article, not an unknown one."""
+    text = (
+        "Öte yandan 193 sayılı Gelir Vergisi Kanununun 17 nci maddesinde istisna düzenlenmiştir. "
+        "Bu uygulamanın Katma Değer Vergisi (KDV) Kanununun 17/2-b ve 30/a maddesi kapsamında değerlendirilmesi"
+    )
+    placement = place_reference(text, _full("3065", "17", "2", "b"))
+    assert placement is not None and placement.law == 0
+    assert text[placement.start : placement.end].startswith("Katma Değer Vergisi (KDV) Kanununun")
+
+
+def test_the_law_an_article_was_added_to_owns_it() -> None:
+    """GT750 doc_175: "Katma Değer Vergisi Kanununa eklenen Geçici 28 inci maddesi" is
+    KDV's article. The dative law receives the article; only "Kanunla"/"Kanun ile"
+    names the amending law."""
+    text = (
+        "5904 sayılı Kanunun 13/b maddesi ile madde metninden çıkartılmış, 5904 sayılı yasanın "
+        "16 ncı maddesi ile de Katma Değer Vergisi Kanununa eklenen Geçici 28 inci maddesinde: "
+        '"Bu maddenin yürürlüğe girdiği tarihte'
+    )
+    added = place_reference(text, _full("3065", "geçici 28"))
+    assert added is not None and added.law in (0, 1)
+    amending = place_reference(text, _full("5904", "16"))
+    assert amending is not None and amending.law == 0
+    assert text[amending.start : amending.end].startswith("5904 sayılı yasanın 16")
+
+
+def test_an_article_added_by_another_laws_article_belongs_to_the_receiving_law() -> None:
+    """GT750 doc_339: in "5520 sayılı KVK'ya 5838 sayılı Kanunun 9 uncu maddesiyle
+    eklenen 32/A maddesi", 32/A is 5520's article and 9 is 5838's."""
+    text = (
+        "hususunda Başkanlığımız görüşü talep edilmektedir. 5520 sayılı Kurumlar Vergisi Kanununa "
+        '5838 sayılı Kanunun 9 uncu maddesiyle eklenen 32/A maddesinde; "(1) Finans ve sigortacılık'
+    )
+    added = place_reference(text, _full("5520", "32/A"))
+    assert added is not None and added.law in (0, 1)
+    amending = place_reference(text, _full("5838", "9"))
+    assert amending is not None and amending.law == 0
+
+
+def test_words_before_a_short_law_name_do_not_hide_it() -> None:
+    """GT750 doc_561 ("Ayrıca, KDV Kanununun") and doc_225 ("… A.Ş’ye KDV Kanununun"):
+    a sentence opener or a company name glued before the title is not part of it."""
+    for text, madde, bent in (
+        ("%8 oranında KDV uygulanması öngörülmüştür. Ayrıca, KDV Kanununun 13 üncü maddesinin (l) bendiyle; Sağlık", "13", "l"),
+        ("Avrasya Tüneli İşletme İnşaat ve Yatırım A.Ş’ye KDV Kanununun geçici 29 uncu maddesi uyarınca KDV", "geçici 29", ""),
+    ):
+        placement = place_reference(text, _full("3065", madde, bent=bent))
+        assert placement is not None and placement.law == 0, text
+
+
+def test_a_numeric_article_range_is_a_range_not_an_article_with_a_subpart() -> None:
+    """GT750 doc_129: "520-541 inci maddelerinde" names 520 to 541; the article named on
+    its own right after it is where 520 is cited."""
+    text = (
+        "Adi ortaklıklar Borçlar Kanununun 520-541 inci maddelerinde düzenlenmiştir. "
+        "Anılan Kanunun 520 inci maddesinde adi ortaklık, iki veya daha fazla kişinin"
+    )
+    span = locate_reference_span(text, _full("", "520", kanun_ad="Borçlar Kanunu"))
+    assert span is not None and span.startswith("Anılan Kanunun 520")
+    inside = locate_reference_span(text, _full("", "530", kanun_ad="Borçlar Kanunu"))
+    assert inside is not None and "520-541" in inside
+
+
+def test_a_law_level_reference_prefers_the_law_written_in_full() -> None:
+    """GT750 doc_171: "2330 sayılı Kanuna" first, the title later -- the citation that
+    names the law is the better evidence."""
+    text = (
+        "Milli Savunma Bakanlığı tarafından 16/5/2019 tarihinde 2330 sayılı Kanuna istinaden tarafınıza "
+        "nakdi tazminat ödendiği belirtilmiştir. 2330 sayılı Nakdi Tazminat ve Aylık Bağlanması Hakkında "
+        "Kanuna göre ödenen tazminatlar"
+    )
+    span = locate_reference_span(text, _full("2330", ""))
+    assert span is not None and "Nakdi Tazminat" in span
+
+
+def test_a_hyphenated_law_title_is_read_whole() -> None:
+    text = "Bu durumda ödenen primler Bağ-Kur Kanunu kapsamında değerlendirilir."
+    span = locate_reference_span(text, _full("1479", "", kanun_ad="Bağ-Kur Kanunu"))
+    assert span == "Bağ-Kur Kanunu"
+
+
+def test_a_decree_numbered_by_year_is_found_by_its_number() -> None:
+    """R01 d000076: "2007/13033 sayılı Bakanlar Kurulu Kararı" (KDV rates)."""
+    text = (
+        "Bu kapsamda KDV oranları, 2007/13033 sayılı Bakanlar Kurulu Kararı (BKK) eki (I) sayılı "
+        "listede yer alan teslim ve hizmetler için"
+    )
+    span = locate_reference_span(text, _full("2007/13033", ""))
+    assert span is not None and span.startswith("2007/13033 sayılı")
+
+
+def test_a_qualifier_carries_over_the_series_it_opens() -> None:
+    """GT750 doc_148: "Geçici 19 ve 20 inci maddelerinde" cites geçici 19 and geçici 20."""
+    text = (
+        "Diğer taraftan 4447 sayılı İşsizlik Sigortası Kanununun Geçici 19 ve 20 inci maddelerinde; "
+        "fondan bu maddeler kapsamında karşılanan"
+    )
+    for madde in ("geçici 19", "geçici 20"):
+        span = locate_reference_span(text, _full("4447", madde))
+        assert span is not None and "Geçici 19 ve 20" in span, madde
+
+
+def test_a_lowercase_l_read_as_one_before_a_subdivision() -> None:
+    """GT750 doc_390: "Katma Değer Vergisi (KDV) Kanununun l/3-f maddesinde"."""
+    text = "Başkanlığımızdan bilgi talep edilmektedir. Katma Değer Vergisi (KDV) Kanununun l/3-f maddesinde; Gelir"
+    placement = place_reference(text, _full("3065", "1", "3", "f"))
+    assert placement is not None and "l/3-f" in text[placement.start : placement.end]
+
+
+def test_a_bent_written_with_its_closing_parenthesis_is_the_same_bent() -> None:
+    """GT750 doc_106: "c)" is how a bent is printed; it must place exactly like "c"."""
+    text = (
+        "4760 sayılı Özel Tüketim Vergisi Kanununun 7 nci maddesinde düzenlenmiştir. "
+        "Özel Tüketim Vergisi Kanununun (7/2-c) maddesi uyarınca"
+    )
+    plain = place_reference(text, _full("4760", "7", "2", "c"))
+    printed = place_reference(text, _full("4760", "7", "2", "c)"))
+    assert plain is not None and printed is not None
+    assert (printed.start, printed.end) == (plain.start, plain.end)

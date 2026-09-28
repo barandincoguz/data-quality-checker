@@ -38,22 +38,41 @@ An article the text does not cite at all is refused (`None`): that is evidence
 the reference is wrong, and inventing a span would teach the model that an
 article claim is supported by a passage about something else.
 
-Measured on GT750 (27 Sep 2026; 4,356 references, their verified quotes used
-only as the answer key): 92.7% placed on the gold quote itself; the other 7.2%
-on another citation of the same provision (audited: the span names the law and
-the article, or a range containing it); 3 refused (two table sections, one
-Roman-numbered article). Re-spelling the article (case, "geçiçi", "Geçici
-Madde", "ve izleyen") moves no placement: 3,861/3,861. The locator it replaced:
-88.1%, 29 refused, 154/3,861 unmoved. On R01's live references every refusal
-but one was a wrong or malformed reference ("80" for "mükerrer 80", law "758"
-for "6758", a communiqué serial number read as an article).
+Laws are read the way rulings write them (28 Sep 2026): a title may carry its
+acronym ("Katma Değer Vergisi (KDV) Kanunu") or a hyphen ("Bağ-Kur"); words
+glued before it ("Ayrıca, KDV Kanununun", "… A.Ş’ye KDV Kanununun") do not hide
+the registry name inside it; an omnibus title naming a decree inside it ("7104
+sayılı … Bazı Kanunlar ile 178 sayılı Kanun Hükmünde Kararnamede Değişiklik
+Yapılmasına Dair Kanun") is one law. Only the instrumental ("Kanunla değişik",
+"Kanun ile eklenen") is the amending law -- "Kanununa eklenen geçici 28" is
+the receiving law's article, and in "5520 sayılı KVK'ya 5838 sayılı Kanunun 9
+uncu maddesiyle eklenen 32/A" 9 is 5838's and 32/A is 5520's. A decree numbered
+by year ("2007/13033 sayılı BKK") is found by its number and owns only the
+articles written right after it. "520-541 inci maddeleri" is a range; a
+qualifier opening a series carries over it ("Geçici 19 ve 20" -- geçici 20).
+Between equally good mentions, the one whose law is written with its number
+wins; a law-level reference goes to the citation naming the law most fully.
+
+Measured on GT750 (4,356 references, their verified quotes used only as the
+answer key): on the gold quote 4,077 (93.6%; 27 Sep: 4,040, 92.7%); the rest on
+another citation of the same provision; 3 refused, all table/tariff sections,
+which get no row. Re-spelling the article moves no placement (3,861/3,861), nor
+re-spelling the other fields ("N sayılı", title case, "(1)", "birinci", "c)":
+33,481/33,519 -- the rest are law-level references left with neither number
+nor title). Pinned by `tests/test_reference_locator_gt750.py`. On R01's live
+references every refusal is a wrong or malformed reference ("80" for "mükerrer
+80", law "758" for "6758", a communiqué serial number read as a law or an
+article). Not attempted: which law "aynı Kanunun" means when the text names
+another in between -- a rule for it moved 177 placements to stronger evidence
+and 48 to weaker (28 Sep 2026), so the last law named stands.
 """
 
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Any
 
 from .normalization import (
@@ -129,8 +148,12 @@ NUMBERED_ARTICLE = re.compile(
 )
 # "birinci maddesinde": the article number written as a word.
 ORDINAL_ARTICLE = re.compile(rf"(?<![\w]){_ORD_WORD}\s+(?i:madde)[{_LO}]*{_CHAIN}")
-# "Kanununun l inci maddesinde": text extraction read the digit 1 as a lowercase L.
-L_FOR_ONE_ARTICLE = re.compile(rf"{_START}l\s*inci\s+(?i:madde)[{_LO}]*{_CHAIN}")
+# "Kanununun l inci maddesinde", "Kanununun l/3-f maddesinde": text extraction
+# read the digit 1 as a lowercase L.
+L_FOR_ONE_ARTICLE = re.compile(
+    rf"{_START}l(?:\s*inci|(?P<sub>(?:\s*/\s*[0-9{_LO}{_UP}]+)+(?:\s*-\s*[0-9{_LO}{_UP}]+)*)"
+    rf"(?:\s*{_ORD_SUFFIX})?)\s+(?i:madde)[{_LO}]*{_CHAIN}"
+)
 # The article word that closes the cited items (not the "Madde" of "Ek Madde 6").
 _CLOSING_ARTICLE_WORD = re.compile(rf"(?i:madde)[{_LO}]*(?!\s+\d)|(?i:md)\.?(?![{_LO}\d])")
 _ITEM_TOKEN = re.compile(
@@ -142,7 +165,7 @@ _ITEM_TOKEN = re.compile(
 _LAW_WORD = re.compile(rf"^[“\"'‘(]*(?i:kanun|yasa)[{_LO}{_UP}’']*[”\"'’)]*$")
 _TITLE = r"(?:[“\"‘]|'')[^“”\"]{1,120}?(?:[”\"’]|'')\s*başlıklı\s+"
 _LAW_BEFORE = re.compile(
-    rf"(?P<law>(?:Kanun|KANUN|Yasa|YASA)[{_LO}{_UP}]*(?:['’][{_LO}]+)?)\s*(?:{_TITLE})?$"
+    rf"(?P<law>(?:[Kk]anun|KANUN|[Yy]asa|YASA)[{_LO}{_UP}]*(?:['’][{_LO}]+)?)\s*(?:{_TITLE})?$"
 )
 _ACRONYM = re.compile(rf"^\([{_UP}]+\)[,;]?$")
 _DETERMINERS = {"aynı", "anılan", "mezkur", "mezkûr", "bu", "ilgili"}
@@ -165,7 +188,8 @@ _SENTENCE_OPENERS = {
 }
 _JOINERS = {"ve", "ile", "Hakkında", "hakkında"}
 _MAX_NAME_TOKENS = 16
-_NUMBERED_LAW = re.compile(r"(?<![\d/.])(?P<no>\d{2,5})\s+(?:[Ss]ayılı|SAYILI)\s+")
+# "213 sayılı", and a decree numbered by year: "2007/13033 sayılı Bakanlar Kurulu Kararı".
+_NUMBERED_LAW = re.compile(r"(?<![\d/.])(?P<no>\d{4}/\d{1,6}|\d{2,5})\s+(?:[Ss]ayılı|SAYILI)\s+")
 _ANAPHOR_LAW = re.compile(
     rf"(?i:aynı|anılan|mezkur|mezkûr|söz\s+konusu|adı\s+geçen|bu)\s+(?:Kanun|kanun|KANUN)[{_LO}’']*"
 )
@@ -178,8 +202,11 @@ _ACRONYM_NUMBER = {
     "DVK": "488",
 }
 _ACRONYM_LAW = re.compile(rf"(?<![\w])(?P<acr>{'|'.join(_ACRONYM_NUMBER)})(?![\w])")
+# A title word may be hyphenated ("Bağ-Kur") or be the law's acronym in
+# parentheses ("Katma Değer Vergisi (KDV) Kanunu").
 _NAMED_LAW = re.compile(
-    rf"(?:(?!Kanun|KANUN)[{_UP}][{_LO}{_UP}'’.]*,?\s+(?:(?:ve|ile|Hakkında|hakkında)\s+)?){{1,14}}"
+    rf"(?:(?:(?!Kanun|KANUN)[{_UP}][{_LO}{_UP}'’.-]*|\([{_UP}]{{2,8}}\)),?\s+"
+    rf"(?:(?:ve|ile|Hakkında|hakkında)\s+)?){{1,14}}"
     rf"(?:Kanun|KANUN)[{_LO}{_UP}’']*"
 )
 _NON_TITLE_STEMS = {"", "bu", "ayni", "anilan", "soz konusu", "ilgili", "mezkur", "adi gecen"}
@@ -200,8 +227,8 @@ def _norm(value: Any) -> str:
 
 def _name_stem(name: str) -> str:
     """A law's title folded, without its trailing "Kanun…" word and case endings."""
-    folded = _fold(name)
-    folded = re.sub(r"^\d+\s*sayili\s*", "", folded)
+    folded = re.sub(r"\([^)]*\)", " ", _fold(name))  # "(KDV)" is the title's acronym
+    folded = re.sub(r"^\s*\d+\s*sayili\s*", "", folded)
     folded = re.sub(r"\b(kanun|yasa)\w*\b.*$", "", folded)
     folded = re.sub(r"[^a-z0-9 ]+", " ", folded)
     return re.sub(r"\s+", " ", folded).strip()
@@ -302,12 +329,65 @@ class _LawMention:
     stem: str  # folded title, "" when only the number is written
     written: bool = True  # False for an anaphor ("aynı Kanunun"), which is only a guess
     amending: bool = False  # "2772 sayılı Kanunla değişik": names a law, owns no article here
+    numbered: bool = False  # the number itself is written ("213 sayılı …")
+    decree: bool = False  # "2007/13033 sayılı BKK": owns the articles written right after it only
+    # "5838 sayılı Kanunun 9 uncu maddesiyle eklenen 32/A": after this offset the
+    # clause names articles of the law being amended, not of this one.
+    reach: int | None = None
 
 
-_AMENDING = re.compile(r"\s*(?:ile\s+)?(?i:değişik|değiştiril\w*|eklen\w*|ihdas\w*)")
+def _title_number(stem: str, aliases: Mapping[str, str]) -> str:
+    """The number a title stands for: the document's own "N sayılı X" binding, then
+    the registry -- trying the title, then without its leading words, since a
+    sentence opener or a company name is often glued on ("ayrica kdv", "ii katma
+    deger vergisi"). Never cut right after "ve"/"ile": "gelir ve kurumlar vergisi"
+    names two laws, not the second one."""
+    words = stem.split()
+    for index in range(len(words)):
+        if index and words[index - 1] in {"ve", "ile"}:
+            continue
+        suffix = " ".join(words[index:])
+        number = aliases.get(suffix) or _REGISTRY_STEMS.get(suffix)
+        if number:
+            return number
+    return ""
 
 
-def _law_mentions(text: str) -> list[_LawMention]:
+# The tail of an amending law's title that names another instrument inside it.
+_OMNIBUS_TAIL = re.compile(r"(?i:kanun\s+hükmünde\s+kararname(?:de|lerde)\s+değişiklik)")
+_AMEND_VERB = r"(?i:değişik|değiştiril\w*|eklen\w*|ihdas\w*|yeniden\s+düzenlen\w*)"
+_AMEND_WITH = re.compile(rf"\s*(?i:ile)\s+{_AMEND_VERB}")
+_AMEND_VERB_AT = re.compile(rf"\s*{_AMEND_VERB}")
+_INSTRUMENTAL_LAW = re.compile(r"(?i:(?:kanun|yasa)\w*?(?:la|le))$")
+# "5838 sayılı Kanunun 9 uncu maddesiyle eklenen": the law owns article 9, not
+# what the clause goes on to name.
+_NOT_A_LAW = r"(?:(?!sayılı|[Kk]anun|KANUN|[Yy]asa|YASA)[^.;:])"
+_AMENDS_BY_ARTICLE = re.compile(
+    rf"\s+{_NOT_A_LAW}{{0,30}}?(?i:madde|md)[{_LO}]*?(?:\s*(?i:ile)|y?l[ae])(?:\s+de)?\s+"
+    rf"(?:[^.;:]{{0,60}}?\s)?{_AMEND_VERB}"
+)
+
+
+def _amending_reach(text: str, end: int) -> int | None:
+    """Where the clause "Kanunun 9 uncu maddesiyle eklenen" after a law ends, if any."""
+    if not re.search(r"(?i:madde|md)", text[end : end + 45]):
+        return None
+    match = _AMENDS_BY_ARTICLE.match(text, end)
+    return match.end() if match else None
+
+
+def _amends(text: str, end: int) -> bool:
+    """Is the law ending at `end` the amending law ("2772 sayılı Kanunla değişik",
+    "… Kanun ile eklenen")? Only the instrumental says so: "Kanununa eklenen"
+    (dative) receives the article, "Kanunun değişik 257" (genitive) owns it."""
+    if _AMEND_WITH.match(text, end):
+        return True
+    word = re.search(r"\S+$", text[max(0, end - 40) : end])
+    return bool(word and _INSTRUMENTAL_LAW.search(word.group(0)) and _AMEND_VERB_AT.match(text, end))
+
+
+@lru_cache(maxsize=32)
+def _law_mentions(text: str) -> tuple[_LawMention, ...]:
     """Every law the text names, in order; anaphors resolved to the previous one.
 
     A law that amends ("2772 sayılı Kanunla değişik 24/2 nci maddesi") is kept
@@ -316,14 +396,35 @@ def _law_mentions(text: str) -> list[_LawMention]:
     """
     found: list[tuple[int, int, str, str, str]] = []
     aliases: dict[str, str] = {}
+    enclosing: tuple[int, int, str] | None = None  # (start, end, number) of the last numbered law
     for match in _NUMBERED_LAW.finditer(text):
         end = _law_end(text, match.end()) or match.end()
-        stem = _name_stem(text[match.end() : end])
-        number = match.group("no").lstrip("0")
-        if stem:
+        title = text[match.end() : end]
+        stem = _name_stem(title)
+        # Read as the reference's own number is (`normalize_law_number`).
+        number = normalize_law_number(match.group("no")) or match.group("no").lstrip("0")
+        between = text[enclosing[1] : match.start()] if enclosing else ""
+        if (
+            enclosing
+            and _OMNIBUS_TAIL.match(title)
+            and len(between) < 400
+            and not re.search(r"\.\s|(?i:madde)", between)
+            and re.search(r"(?i:bazı\s+kanun)", text[enclosing[0] : match.start()])
+        ):
+            # "7104 sayılı … Bazı Kanunlar ile 178 sayılı Kanun Hükmünde
+            # Kararnamede Değişiklik Yapılmasına Dair Kanunun 22'nci maddesi":
+            # the decree is named inside 7104's omnibus title ("Bazı Kanunlar");
+            # what follows is 7104's.
+            number, stem = enclosing[2], ""
+        else:
+            enclosing = (match.start(), end, number)
+        # A title naming other laws ("Katma Değer Vergisi Kanunu ve Bazı Kanunlar
+        # ile … Dair Kanun") binds no short name: its stem is another law's.
+        if stem and len(re.findall(r"(?i:kanun|yasa)", title)) == 1:
             aliases.setdefault(stem, number)
+        kind = "decree" if "/" in match.group("no") else "numbered"
         found.append(
-            (match.start(), end, "amending" if _AMENDING.match(text, end) else "law", number, stem)
+            (match.start(), end, "amending" if _amends(text, end) else kind, number, stem)
         )
     covered = [(start, end) for start, end, *_ in found]
     covered += [
@@ -338,7 +439,7 @@ def _law_mentions(text: str) -> list[_LawMention]:
         stem = _name_stem(match.group(0))
         if stem in _NON_TITLE_STEMS:
             continue
-        kind = "amending" if _AMENDING.match(text, match.end()) else "law"
+        kind = "amending" if _amends(text, match.end()) else "law"
         found.append((match.start(), match.end(), kind, "", stem))
     for match in _ACRONYM_LAW.finditer(text):
         found.append((match.start(), match.end(), "law", _ACRONYM_NUMBER[match.group("acr")], ""))
@@ -347,14 +448,24 @@ def _law_mentions(text: str) -> list[_LawMention]:
     mentions: list[_LawMention] = []
     for start, end, kind, number, stem in sorted(found):
         if kind == "anaphor":
-            owners = [m for m in mentions if not m.amending]
+            # "aynı Kanunun" refers back to a law, never to a decree.
+            owners = [m for m in mentions if not m.amending and not m.decree]
             if owners and not any(m.start <= start < m.end for m in mentions):
                 previous = owners[-1]
                 mentions.append(_LawMention(start, end, previous.number, previous.stem, False))
             continue
-        number = number or aliases.get(stem, "") or _REGISTRY_STEMS.get(stem, "")
-        mentions.append(_LawMention(start, end, number, stem, True, kind == "amending"))
-    return mentions
+        written_number = bool(number) and kind in ("numbered", "decree")
+        decree = kind == "decree"
+        number = number or _title_number(stem, aliases)
+        mentions.append(
+            _LawMention(
+                start, end, number, stem, True, kind == "amending", written_number, decree,
+                _amending_reach(text, end),
+            )
+        )
+    # Cached per document (every reference of a document reads the same laws):
+    # immutable, so no caller can change what the next one reads.
+    return tuple(mentions)
 
 
 def _reference_law(reference: Mapping[str, Any]) -> tuple[str, set[str]]:
@@ -392,13 +503,22 @@ def _canonical_madde(value: str) -> str:
     )["madde"]
 
 
-def _item_rest(match: re.Match[str], madde: str) -> str | None:
-    """The part of a cited item after the reference's article ("/1-a"), or None."""
+def _item_rest(match: re.Match[str], madde: str, inherited: str | None = None) -> str | None:
+    """The part of a cited item after the reference's article ("/1-a"), or None.
+
+    `inherited`: the qualifier of the series this item continues ("Geçici 19 ve
+    20 inci maddeleri" -- 20 is geçici 20, as GT750's verified rows read it).
+    """
     word = match.group("q").split()[0] if match.group("q") else ""
-    qualifier = article_qualifier(word) if word else None
+    qualifier = article_qualifier(word) if word else inherited
     number = match.group("num").lstrip("0") or "0"
     head = f"{qualifier} {number}" if qualifier else number
     rest = re.sub(r"\s+", "", match.group("rest"))
+    upper = re.fullmatch(r"-(\d+)", rest)
+    if upper and not qualifier and int(upper.group(1)) > int(number):
+        # "520-541 inci maddelerinde" names articles 520 to 541, not article 520's
+        # subpart 541 (GT750 doc_129): `_in_cited_range` places it, as a range.
+        return None
     candidates = [(head, rest)]
     letter = re.match(r"^/([A-ZÇĞİÖŞÜ])(?![0-9A-Za-zÇĞİÖŞÜçğıöşü])", rest)
     if letter:
@@ -433,8 +553,11 @@ def _named_rest(phrase: str, madde: str) -> str | None:
             )
         pattern = rf"(?<!\d){ends[0]}\s*(?:ila|ilâ|-|–)\s*{ends[1]}(?!\d)"
         return "" if re.search(pattern, phrase) else None
-    for match in _ITEM_TOKEN.finditer(phrase):
-        rest = _item_rest(match, madde)
+    inherited = None
+    for index, match in enumerate(_ITEM_TOKEN.finditer(phrase)):
+        if index == 0 and match.group("q"):
+            inherited = article_qualifier(match.group("q").split()[0])
+        rest = _item_rest(match, madde, None if match.group("q") else inherited)
         if rest is not None:
             return rest
     return None
@@ -517,7 +640,8 @@ def _levels(phrase: str, rest: str | None, numbered: bool) -> tuple[list[set[str
 def _row_parts(reference: Mapping[str, Any]) -> list[str]:
     parts: list[str] = []
     for field in ("fikra", "bent"):
-        value = _norm(reference.get(field))
+        # "c)" and "(c)" are how a bent is printed; the bent is "c".
+        value = re.sub(r"[()]", "", _norm(reference.get(field)))
         if value:
             parts.extend(p for p in re.split(r"[/-]", value) if p)
     return parts
@@ -552,28 +676,49 @@ def _trim(text: str, start: int, end: int) -> tuple[int, int]:
     return start, end
 
 
-def _law_rank(
-    mentions: list[_LawMention], law_begin: int, start: int, number: str, stems: set[str]
-) -> int | None:
-    """0 explicit agreeing law, 1 inferred agreeing, 2 unknown, 3 inferred other; None explicit other."""
+def _law_evidence(
+    mentions: Sequence[_LawMention], law_begin: int, start: int, number: str, stems: set[str]
+) -> tuple[int | None, bool]:
+    """(law rank, whether the law written before the mention wrote its number).
+
+    Law rank: 0 explicit agreeing law, 1 inferred agreeing, 2 unknown, 3 inferred
+    other; None explicit other.
+    """
+    rank, closest = _law_rank_and_mention(mentions, law_begin, start, number, stems)
+    return rank, bool(rank == 0 and closest is not None and closest.numbered)
+
+
+def _law_rank_and_mention(
+    mentions: Sequence[_LawMention], law_begin: int, start: int, number: str, stems: set[str]
+) -> tuple[int | None, _LawMention | None]:
     mentions = [m for m in mentions if not m.amending]
     if law_begin < start:
-        named = [m for m in mentions if law_begin <= m.start < start]
+        # The law written right before the article: of the mentions over that
+        # stretch -- overlapping it, since one may begin on a word the name does
+        # not ("Ayrıca, KDV Kanununun") -- the one ending nearest the article,
+        # and of those the longest (a long title holds shorter ones inside it).
+        named = [m for m in mentions if m.end > law_begin and m.start < start]
         if named:
-            verdict = _law_agrees(named[-1], number, stems)
+            closest = min(named, key=lambda m: (-m.end, m.start))
+            verdict = _law_agrees(closest, number, stems)
             if verdict is False:
                 # Only a law actually written before the mention excludes it; an
                 # anaphor ("bu Kanunun") is often the quoted law itself.
-                return None if named[-1].written else 3
+                return (None if closest.written else 3), closest
             if verdict:
-                return 0 if named[-1].written else 1
-    preceding = [m for m in mentions if m.start < start]
+                return (0 if closest.written else 1), closest
+    # A decree owns only the articles written right after it (above); so does a
+    # law amending by one of its articles, up to its amending verb.
+    preceding = [
+        m for m in mentions
+        if m.start < start and not m.decree and not (m.reach is not None and m.reach <= start)
+    ]
     if not preceding:
-        return 2
+        return 2, None
     verdict = _law_agrees(preceding[-1], number, stems)
     if verdict is None:
-        return 2
-    return 1 if verdict else 3
+        return 2, None
+    return (1 if verdict else 3), None
 
 
 @dataclass(frozen=True)
@@ -584,6 +729,7 @@ class Placement:
     end: int
     law: int  # 0 law written before it, 1 inferred, 2 unknown, 3 inferred other, 5 no law
     contradicts_subparts: bool  # the mention's paragraph chain disagrees with the row's
+    in_range: bool = False  # the mention names a range of articles containing the reference's
 
 
 def locate_reference_offsets(
@@ -596,6 +742,22 @@ def locate_reference_offsets(
 
 def place_reference(document_text: str, reference: Mapping[str, Any]) -> Placement | None:
     """The best citation of `reference` in `document_text`, with its evidence kind."""
+    candidates = ranked_candidates(document_text, reference)
+    if not candidates:
+        return None
+    return min(candidates, key=lambda candidate: candidate.rank).placement
+
+
+@dataclass(frozen=True)
+class Candidate:
+    """One mention that cites the reference, with the key it is ranked by."""
+
+    rank: tuple[int, ...]
+    placement: Placement
+
+
+def ranked_candidates(document_text: str, reference: Mapping[str, Any]) -> list[Candidate]:
+    """Every mention in `document_text` that may carry `reference`; the least `rank` wins."""
     normalized = normalize_reference(
         {
             field: str(reference.get(field) or "")
@@ -606,11 +768,15 @@ def place_reference(document_text: str, reference: Mapping[str, Any]) -> Placeme
     number, stems = _reference_law(normalized)
     mentions = _law_mentions(document_text)
     if not madde:
+        # The citation that names the law most fully: its number and its title
+        # ("2330 sayılı Nakdi Tazminat … Kanuna"), then its number, then its title.
+        candidates = []
         for mention in mentions:
             if _law_agrees(mention, number, stems):
+                fullness = 0 if mention.numbered and mention.stem else 1 if mention.numbered else 2
                 start, end = _trim(document_text, mention.start, mention.end)
-                return Placement(start, end, 0, False)
-        return None
+                candidates.append(Candidate((fullness, start), Placement(start, end, 0, False)))
+        return candidates
 
     parts = _row_parts(normalized)
     ranked: list[tuple[int, int, int, int, int, int]] = []
@@ -625,7 +791,7 @@ def place_reference(document_text: str, reference: Mapping[str, Any]) -> Placeme
         in_range: bool = False,
     ) -> None:
         law_begin = _law_start(document_text, start)
-        law = _law_rank(mentions, law_begin, start, number, stems)
+        law, numbered_law = _law_evidence(mentions, law_begin, start, number, stems)
         if law is None:
             return
         if lawless:
@@ -638,6 +804,9 @@ def place_reference(document_text: str, reference: Mapping[str, Any]) -> Placeme
         # but behind every mention of the same law standing that does not.
         # Among mentions of the agreeing law, one that names the article itself
         # comes before a range that merely contains it ("620-645 inci maddeleri").
+        # Between equally good mentions, one whose law is written with its number
+        # ("3065 sayılı KDV Kanununun 13/d") is the fuller evidence -- and the one
+        # GT750's verified quotes choose.
         agreeing = 0 if law in (0, 1) else 1
         ranked.append(
             (
@@ -646,6 +815,7 @@ def place_reference(document_text: str, reference: Mapping[str, Any]) -> Placeme
                 law,
                 0 if fits else 1,
                 missing if fits else 9,
+                0 if numbered_law else 1,
                 start,
                 law_begin,
                 end,
@@ -665,7 +835,7 @@ def place_reference(document_text: str, reference: Mapping[str, Any]) -> Placeme
             consider(match.start(), match.end(), match.group(0), "", False)
     if madde == "1":
         for match in L_FOR_ONE_ARTICLE.finditer(document_text):
-            consider(match.start(), match.end(), match.group(0), "", False)
+            consider(match.start(), match.end(), match.group(0), match.group("sub") or "", False)
     for match in WORD_FIRST_ARTICLE.finditer(document_text):
         rest = _named_rest(match.group(0), madde)
         if rest is not None:
@@ -683,11 +853,14 @@ def place_reference(document_text: str, reference: Mapping[str, Any]) -> Placeme
         if lawless and not re.match(r"\(?\s*\d+\s*/", match.group(0)):
             continue
         consider(match.start(), match.end(), match.group(0), rest, True, lawless)
-    if not ranked:
-        return None
-    _, _, law, contradiction, _, start, law_begin, end = min(ranked)
-    start, end = _trim(document_text, law_begin if law_begin < start else start, end)
-    return Placement(start, end, law, bool(contradiction))
+    candidates = []
+    for rank in ranked:
+        _, in_range, law, contradiction, _, _, start, law_begin, end = rank
+        start, end = _trim(document_text, law_begin if law_begin < start else start, end)
+        candidates.append(
+            Candidate(rank, Placement(start, end, law, bool(contradiction), bool(in_range)))
+        )
+    return candidates
 
 
 def locate_reference_span(document_text: str, reference: Mapping[str, str]) -> str | None:

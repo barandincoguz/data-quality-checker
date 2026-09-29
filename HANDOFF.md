@@ -11,17 +11,18 @@
 > - Altın veri GT750 (depo içi kopya `data/ground_truth/gt_v6_gt750_2026-09-24/`), bölme
 >   500/50/200 (kalıp ikizleri bölünmez), havuz 1.191, batch'ler 4×250 + 191 (`R01`…`R05`).
 > - Komutlar: `loop-train --round N [--resume]`, `loop-predict --round N --hmac-key-file …`,
->   `loop-mark --round N --stage judged|adjudicated`, `loop-open-test --confirm-open-test`
->   (yalnız son turdan sonra). Hakem/uzman/sürüm eski komutlarla (`pilot-judges`, `judge-lock`,
->   `serve`, `release`) `--batch-id R0k --generation M00(k-1)`.
+>   `loop-judge --round N` (hakemi sabitler + çalıştırır + `judged` işaretler),
+>   `loop-mark --round N --stage adjudicated`, `loop-open-test --confirm-open-test`
+>   (yalnız son turdan sonra). Uzman/sürüm: `serve`, `release` `--batch-id R0k --generation M00(k-1)`.
+>   Döngüde `pilot-judges`/`judge-lock` reddedilir (pilot yok).
 > - Başlama kapısı doğrulamada (M000 > eğitilmemiş temel model); **test en sona kadar kapalı**.
 > - Puanlamada `213/413` tahminden de düşer (loop ayarında `canonical_evaluate`).
 > - **Durum 25 Eylül 17:45:** M000 hazır (400. adım; doğrulama F1 0,927, temel model 0,782 —
 >   kapı geçti; `artifacts/data_quality_checker_gt750/loop/rounds/round_000_model.json`).
->   R01: 250 belge hazır, M000 ile tahmin edildi (GREEN 108 / YELLOW 40 / RED 102), hakem
->   pilotu 60/60 geçerli. **Bekleyen: uzman 60 pilot belgesini karara bağlar** →
->   `judge-lock --batch-id R01` → `pilot-judges` (üretim) → `loop-mark --round 1 --stage judged`
->   → uzman gerisi → `release --batch-id R01` → `loop-mark --stage adjudicated` → `loop-train --round 1`.
+>   R01: 250 belge hazır, M000 ile tahmin edildi (GREEN 108 / YELLOW 40 / RED 102).
+>   **Pilot kaldırıldı (29 Eylül, aşağıda).** Sıra: `loop-judge --round 1` (29 Eyl 19:15'te başlatıldı,
+>   tmux `gt750-judge`, 172 belge) ‖ uzman 172 belgelik kuyruğu karara bağlar (hakemi beklemez) →
+>   `release --batch-id R01 --generation M000` → `loop-mark --round 1 --stage adjudicated` → `loop-train --round 1`.
 > - Uzman ekranı: `http://127.0.0.1:5056/login` (tmux `gt750-serve`; giriş anahtarı
 >   `data/sensitive/data_quality_checker_gt750/keys/access_token.txt`, ortam
 >   `keys/serve_env.sh`). 5055'teki ekran **eski** M01 turunundur.
@@ -29,10 +30,15 @@
 >   R01…R05'in hepsinde aynısı kullanılmalı.
 > - **Üç kaynaklı hata (26 Eylül):** `loop-errors --round N` bursiyer / model / hakemi uzmanın
 >   kararına karşı puanlar (kaçırılan, fazladan, detay = doğru madde yanlış fıkra/bent; P/R/F1) → `artifacts/data_quality_checker_gt750/loop/rounds/round_NNN_errors.json`;
->   `loop-mark --stage adjudicated` bunu kendisi yazar. Kararlar hakem kilidinden **önce**
->   (hakem gizli = hakemin kör sınavı) ve **sonra** (hakem görünür) diye ayrı. Uzman ekranında
->   pilot 60 belge kuyrukta **en önde** (önceden 12 yeşil pilot belgesi kuyrukta yoktu → kilit
->   hiç açılamazdı); kilitten sonra "Hakemin önerisi doğru" düğmesi (`judge_override`, kısayol J).
+>   `loop-mark --stage adjudicated` bunu kendisi yazar.
+> - **Hakem pilotu KALDIRILDI (kullanıcı kararı 29 Eylül, dq `88e57a3`):** "pilot ve hakemi denetlemek
+>   uzmana yük; hakemin hataları zaten ölçülüyor; hakem kesinlikle Gemma 4". Döngüde hakem önceden
+>   sabit (`fix_loop_judge`: yalnız `gemma-4-31b-it-optiq-4bit`, yerel MLX), uzmanın incelediği her
+>   belgede çalışır (kırmızı + sarı + yeşil örneklem), **uzmana hiç gösterilmez** (bölüm, düğme, J
+>   kısayolu yok; `judge_override` reddedilir) → her karar kör; olay `judge_fixed`, hata raporunda
+>   `judge_visible_to_expert=false`, tüm kararlar `before_judge_lock`'ta. Kuyruk R01 187 → 172.
+>   Sürüm, hakemin incelenen her belgede geçerli kararını ister. Pilotun 60 geçerli kararı yeniden
+>   kullanılır. Eski (pilotlu, M01) düzen değişmedi.
 > - **Uzman ekranı gerçek tarayıcıyla sınandı (26 Eylül, canlı R01'in kopyasında, 19/19):**
 >   her düğme ve kısayol yazdığını söylediği şeyi yazıyor. Düzeltilenler: kısayollar Cmd/Ctrl ile
 >   ya da düzeltme paneli açıkken karar göndermiyor (önceden Cmd+M "model doğru" kaydediyordu);
@@ -89,7 +95,7 @@
 >   hiçbir partiyi tahmin etmez (Ar-Ge: ileride kullanılabilir). Tur k'nın sırası: sürüm +
 >   `loop-mark --stage adjudicated` → `loop-train --round k` (pencereli, mühürlü M00k) →
 >   `loop-predict --round k+1` (uzman işe başlayabilir) → `loop-train --round k --view full_documents`
->   (ikinci hat; uzman çalışırken koşabilir, GPU'yu hakem pilotuyla çakıştırma) →
+>   (ikinci hat; uzman çalışırken koşabilir, GPU'yu `loop-judge` ile çakıştırma) →
 >   `loop-compare --round k` (iki hat + her hattın kendi önceki turuna göre kazancı, yalnız doğrulama).
 >   İkinci hattın kaydı `loop/candidates/round_NNN_full_documents.json` (+ `_registry.json`, adaptör
 >   sha256); herhangi bir partide `process_batch(registry_path=...)` ile koşturulabilir. Mühürleme

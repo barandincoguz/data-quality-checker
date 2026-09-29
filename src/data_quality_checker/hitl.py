@@ -24,7 +24,8 @@ from .config import AppConfig
 from .constants import EXPERT_ACTIONS
 from .contracts import REFERENCE_FIELDS, validate_reference_list
 from .errors import ConfigurationError, ContractError, GateBlocked, IntegrityError, VersionConflict
-from .judges import ensure_green_audit_plan
+from .judges import ensure_green_audit_plan, judge_lock_payload, judge_visible_to_expert
+from .loop_sources import has_loop_settings
 from .normalization import (
     compact_references,
     core_identity,
@@ -143,6 +144,10 @@ _FORM_ERROR_MESSAGES = {
         "ya da tabloyu kullanın."
     ),
     "no production judge is locked": "Hakem henüz kilitlenmedi; hakemin önerisi seçilemez.",
+    "the judge is hidden from the expert in this loop": (
+        "Bu döngüde hakem uzmana gösterilmez; kararınızı insan anotasyonu, model çıktısı "
+        "ya da düzeltme ile verin."
+    ),
     "locked judge has no valid result": "Hakemin bu belge için geçerli bir önerisi yok.",
 }
 
@@ -519,13 +524,15 @@ def _review_requirements(
     # document finalized, and only after the lock can the judge help with the
     # rest. A GREEN pilot document is not necessarily in the GREEN audit
     # sample, so without this it would never reach the expert at all.
+    # The GT750 loop has no judge pilot (user, 29 Sep 2026): its judge is fixed
+    # in advance and never shown, so no document is reviewed for the judge's sake.
     pilot_path = config.public_root / "batches" / batch_id / "judge_pilot_selection.json"
     pilot_ids = (
         {
             str(value)
             for value in json.loads(pilot_path.read_text(encoding="utf-8"))["internal_doc_ids"]
         }
-        if pilot_path.exists()
+        if pilot_path.exists() and not has_loop_settings(config)
         else set()
     )
     required: set[str] = set(audit_ids) | pilot_ids
@@ -580,11 +587,12 @@ def review_queue(*, config: AppConfig, store: Store, batch_id: str) -> list[dict
 
 
 def _locked_judge(config: AppConfig, batch_id: str) -> str | None:
-    path = config.public_root / "batches" / batch_id / "judge_lock.json"
-    if not path.exists():
+    """The judge the expert may see and take as the truth -- None when there is
+    none, or when it is the loop's fixed judge, which is never shown."""
+    if not judge_visible_to_expert(config, batch_id):
         return None
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    return str(payload["model"])
+    payload = judge_lock_payload(config, batch_id)
+    return str(payload["model"]) if payload else None
 
 
 def _document_for_review(
@@ -1005,6 +1013,8 @@ def create_hitl_app(
                     # expert can give, alongside the annotator's and the model's.
                     action = "judge_override"
                     judge_model = _locked_judge(config, batch_id)
+                    if not judge_model and judge_lock_payload(config, batch_id):
+                        raise GateBlocked("the judge is hidden from the expert in this loop")
                     if not judge_model:
                         raise GateBlocked("no production judge is locked")
                     judge = store.get_judge_result(batch_id, internal_doc_id, judge_model)

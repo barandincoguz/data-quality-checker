@@ -922,15 +922,24 @@ def _run_locked_judge_coverage(
     allow_external_judge: bool,
     lease: RunLease,
     generation: str = "G0",
+    include_green_audit: bool = False,
 ) -> dict[str, Any]:
     with Store(config.database_path, busy_timeout_ms=config.runtime.busy_timeout_ms) as store:
         documents = store.list_documents(batch_id)
         escalation = (config.public_root / "batches" / batch_id / "green_escalation.json").exists()
+        # A judge fixed in advance (no pilot) must judge every document the expert
+        # reviews, the GREEN audit sample included, or its errors there go unmeasured.
+        audit = (
+            set(ensure_green_audit_plan(config=config, store=store, batch_id=batch_id)["sample_internal_doc_ids"])
+            if include_green_audit
+            else set()
+        )
         targets = [
             document
             for document in documents
             if document["router_bucket"] in {"RED", "YELLOW"}
             or (escalation and document["router_bucket"] == "GREEN")
+            or document["internal_doc_id"] in audit
         ]
         targets.sort(key=lambda row: row["internal_doc_id"])
         counts = {"valid": 0, "unavailable": 0, "error": 0}
@@ -1109,6 +1118,12 @@ def run_judge_pilot(
                 allow_external_judge=allow_external_judge,
                 lease=lease,
                 generation=generation,
+                include_green_audit=lock_payload.get("pilot", True) is False,
+            )
+        elif _loop_mode(config):
+            raise GateBlocked(
+                "the GT750 loop has no judge pilot; `loop-judge --round N` fixes Gemma 4 "
+                "and runs it on every document the expert reviews"
             )
         else:
             result = _run_pilot_impl(
@@ -1288,7 +1303,87 @@ def judge_expert_metrics(
     }
 
 
+def _loop_mode(config: AppConfig) -> bool:
+    from .loop_sources import has_loop_settings
+
+    return has_loop_settings(config)
+
+
+def judge_lock_payload(config: AppConfig, batch_id: str) -> dict[str, Any] | None:
+    path = config.public_root / "batches" / batch_id / "judge_lock.json"
+    if not path.exists():
+        return None
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def judge_visible_to_expert(config: AppConfig, batch_id: str) -> bool:
+    """Whether the expert may see the judge's verdict: only after a pilot lock.
+
+    The GT750 loop's judge is fixed in advance and never shown (`fix_loop_judge`);
+    with no lock at all the judge is hidden too.
+    """
+    payload = judge_lock_payload(config, batch_id)
+    return bool(payload) and payload.get("expert_sees_judge", True) is not False
+
+
+LOOP_JUDGE_REASON = (
+    "GT750 loop: the judge is fixed in advance (Gemma 4, local) -- no pilot, never "
+    "shown to the expert; its errors are measured against the expert's final lists "
+    "(user decision, 29 Sep 2026)"
+)
+
+
+def fix_loop_judge(
+    *, config: AppConfig, batch_id: str, model: str = JUDGE_MODEL_KEY
+) -> dict[str, Any]:
+    """Fix the GT750 loop's judge for `batch_id`: Gemma 4, no pilot, hidden from the expert.
+
+    User decision (29 Sep 2026): the pilot exam and auditing the judge were load on
+    the expert, while the judge's errors are measured anyway -- every verdict is
+    scored against the expert's final list (`loop-errors`). Hidden on every
+    document, the judge's measurement stays blind everywhere, not only on a
+    pilot. Written where the pilot's lock was (`judge_lock.json`) so coverage
+    and release read one judge; recorded as `judge_fixed`, never `judge_locked`,
+    since no expert decision is ever made after seeing it.
+    """
+    if not _loop_mode(config):
+        raise ContractError("only the GT750 loop fixes its judge in advance")
+    if model != JUDGE_MODEL_KEY or judge_model_providers().get(model) != "mlx":
+        raise ContractError(
+            f"the loop's judge is Gemma 4, run locally ({JUDGE_MODEL_KEY}); got {model!r}"
+        )
+    with Store(config.database_path, busy_timeout_ms=config.runtime.busy_timeout_ms) as store:
+        batch = store.get_batch(batch_id)
+        if batch is None or batch["status"] != "processed":
+            raise GateBlocked(f"batch {batch_id} is not processed")
+        core = {
+            "schema_version": 1,
+            "batch_id": batch_id,
+            "model": model,
+            "reason": LOOP_JUDGE_REASON,
+            "pilot": False,
+            "expert_sees_judge": False,
+            "instrument": judge_instrument(),
+        }
+        payload = {**core, "lock_fingerprint": fingerprint_json(core)}
+        path = config.public_root / "batches" / batch_id / "judge_lock.json"
+        if path.exists():
+            existing = json.loads(path.read_text(encoding="utf-8"))
+            if existing != payload:
+                raise GateBlocked(f"batch {batch_id} already has a different judge: {path}")
+            return existing
+        path.parent.mkdir(parents=True, exist_ok=True)
+        write_json_atomic(path, payload, mode=0o644)
+        store.add_event(batch_id, "judge_fixed", payload)
+        return payload
+
+
 def lock_judge(*, config: AppConfig, batch_id: str, model: str, reason: str) -> dict[str, Any]:
+    if _loop_mode(config):
+        raise GateBlocked(
+            "the GT750 loop has no judge pilot to lock from; `loop-judge --round N` fixes "
+            "Gemma 4 and runs it"
+        )
     if model not in judge_model_providers():
         raise ContractError(f"model must be one of {sorted(judge_model_providers())}")
     if not reason.strip():

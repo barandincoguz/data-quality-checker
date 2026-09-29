@@ -2,9 +2,10 @@
 
 Round 0 trains M000 on the 500-document train split and gates it on
 validation against the untrained base model (B-4). Round k >= 1 prepares and
-predicts batch R0k with M(k-1); the judge, the expert and the release run
-through the existing `pilot-judges` / `judge-lock` / `serve` / `release`
-commands; `loop-mark` records those stages; `loop-train` then trains M(k).
+predicts batch R0k with M(k-1); `loop-judge` fixes the judge (Gemma 4, no
+pilot, never shown to the expert) and runs it on every document the expert
+reviews; the expert and the release run through `serve` / `release`;
+`loop-mark` records the human-driven stages; `loop-train` then trains M(k).
 `loop-errors` scores the annotator, the model and the judge against the
 expert for a round (written automatically when the round is marked
 adjudicated).
@@ -509,17 +510,59 @@ def compare_views(config: Any, *, round_index: int) -> dict[str, Any]:
     return payload
 
 
+def judge_round(
+    config: Any, *, round_index: int, fake_backend: bool = False, provider=None
+) -> dict[str, Any]:
+    """Round k's judge: fix Gemma 4 for R0k, run it on every document the expert reviews.
+
+    No pilot, and the judge is never shown to the expert (user decision, 29 Sep
+    2026): its errors are measured against the expert's final lists
+    (`loop-errors`), blind on every document. Resumable -- verdicts already
+    valid are kept, so the 60 formed during R01's pilot are reused. When every
+    target has a valid verdict the round is marked `judged`.
+    """
+    from .judges import fix_loop_judge, run_judge_pilot
+
+    batch_id = batch_id_for(round_index)
+    generation = round_label(round_index - 1)
+    assert_round_generation(config, batch_id, generation)
+    fix_loop_judge(config=config, batch_id=batch_id)
+    # The only judge `fix_loop_judge` accepts is Gemma 4 on this machine (MLX):
+    # nothing leaves it, which is what the external-call consent guards.
+    summary = run_judge_pilot(
+        config=config,
+        batch_id=batch_id,
+        allow_external_judge=True,
+        generation=generation,
+        fake_backend=fake_backend,
+        provider=provider,
+    )
+    state = resume_round(rounds_state_dir(config), round_index)
+    if summary.get("coverage_complete") and state.stage == "routed":
+        mark_stage(config, round_index=round_index, stage="judged")
+    return summary
+
+
 def mark_stage(config: Any, *, round_index: int, stage: str) -> dict[str, Any]:
     batch = Path(config.public_root) / "batches" / batch_id_for(round_index)
     files = {
-        "judged": ["judge_production_summary.json", "judge_pilot_summary.json"],
+        # The loop has no judge pilot: a round is judged when its judge ran on
+        # every document the expert reviews (`judge_round`).
+        "judged": (
+            ["judge_production_summary.json"]
+            if has_loop_settings(config)
+            else ["judge_production_summary.json", "judge_pilot_summary.json"]
+        ),
         "adjudicated": ["release.json"],
     }
     if stage not in files:
         raise ContractError(f"only {sorted(files)} are marked by hand; got {stage!r}")
     artifact = next((batch / name for name in files[stage] if (batch / name).is_file()), None)
     if artifact is None:
-        raise GateBlocked(f"{stage} has no artifact yet under {batch}")
+        raise GateBlocked(f"{stage} has no artifact yet under {batch} (needs {files[stage]})")
+    if stage == "judged" and has_loop_settings(config):
+        if not json.loads(artifact.read_text(encoding="utf-8")).get("coverage_complete"):
+            raise GateBlocked(f"the judge has not covered every reviewed document: {artifact}")
     state_dir = rounds_state_dir(config)
     state = advance_round(
         resume_round(state_dir, round_index), to=stage, artifact_sha256=sha256_file(artifact)

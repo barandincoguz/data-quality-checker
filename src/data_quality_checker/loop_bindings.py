@@ -24,7 +24,7 @@ from .errors import ContractError
 from .fingerprints import sha256_file
 from .g0 import CheckpointCandidate, select_checkpoint
 from .g0_training import canonical_evaluate
-from .judges import ensure_green_audit_plan, run_judge_pilot
+from .judges import ensure_green_audit_plan, judge_visible_to_expert, run_judge_pilot
 from .loop_metrics import (
     documents_with_finalized_truth,
     expert_workload,
@@ -440,6 +440,10 @@ def write_error_report(
     been anchored by it -- `after_judge_lock` is kept apart so the judge's
     numbers there are never read as blind. A page opened before the lock and
     submitted after it lands in `after_judge_lock`: the conservative side.
+
+    The GT750 loop's judge is fixed in advance and never shown
+    (`judges.fix_loop_judge`, 29 Sep 2026): no lock is recorded, every decision
+    is blind and falls in `before_judge_lock`; `judge_visible_to_expert` says so.
     """
     with Store(config.database_path, busy_timeout_ms=config.runtime.busy_timeout_ms) as store:
         records = round_records(
@@ -460,6 +464,7 @@ def write_error_report(
         "generation": generation,
         "judge_model": judge_model,
         "judge_locked_at_epoch": locked_at,
+        "judge_visible_to_expert": judge_visible_to_expert(config, batch_id),
         "reviews": {
             status: statuses.get(status, 0) for status in ("finalized", "deferred", "pending")
         },

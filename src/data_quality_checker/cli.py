@@ -281,6 +281,13 @@ def build_parser() -> argparse.ArgumentParser:
     loop_predict.add_argument("--hmac-key-file", type=Path)
     loop_predict.set_defaults(handler=commands.loop_predict)
 
+    loop_judge = subparsers.add_parser(
+        "loop-judge",
+        help="fix the judge for R0N (Gemma 4, no pilot, hidden from the expert) and run it on every reviewed document",
+    )
+    loop_judge.add_argument("--round", type=int, required=True)
+    loop_judge.set_defaults(handler=commands.loop_judge)
+
     loop_mark = subparsers.add_parser("loop-mark", help="record a human-driven round stage")
     loop_mark.add_argument("--round", type=int, required=True)
     loop_mark.add_argument("--stage", choices=["judged", "adjudicated"], required=True)

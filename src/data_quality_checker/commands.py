@@ -307,6 +307,12 @@ def loop_predict(args: Namespace, config: AppConfig) -> int:
     )
 
 
+def loop_judge(args: Namespace, config: AppConfig) -> int:
+    from .loop_ops import judge_round
+
+    return _print_json(judge_round(config, round_index=args.round))
+
+
 def loop_mark(args: Namespace, config: AppConfig) -> int:
     from .loop_ops import mark_stage
 

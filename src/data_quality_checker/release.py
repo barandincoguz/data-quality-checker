@@ -187,12 +187,21 @@ def release_batch(*, config: AppConfig, batch_id: str, generation: str = "G0") -
 
             escalation = (public_batch / "green_escalation.json").exists()
             judge_required = _judge_required_ids(documents=documents, escalation=escalation)
+            lock_path = public_batch / "judge_lock.json"
+            lock_payload = (
+                json.loads(lock_path.read_text(encoding="utf-8")) if lock_path.is_file() else None
+            )
+            if lock_payload is not None and lock_payload.get("pilot", True) is False:
+                # A judge fixed in advance judged every document the expert reviewed;
+                # its errors there are measured, so its verdicts must all be present.
+                judge_required |= {str(doc_id) for doc_id in audit["sample_internal_doc_ids"]}
             locked_model: str | None = None
             if judge_required:
-                lock_path = public_batch / "judge_lock.json"
-                if not lock_path.is_file():
-                    raise GateBlocked("RED/YELLOW or escalated GREEN records require judge-lock")
-                lock_payload = json.loads(lock_path.read_text(encoding="utf-8"))
+                if lock_payload is None:
+                    raise GateBlocked(
+                        "RED/YELLOW or escalated GREEN records require a judge "
+                        "(GT750 loop: `loop-judge --round N`; otherwise judge-lock)"
+                    )
                 locked_model = str(lock_payload["model"])
                 missing_judges = [
                     doc_id

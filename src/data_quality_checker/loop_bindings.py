@@ -31,6 +31,8 @@ from .loop_metrics import (
     model_round_metrics,
     paired_delta,
     rater_agreement,
+    reference_table,
+    scoped_truth_records,
 )
 from .loop_rounds import RoundState
 from .loop_runner import RoundStep
@@ -472,9 +474,25 @@ def write_error_report(
         "before_judge_lock": _agreement(before),
         "after_judge_lock": _agreement(after),
         "expert_workload": expert_workload(records),
+        "reference_table": reference_tables(records),
     }
     write_json_atomic(path, payload)
     return payload
+
+
+def reference_tables(records: list[dict[str, Any]]) -> dict[str, Any]:
+    """The journal's per-source table for a batch, in both scopes (`loop_metrics.reference_table`):
+    `reviewed` (the expert's finalized lists) and `batch` (plus the agreed lists of
+    the GREEN documents not reviewed, once the GREEN audit passed)."""
+    tables = {}
+    for scope in ("reviewed", "batch"):
+        scoped = scoped_truth_records(records, scope=scope)
+        tables[scope] = {
+            **reference_table(scoped["records"]),
+            "documents_without_truth": scoped["documents_without_truth"],
+            "green_audit_passed": scoped["green_audit_passed"],
+        }
+    return tables
 
 
 def metrics_step(

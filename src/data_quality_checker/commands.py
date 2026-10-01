@@ -313,6 +313,33 @@ def loop_judge(args: Namespace, config: AppConfig) -> int:
     return _print_json(judge_round(config, round_index=args.round))
 
 
+def loop_report(args: Namespace, config: AppConfig) -> int:
+    from .loop_ops import batch_trend
+
+    trend = batch_trend(config)
+    return _print_json(
+        {
+            "batches": [
+                {
+                    "batch_id": batch["batch_id"],
+                    "predicted_by": batch["predicted_by"],
+                    **{
+                        scope: {
+                            "documents": batch[scope]["documents"],
+                            "model_core_f1": batch[scope]["sources"]["model"]["core"]["f1"],
+                            "annotator_core_f1": batch[scope]["sources"]["annotator"]["core"]["f1"],
+                        }
+                        for scope in ("reviewed", "batch")
+                        if scope in batch
+                    },
+                }
+                for batch in trend["batches"]
+            ],
+            "validation": trend["validation"],
+        }
+    )
+
+
 def loop_mark(args: Namespace, config: AppConfig) -> int:
     from .loop_ops import mark_stage
 

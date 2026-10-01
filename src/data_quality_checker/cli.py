@@ -299,6 +299,12 @@ def build_parser() -> argparse.ArgumentParser:
     loop_errors.add_argument("--round", type=int, required=True)
     loop_errors.set_defaults(handler=commands.loop_errors)
 
+    loop_report = subparsers.add_parser(
+        "loop-report",
+        help="every batch so far: each source against the truth, and the change from the previous batch",
+    )
+    loop_report.set_defaults(handler=commands.loop_report)
+
     loop_open = subparsers.add_parser(
         "loop-open-test", help="score every round's model on the sealed test split, once"
     )

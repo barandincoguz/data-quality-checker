@@ -37,7 +37,7 @@ from .g0_training import (
 )
 from .heartbeat import RunLease
 from .loop_bindings import write_error_report
-from .loop_metrics import model_round_metrics, paired_delta
+from .loop_metrics import model_round_metrics, paired_delta, unpaired_f1_delta
 from .loop_rounds import advance_round, resume_round, rounds_state_dir, write_round_state
 from .loop_sources import has_loop_settings, validate_loop_sources
 from .loop_train import train_round, training_view_mode
@@ -543,6 +543,81 @@ def judge_round(
     return summary
 
 
+_TREND_KEYS = ("tp", "fp", "fn", "precision", "recall", "f1", "f1_ci95")
+
+
+def batch_trend(config: Any) -> dict[str, Any]:
+    """Every batch so far: how each source did against the truth, and the change
+    from the previous batch -- plus each round model's validation F1.
+
+    Batch R0k is predicted by M(k-1), so its row is that model's success on new,
+    unseen documents; batches differ in documents, so the change is an unpaired
+    bootstrap (`unpaired_f1_delta`). The paired, same-documents view of the gain
+    is validation (`loop-compare`). Written to `loop/rounds/batch_trend.json`.
+    """
+    rounds_dir = rounds_state_dir(config)
+    batches: list[dict[str, Any]] = []
+    previous: dict[str, Any] | None = None
+    for path in sorted(rounds_dir.glob("round_[0-9][0-9][0-9]_errors.json")):
+        report = json.loads(path.read_text(encoding="utf-8"))
+        if "reference_table" not in report:
+            continue
+        entry: dict[str, Any] = {
+            "round": report["round"],
+            "batch_id": report["batch_id"],
+            "predicted_by": report["generation"],
+        }
+        for scope, table in report["reference_table"].items():
+            summary: dict[str, Any] = {
+                "documents": table["documents"],
+                "documents_without_truth": len(table.get("documents_without_truth", [])),
+                "documents_by_truth_source": table.get("documents_by_truth_source", {}),
+                "sources": {
+                    name: {
+                        level: {key: source[level].get(key) for key in _TREND_KEYS}
+                        for level in ("core", "full")
+                    }
+                    for name, source in table["sources"].items()
+                },
+            }
+            if previous is not None and scope in previous["reference_table"]:
+                before = previous["reference_table"][scope]["per_document"]
+                after = table["per_document"]
+                change: dict[str, Any] = {}
+                for name in table["sources"]:
+                    for level in ("core", "full"):
+                        a = {d: dict(zip(("tp", "fp", "fn"), v[name][level])) for d, v in after.items() if name in v}
+                        b = {d: dict(zip(("tp", "fp", "fn"), v[name][level])) for d, v in before.items() if name in v}
+                        if a and b:
+                            change.setdefault(name, {})[level] = unpaired_f1_delta(b, a)
+                summary["vs_previous_batch"] = change
+            entry[scope] = summary
+        batches.append(entry)
+        previous = report
+    validation = []
+    index = 0
+    while _model_record_path(config, index).is_file():
+        record = json.loads(_model_record_path(config, index).read_text(encoding="utf-8"))
+        row: dict[str, Any] = {
+            "round": index,
+            "model": round_label(index),
+            "windows_core_f1": record["selection"]["core_f1"],
+        }
+        second = _candidate_path(config, index, SECOND_LINE_VIEW)
+        if second.is_file():
+            row["full_documents_core_f1"] = json.loads(second.read_text(encoding="utf-8"))["selection"]["core_f1"]
+        ablation = _loop_dir(config) / "candidates" / f"round_{index:03d}_ablation.json"
+        if ablation.is_file():
+            gains = json.loads(ablation.read_text(encoding="utf-8")).get("paired_bootstrap_vs_previous_round")
+            if gains:
+                row["paired_vs_previous_round"] = gains
+        validation.append(row)
+        index += 1
+    payload = {"schema_version": 1, "batches": batches, "validation": validation}
+    write_json_atomic(rounds_dir / "batch_trend.json", payload)
+    return payload
+
+
 def mark_stage(config: Any, *, round_index: int, stage: str) -> dict[str, Any]:
     batch = Path(config.public_root) / "batches" / batch_id_for(round_index)
     files = {
@@ -570,6 +645,7 @@ def mark_stage(config: Any, *, round_index: int, stage: str) -> dict[str, Any]:
     write_round_state(state_dir, state)
     if stage == "adjudicated":
         error_report(config, round_index=round_index)
+        batch_trend(config)
     return {"round": round_index, "stage": state.stage, "artifact": str(artifact)}
 
 

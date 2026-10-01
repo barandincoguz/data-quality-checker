@@ -50,7 +50,7 @@ from typing import Any
 from .constants import EXPERT_ACTIONS, REVIEW_STATUSES
 from .errors import ContractError, IntegrityError
 from .g0_training import canonical_evaluate
-from .normalization import compact_references, core_identity
+from .normalization import compact_references, core_identity, full_identity
 from .performance import _percentile, summarize_operational_records
 from .reference_policy import apply_reference_policy
 
@@ -973,3 +973,194 @@ def paired_delta(
         "per_document": win_tie_loss,
         "verdict": verdict,
     }
+
+
+# --- the journal's per-batch table (user story, 1 Oct 2026) -----------------
+
+
+def _claims(references: Iterable[Mapping[str, Any]]) -> tuple[int, int, set[Any], set[Any]]:
+    """(rows after the policy, rows the policy dropped, reference set, provision set).
+
+    A reference is a law + article + fikra + bent claim; a provision is the law
+    + article it is about. Rows another row already accounts for are one claim
+    (`compact_references`); 213/413 is dropped (`apply_reference_policy`).
+    """
+    rows = list(references)
+    kept, _ = apply_reference_policy(rows)
+    compacted = compact_references(kept)
+    return (
+        len(kept),
+        len(rows) - len(kept),
+        {full_identity(reference) for reference in compacted},
+        {core_identity(reference) for reference in compacted},
+    )
+
+
+def _table_prf(tp: int, fp: int, fn: int) -> tuple[float, float, float]:
+    precision = _rate(tp, tp + fp)
+    recall = _rate(tp, tp + fn)
+    f1 = 2 * precision * recall / (precision + recall) if precision + recall else 0.0
+    return precision, recall, f1
+
+
+def _table_bootstrap_f1(per_document: Sequence[tuple[int, int, int]], *, samples: int, seed: int) -> list[float]:
+    """F1 of summed tp/fp/fn over documents resampled with replacement (as `paired_delta`)."""
+    if not per_document:
+        return []
+    rng = random.Random(seed)
+    values = []
+    for _ in range(samples):
+        draw = rng.choices(per_document, k=len(per_document))
+        values.append(_table_prf(sum(d[0] for d in draw), sum(d[1] for d in draw), sum(d[2] for d in draw))[2])
+    return sorted(values)
+
+
+def _interval(values: Sequence[float]) -> list[float] | None:
+    if not values:
+        return None
+    return [values[int(0.025 * (len(values) - 1))], values[int(0.975 * (len(values) - 1))]]
+
+
+def reference_table(
+    records: Sequence[Mapping[str, Any]],
+    *,
+    samples: int = PAIRED_BOOTSTRAP_SAMPLES,
+    seed: int = PAIRED_BOOTSTRAP_SEED,
+) -> dict[str, Any]:
+    """Per source: what it found, what it got wrong, what it missed, against the truth.
+
+    `records`: one per document, `{"doc_id", "truth", "truth_source", "annotator",
+    "model", "judge"}` (`scoped_truth_records`); a source's list is `None` when it
+    has nothing for that document, which then leaves its counts. For each source:
+
+    - `written_rows` / `policy_dropped`: rows it wrote after / dropped by 213/413;
+    - `written_references` / `written_provisions`: distinct claims it made, as
+      references (law + article + fikra + bent) and as provisions (law + article);
+    - `truth_references` / `truth_provisions`: the same for the truth, over the
+      documents the source has;
+    - `full` (references) and `core` (provisions): tp / fp / fn, P / R / F1 and a
+      95% document-bootstrap interval for F1 (`samples`, `seed`);
+    - `wrong_references` (its references the truth does not hold),
+      `missed_references` (the truth's it does not), `detail_errors` (right
+      provision, wrong fikra/bent).
+
+    `per_document` keeps each document's counts, for batch-to-batch deltas.
+    """
+    sources: dict[str, Any] = {}
+    per_document: dict[str, dict[str, Any]] = {}
+    for name in _RATER_NAMES:
+        totals = Counter()
+        rows_full: list[tuple[int, int, int]] = []
+        rows_core: list[tuple[int, int, int]] = []
+        documents = 0
+        for record in records:
+            if record.get(name) is None:
+                continue
+            documents += 1
+            _, _, truth_full, truth_core = _claims(record["truth"])
+            kept, dropped, full, core = _claims(record[name])
+            detail = sum(
+                1
+                for identity in truth_core & core
+                if {x[4:] for x in truth_full if x[:4] == identity} != {x[4:] for x in full if x[:4] == identity}
+            )
+            counts_full = (len(full & truth_full), len(full - truth_full), len(truth_full - full))
+            counts_core = (len(core & truth_core), len(core - truth_core), len(truth_core - core))
+            rows_full.append(counts_full)
+            rows_core.append(counts_core)
+            totals.update(
+                written_rows=kept, policy_dropped=dropped, written_references=len(full),
+                written_provisions=len(core), truth_references=len(truth_full),
+                truth_provisions=len(truth_core), detail_errors=detail,
+            )
+            per_document.setdefault(str(record["doc_id"]), {})[name] = {
+                "full": list(counts_full), "core": list(counts_core)}
+        levels = {}
+        for level, rows in (("full", rows_full), ("core", rows_core)):
+            tp, fp, fn = (sum(row[i] for row in rows) for i in range(3))
+            precision, recall, f1 = _table_prf(tp, fp, fn)
+            levels[level] = {
+                "tp": tp, "fp": fp, "fn": fn, "precision": precision, "recall": recall, "f1": f1,
+                "f1_ci95": _interval(_table_bootstrap_f1(rows, samples=samples, seed=seed)),
+            }
+        sources[name] = {
+            "documents": documents,
+            **{key: totals.get(key, 0) for key in (
+                "written_rows", "policy_dropped", "written_references", "written_provisions",
+                "truth_references", "truth_provisions", "detail_errors")},
+            **levels,
+            "wrong_references": levels["full"]["fp"],
+            "missed_references": levels["full"]["fn"],
+        }
+    return {
+        "documents": len(records),
+        "documents_by_truth_source": dict(Counter(str(record["truth_source"]) for record in records)),
+        "bootstrap": {"samples": samples, "seed": seed, "unit": "document"},
+        "sources": sources,
+        "per_document": per_document,
+    }
+
+
+def scoped_truth_records(records: Sequence[Mapping[str, Any]], *, scope: str) -> dict[str, Any]:
+    """The documents of a batch that have a truth, under one of two scopes.
+
+    `reviewed`: the expert's finalized lists only. `batch`: those, plus every
+    GREEN document the expert did not review -- whose truth is the list annotator
+    and model agreed on (GREEN means they agree) -- but only once the GREEN audit
+    sample is fully decided and nothing escalated: until then the agreed lists
+    are not truth yet. Records are `loop_bindings.round_records`'.
+    """
+    if scope not in ("reviewed", "batch"):
+        raise ContractError(f"scope must be 'reviewed' or 'batch', got {scope!r}")
+    escalated = any(record.get("escalated") for record in records)
+    audit = [record for record in records if record.get("in_green_audit_sample")]
+    audit_passed = not escalated and all(record.get("status") == "finalized" for record in audit)
+    out, without = [], []
+    for record in records:
+        doc_id = str(record["internal_doc_id"])
+        if record.get("status") == "finalized":
+            truth, source = record["final"], "expert"
+        elif scope == "batch" and record.get("router_bucket") == "GREEN" and audit_passed:
+            truth, source = record["annotator"], "consensus"
+        else:
+            if scope == "batch":
+                without.append(doc_id)
+            continue
+        out.append({"doc_id": doc_id, "truth": truth, "truth_source": source,
+                    **{name: record.get(name) for name in _RATER_NAMES}})
+    return {"scope": scope, "records": out, "documents_without_truth": sorted(without),
+            "green_audit_passed": audit_passed}
+
+
+def unpaired_f1_delta(
+    previous: Mapping[Any, Mapping[str, int]],
+    current: Mapping[Any, Mapping[str, int]],
+    *,
+    samples: int = PAIRED_BOOTSTRAP_SAMPLES,
+    seed: int = PAIRED_BOOTSTRAP_SEED,
+) -> dict[str, Any]:
+    """F1 change from one batch to the next: different documents, so each batch is
+    resampled on its own (`paired_delta` is for the same documents twice)."""
+    def counts(mapping):
+        return [(int(v["tp"]), int(v["fp"]), int(v["fn"])) for _, v in sorted(mapping.items())]
+
+    before, after = counts(previous), counts(current)
+    if not before or not after:
+        raise ContractError("unpaired_f1_delta needs documents on both sides")
+    point = _table_prf(*map(sum, zip(*after)))[2] - _table_prf(*map(sum, zip(*before)))[2]
+    rng = random.Random(seed)
+    deltas = []
+    for _ in range(samples):
+        a = rng.choices(after, k=len(after))
+        b = rng.choices(before, k=len(before))
+        deltas.append(_table_prf(*map(sum, zip(*a)))[2] - _table_prf(*map(sum, zip(*b)))[2])
+    deltas.sort()
+    low, high = _interval(deltas)
+    verdict = "improved" if low > 0 else "regressed" if high < 0 else "inconclusive"
+    return {
+        "delta": point, "lower_2_5": low, "upper_97_5": high,
+        "probability_delta_gt_zero": sum(1 for d in deltas if d > 0) / samples,
+        "previous_documents": len(before), "current_documents": len(after),
+        "samples": samples, "seed": seed, "verdict": verdict,
+    }
+

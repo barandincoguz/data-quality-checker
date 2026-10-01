@@ -306,6 +306,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="stage 1 of the prompt screen: every registered prompt on 100 training documents, untrained model",
     )
     prompt_screen.add_argument("--base-run-id", required=True, help="a loop run whose model snapshot and sequence length to use")
+    prompt_screen.add_argument("--stage", type=int, choices=(1, 2), default=1)
+    prompt_screen.add_argument("--candidate-config", type=Path, nargs="*", help="stage 2: the candidates' configs")
     prompt_screen.set_defaults(handler=commands.loop_prompt_screen)
 
     loop_mark = subparsers.add_parser("loop-mark", help="record a human-driven round stage")

@@ -184,3 +184,67 @@ def write_stage_two_configs(config_path: Path, selection: dict[str, Any]) -> lis
         write_json_atomic(path, screen_config_payload(base, variant), mode=0o644)
         written.append(path)
     return written
+
+
+def _curve(candidate_root: Path) -> dict[int, dict[str, Any]]:
+    """{update: {"f1", "recall", "per_document"}} from a run's validation summaries."""
+
+    curve = {}
+    for path in sorted(candidate_root.glob("validation/update_*/evaluation.json")):
+        result = json.loads(path.read_text(encoding="utf-8"))["results"][0]
+        core = result["core_law_article_strict"]
+        curve[int(path.parent.name.split("_")[1])] = {
+            "f1": core["f1"],
+            "recall": core["recall"],
+            "per_document": {
+                int(e["doc_id"]): {"tp": int(e["tp"]), "fp": int(e["fp"]), "fn": int(e["fn"])}
+                for e in result["core_per_doc_metrics"]
+            },
+        }
+    return curve
+
+
+def stage_two(runs: dict[str, Path], *, output: Path, at: int = SHORT_RUN_UPDATES) -> dict[str, Any]:
+    """Compare the stage-two runs at update `at` (pre-registered) and pick the winner.
+
+    `runs` maps each prompt variant to its run's candidate root (the current
+    prompt's is M000 v2's). Primary: F1 at `at`; ties by recall, then the
+    shorter prompt. Secondary, reported: the best F1 up to `at`, and each
+    candidate against the current prompt by the published paired bootstrap.
+    """
+
+    from .loop_metrics import paired_delta
+
+    if PROMPT_VARIANT not in runs:
+        raise GateBlocked("stage two compares against the current prompt; its run is missing")
+    curves = {variant: _curve(root) for variant, root in runs.items()}
+    for variant, curve in curves.items():
+        if at not in curve:
+            raise GateBlocked(f"{variant} has no validation at update {at}")
+    results = {
+        variant: {
+            "variant": variant,
+            "f1": curve[at]["f1"],
+            "recall": curve[at]["recall"],
+            "best_f1_up_to": max(point["f1"] for update, point in curve.items() if update <= at),
+            "curve": {update: round(point["f1"], 4) for update, point in sorted(curve.items()) if update <= at},
+        }
+        for variant, curve in curves.items()
+    }
+    current = curves[PROMPT_VARIANT][at]["per_document"]
+    for variant in results:
+        if variant != PROMPT_VARIANT:
+            results[variant]["vs_current"] = paired_delta(current, curves[variant][at]["per_document"])
+    order = rank(results)
+    payload = {
+        "schema_version": 1,
+        "stage": 2,
+        "at_update": at,
+        "documents": "validation split (50), GT v7",
+        "ranking": [results[variant] for variant in order],
+        "winner": order[0],
+        "rule": "F1 at update %d, then recall, then the shorter prompt" % at,
+        "generated_at": datetime.now(UTC).isoformat(),
+    }
+    write_json_atomic(output, payload, mode=0o644)
+    return payload

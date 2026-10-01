@@ -141,3 +141,31 @@ def test_batch_prediction_asks_with_the_configs_prompt() -> None:
 
     source = inspect.getsource(MlxG0Backend)
     assert "loop_prompt(config)" in source and '"content": self.system_prompt' in source
+
+
+def test_stage_two_picks_by_f1_at_the_registered_update_and_pairs_against_the_current(tmp_path) -> None:
+    from data_quality_checker.prompt_screen import stage_two
+
+    def run(name, points):
+        root = tmp_path / name
+        for update, (tp, fp, fn) in points.items():
+            d = root / "validation" / f"update_{update:07d}"
+            d.mkdir(parents=True)
+            per = [{"doc_id": i, "tp": tp, "fp": fp, "fn": fn} for i in range(20)]
+            f1 = 2 * tp / (2 * tp + fp + fn)
+            (d / "evaluation.json").write_text(json.dumps({"results": [{
+                "core_law_article_strict": {"f1": f1, "recall": tp / (tp + fn)}, "core_per_doc_metrics": per}]}))
+        return root
+
+    runs = {
+        PROMPT_VARIANT: run("p0", {125: (5, 1, 1), 150: (4, 1, 1)}),
+        "law-article-p1-binding": run("p1", {125: (2, 2, 2), 150: (5, 0, 1)}),
+        "law-article-p6-minimal": run("p6", {125: (9, 0, 0), 150: (3, 2, 2)}),
+    }
+    result = stage_two(runs, output=tmp_path / "selection.json")
+    assert result["winner"] == "law-article-p1-binding"
+    p6 = next(r for r in result["ranking"] if r["variant"] == "law-article-p6-minimal")
+    assert p6["best_f1_up_to"] == 1.0  # reported, but the update-150 F1 decides
+    p1 = next(r for r in result["ranking"] if r["variant"] == "law-article-p1-binding")
+    assert p1["vs_current"]["bootstrap_mean"] > 0 and p1["vs_current"]["verdict"] == "improved"
+    assert json.loads((tmp_path / "selection.json").read_text())["winner"] == "law-article-p1-binding"

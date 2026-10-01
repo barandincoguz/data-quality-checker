@@ -288,6 +288,14 @@ def build_parser() -> argparse.ArgumentParser:
     loop_judge.add_argument("--round", type=int, required=True)
     loop_judge.set_defaults(handler=commands.loop_judge)
 
+    loop_carry = subparsers.add_parser(
+        "loop-carry-decisions",
+        help="carry the expert's decisions on R0N from an archived loop, projected to law + article",
+    )
+    loop_carry.add_argument("--round", type=int, required=True)
+    loop_carry.add_argument("--from-config", type=Path, required=True)
+    loop_carry.set_defaults(handler=commands.loop_carry_decisions)
+
     loop_mark = subparsers.add_parser("loop-mark", help="record a human-driven round stage")
     loop_mark.add_argument("--round", type=int, required=True)
     loop_mark.add_argument("--stage", choices=["judged", "adjudicated"], required=True)

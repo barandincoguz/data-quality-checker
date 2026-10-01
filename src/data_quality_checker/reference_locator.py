@@ -498,7 +498,7 @@ def _law_agrees(mention: _LawMention, number: str, stems: set[str]) -> bool | No
 
 def _canonical_madde(value: str) -> str:
     return normalize_reference(
-        {"kanun_no": "", "kanun_ad": "", "madde": value, "fikra": "", "bent": "", "source_text": ""}
+        {"kanun_no": "", "kanun_ad": "", "madde": value, "source_text": ""}
     )["madde"]
 
 

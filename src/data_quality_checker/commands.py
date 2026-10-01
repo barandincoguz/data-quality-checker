@@ -313,6 +313,22 @@ def loop_judge(args: Namespace, config: AppConfig) -> int:
     return _print_json(judge_round(config, round_index=args.round))
 
 
+def loop_carry_decisions(args: Namespace, config: AppConfig) -> int:
+    from .config import load_config
+    from .loop_carry import carry_decisions
+    from .loop_ops import batch_id_for
+
+    source = load_config(args.from_config)
+    return _print_json(
+        carry_decisions(
+            config,
+            batch_id=batch_id_for(args.round),
+            source_database=source.database_path,
+            source_label=args.from_config.stem,
+        )
+    )
+
+
 def loop_report(args: Namespace, config: AppConfig) -> int:
     from .loop_ops import batch_trend
 

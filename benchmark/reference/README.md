@@ -1,3 +1,10 @@
+> **1 Ekim 2026 — bu depoda yalnız değerlendirici kaldı, ve yalnız kanun + madde ölçer.**
+> Referans = kanun no + madde (kullanıcı kararı); fıkra/bent ne okunur, ne eşleşir, ne raporlanır.
+> `overall` (beş alan), alan başı ölçüler, hata kovaları ve alt parça tanıları kalktı. Bu belgenin
+> aşağısı, depodan çıkan çıkarım yöntemlerini (`run.py`, regex/spaCy/LLM annotator'ları, promptlar)
+> ve eski beş alanlı ölçüyü anlatan **arşiv** metnidir; o kodun yaşayan kopyası ner-project'tedir
+> (ASYU 2026 bildirisinin yeniden üretimi), bu deponun kodu ise git etiketi `archive/gt750-v1-fikra-bent`'tedir.
+
 # Reference Benchmark Pipeline
 
 > **Yorumlayıcı uyarısı.** Bu dosyadaki komut blokları `venv/bin/python` yazar,

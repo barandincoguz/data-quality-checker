@@ -21,13 +21,13 @@ Access the UI at `http://127.0.0.1:5055`.
 ## 2. Review Workflow
 
 1. **Document Selection**:
-   - The dashboard lists documents categorized by routing bucket: `RED` (high priority), `YELLOW` (medium priority), `GREEN` (consensus checks), `QUARANTINE` (structural/parsing defects).
+   - The dashboard lists documents categorized by routing bucket: `RED` (high priority), `GREEN` (consensus checks), `QUARANTINE` (structural/parsing defects).
 2. **Comparison View**:
    - The review page is single-column: first the document text with evidence highlighting, then one human/model comparison table (columns: reference identity, human annotation, model prediction, result).
 3. **Decision Actions**:
    - **Accept Human**: Validates that the human annotation is 100% correct.
    - **Accept Model**: Replaces the human annotation with the model prediction when the model correctly identified missed references.
-   - **Revise / Edit**: Manually edit the six reference fields (`kanun_no`, `kanun_ad`, `madde`, `fikra`, `bent`, `source_text`) if both sources contained inaccuracies.
+   - **Revise / Edit**: Manually edit the reference fields (`kanun_no`, `kanun_ad`, `madde`, `source_text`) if both sources contained inaccuracies. A reference is a law and an article; there is no paragraph or sub-item field (1 Oct 2026).
    - **Defer**: Flag document for senior legal expert adjudication.
 
 ---

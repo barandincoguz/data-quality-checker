@@ -42,8 +42,8 @@ The complete lifecycle consists of 6 sequential, deterministic stages:
 
 ### 2.3 Semantic Routing (`router.py`, `reference_policy.py`)
 Classifies document annotation quality by comparing human annotations against model predictions:
-- **`GREEN`** (Consensus Clean): Exact agreement on all five structured legal reference fields (`kanun_no`, `kanun_ad`, `madde`, `fikra`, `bent`) — router reason `normalized_five_field_set_equal`. The three-field match on `kanun_no`/`kanun_ad`/`madde` is `core_identity`, which marks the RED/YELLOW boundary, not GREEN.
-- **`YELLOW`** (Minor Discrepancy): Partial overlap or sub-article / paragraph differences; recommended for fast review.
+- **`GREEN`** (Consensus Clean): both sides name the same set of laws and articles (`core_identity`: the law number -- the folded name only when there is none -- and the normalized article) — router reason `normalized_law_article_set_equal`. A reference is a law and an article of it (1 Oct 2026): nothing below the article is compared.
+- **`YELLOW`**: removed on 1 Oct 2026. It meant "same articles, different paragraph or sub-item", a difference that no longer exists; stored archive batches may still carry it.
 - **`RED`** (Severe Conflict): Major divergence in legal identity or missed primary references; flagged for prioritized expert review.
 - **`QUARANTINE`** (Structural Defect): Parsing errors, missing evidence, or schema violations.
 

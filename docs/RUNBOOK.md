@@ -145,8 +145,8 @@ olmadan fallback başarılı sayılmaz.
 Bir pencere generation sınırına ulaşırsa recovery yalnız şu koşulların tamamında
 çalışır: raw çıktı geçerli tam JSON object prefix içerir, terminalde art arda en
 az iki aynı legal tuple vardır ve eksik suffix kullanılmadan prefix array olarak
-kapatılabilir. Tam object'ler `(kanun_no, kanun_ad, madde, fikra, bent)` ile
-dedup edilir; primary/raw window çıktıları provenance içinde korunur. Bu koşullar
+kapatılabilir. Tam object'ler `(kanun_no, kanun_ad, madde)` ile (1 Ekim 2026'dan beri
+referans = kanun + madde) dedup edilir; primary/raw window çıktıları provenance içinde korunur. Bu koşullar
 yoksa belge hata olarak kalır. Sealed test bu development akışında açılmaz.
 
 ## 5. Batch hazırlama

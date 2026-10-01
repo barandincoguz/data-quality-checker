@@ -1,4 +1,56 @@
-# Devir — DQ-Loop tur 1
+# Devir — DQ-Loop
+
+> **1 Ekim 2026 — REFERANS = KANUN NO + MADDE. Önce bunu oku.** Kullanıcı kararı: fıkra ve bent
+> işten tamamen çıktı. Ne modelin ve hakemin promptunda, ne eğitim hedeflerinde, ne değerlendiricide,
+> eşleyicide, yönlendiricide, ekranda ya da ölçülerde geçer; fıkra/bent farkı yüzünden hiçbir bayrak
+> kalkmaz. Plan: `/Users/student2/ner-project/docs/superpowers/plans/2026-10-01-kanun-madde-only.md`.
+>
+> - **Yeni döngü (v2):** `--config configs/presets/gt750_law_article_loop.json`, kökler
+>   `data/sensitive/data_quality_checker_gt750_law_article`, `artifacts/data_quality_checker_gt750_law_article`.
+>   Altın veri **GT v7** (`data/ground_truth/gt_v7_gt750_law_article_2026-10-01/`, salt-okunur; v6'dan
+>   `ner-project/scripts/gt750/reduce_law_article.py` ile; 4.356 satır → 3.561; birleşen satırların bütün
+>   alıntıları `source_texts`'te). Bölme (SPLIT.json bayt bayt aynı), havuz, 4×250+191 paket, belge anahtarı
+>   (`data/sensitive/data_quality_checker_gt750/keys/gt750_loop.key`) aynı.
+> - **Eski döngü (v1, fıkra/bent) ARŞİV:** `gt750_loop.json` ve `*_gt750` kökleri dokunulmadan duruyor
+>   (M000 v1, R01 v1 tahminleri, 23 uzman kararı, 172 hakem kararı). Kod: etiket `archive/gt750-v1-fikra-bent`.
+>   Veritabanı yedeği `data/sensitive/archive_v1_fikra_bent_2026-10-01/` (salt-okunur). GT v6 salt-okunur.
+>   Codex'in commit edilmemiş işi dal `archive/codex-route-refresh-wip-2026-10-01`.
+> - **Kimlik kuralı (her motor):** (kanun_no, madde); numara yoksa katlanmış ad. `kanun_ad` etiket.
+>   Maddeye yapışık alt parça kesilir ("13/a", "17/4-a", "10 (2)" → madde); eklenmiş madde harfi büyük
+>   kalır ("32/A", iki kez uygulamak sonucu değiştirmez). Kanun düzeyi satır, o kanunun maddesi varsa düşer.
+>   Kovalar: YEŞİL / KIRMIZI / KARANTİNA — **SARI yok**. Gardiyan: `tests/test_no_paragraph_anywhere.py`.
+> - **Model:** prompt `few-shot-cot-v3-en-compact-recall-law-article-v1` (üç alan), görünüm `lawarticle-v12`.
+>   **M000 v2** `dqcheck_loop_5ba971453375` 1 Ekim 20:32'de başladı (tmux `gt750la-train`, gözetmen
+>   `.../loop/supervise_m0.sh`, günlük `m0_train.log`); 23 parça × 25 adım + doğrulama, ~10 sa.
+>   **Eğitim sürerken şu dosyalara DOKUNMA** (çalıştırıcı ve değerlendirici her doğrulamada baştan yükler;
+>   devam ederken sözleşme değişmesin): atomic, checkpoints, config, constants, contracts, errors,
+>   fake_training, fingerprints, g0, g0_finalize, g0_training, heartbeat, locking, mlx_compute, mlx_stateful,
+>   mlx_worker, normalization, performance, preparation, processing, reference_policy, router, safezip,
+>   storage, text, context_windows, loop_train, loop_sources, loop_ops; benchmark/reference/{evaluate,matching}.py;
+>   annotator/reference/common.py.
+> - **Zincir (tmux `gt750la-chain`, `.../loop/r01_chain.sh`, günlük `r01_chain.log`):** eğitim bitince
+>   `loop-predict --round 1` → `loop-carry-decisions --round 1 --from-config configs/presets/gt750_loop.json`
+>   (uzmanın 23 kararı kanun+madde izdüşümüyle, olay geçmişi, asıl zaman ve `carried_from` ile; önce iki partinin
+>   aynı belgeler olduğu kanıtlanır) → `loop-judge --round 1` (yeni hakem promptu, aday sözleşmesi v2) →
+>   sıfırdan kanıt `data/sensitive/e2e_proof_2026-10-01/e2e_journal_metrics_law_article.py`
+>   (`output_law_article.txt`) → tam tutarsa ekran 5056 (tmux `gt750la-serve`, `.../loop/serve_R01.sh`).
+>   Adım düşerse zincir durur.
+> - **İkinci hat (tmux `gt750la-second`):** zincir bitince tam belge M000 v2 (`--view full_documents`), sonra
+>   `loop-compare --round 0` → `.../loop/m0_compare.json`.
+> - **Biçim karşılaştırması:** eski M000'ın doğrulama eğrisi yeni değerlendirici + GT v7 ile yeniden puanlandı
+>   (`.../loop/rescored/2026-10-01_v1_M000_at_law_article/`; @400 0,9272 → 0,9314, temel 0,7815 → 0,8067).
+>   M000 v2 bitince eşleştirilmiş bootstrap ile kıyaslanacak (yalnız doğrulama).
+> - **Bulucu:** alt parça sıralaması kalktı (doc_405'te 3065/1'i kararname maddesine koyuyordu). Gardiyan GT v7'de:
+>   3.561'in 3.368'i altın alıntıda (eski bulucu kanun+madde düzeyinde 3.376). Yer değiştiren 10 kimliğin test dışı
+>   8'i okundu, hepsi aynı kanun+maddenin alıntılanmamış başka gerçek bir geçişinde. **Açık (M001 öncesi):**
+>   yayımlanan belgelerde bulucu tek yer veriyor; bütün açık geçişleri vermek doğruluğu ölçülmeden açılmayacak
+>   (ek geçişlerin %47–58'i bir altın alıntıya denk geliyor, gerisi elle okunmadı).
+> - **Kaldırılanlar:** döngünün kullanmadığı, fıkra/bent isteyen prompt ve çıkarıcı kopyaları
+>   (`annotator/reference/{llm_prompt,gt_generation_prompt,llm,llm_common,llm_providers,regex,spacy,langextract_provider,gemini_aiplatform}.py`,
+>   `benchmark/reference/run.py`) bu depodan çıktı; ner-project'te duruyorlar (ASYU bildirisinin yeniden üretimi için).
+>   Q36-P1 (arşiv deneyi) kilidi eski prompta bağlı → artık reddeder (bilinçli).
+> - **Kayıt:** `ner-project/Journal/experiments/dq_loop_gt750/` artık v2'yi yazar; v1 kaydı `archive_v1_fikra_bent/`.
+
 
 > **25 Eylül 2026 — DÖNGÜ GT750 İLE YENİDEN KURULDU. Önce bunu oku.** Aşağısı
 > eski düzenin (GT v3, 300/50/150, 12×100) 13 Eylül kaydıdır; eski 1. tur (`M01`)

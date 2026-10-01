@@ -13,7 +13,7 @@
 
 - **🛡️ Safe ZIP Ingestion**: Non-extracting streaming ZIP reader with protection against path traversal, symlink attacks, and zip bombs.
 - **⚡ Local Apple Silicon / MLX Acceleration**: Integrated inference and stateful training for Qwen-based models (`Qwen3.5-9B`, `Q36-P1`) with checkpoint resumption.
-- **🎯 Semantic Quality Routing**: Automatically buckets documents into `GREEN` (consensus clean), `YELLOW` (minor discrepancy), `RED` (major conflict), and `QUARANTINE` (malformed).
+- **🎯 Semantic Quality Routing**: Automatically buckets documents into `GREEN` (both sides name the same laws and articles), `RED` (they do not), and `QUARANTINE` (malformed). A reference is a law and an article of it (1 Oct 2026); there is no paragraph-level `YELLOW` bucket any more.
 - **🖥️ Local HITL Web Review**: Modern, lightweight Flask web interface running locally (`127.0.0.1`) with HMAC-based security and no external tracking.
 - **💾 Crash-Resilient ACID Storage**: SQLite storage with atomic transaction commits, verified live online backups, and restore-smoke testing.
 - **📦 Atomic Dataset Release**: Produces cryptographically sealed and versioned reference datasets.

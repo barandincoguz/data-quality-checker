@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 import time
 from collections.abc import Iterator, Sequence
@@ -514,10 +515,36 @@ class Store:
         reviewer: str | None,
         event_payload: dict[str, Any],
     ) -> tuple[dict[str, Any], int]:
-        """Commit a review mutation and its audit event as one unit."""
+        """Commit a review mutation and its audit event as one unit.
+
+        The event keeps the whole decision -- the final list, the reason, who --
+        and the state it replaced: the reviews row holds only the latest, and a
+        decision the expert later changes must still be on record (1 Oct 2026).
+        """
 
         now = time.time()
         with self.transaction():
+            before = self.connection.execute(
+                "SELECT status, action, final_references_json, reason FROM reviews "
+                "WHERE batch_id=? AND internal_doc_id=?",
+                (batch_id, internal_doc_id),
+            ).fetchone()
+            event_payload = {
+                **event_payload,
+                "final_references": final_references,
+                "reason": reason,
+                "reviewer": reviewer,
+                "previous": None
+                if before is None
+                else {
+                    "status": before["status"],
+                    "action": before["action"],
+                    "final_references": None
+                    if before["final_references_json"] is None
+                    else json.loads(before["final_references_json"]),
+                    "reason": before["reason"],
+                },
+            }
             cursor = self.connection.execute(
                 """
                 UPDATE reviews

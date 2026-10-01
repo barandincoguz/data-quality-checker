@@ -1016,9 +1016,11 @@ def _table_bootstrap_f1(per_document: Sequence[tuple[int, int, int]], *, samples
 
 
 def _interval(values: Sequence[float]) -> list[float] | None:
+    """95% interval by the published method's own quantile (`_bootstrap_quantile`),
+    so every interval in the paper is computed one way."""
     if not values:
         return None
-    return [values[int(0.025 * (len(values) - 1))], values[int(0.975 * (len(values) - 1))]]
+    return [_bootstrap_quantile(values, 0.025), _bootstrap_quantile(values, 0.975)]
 
 
 def reference_table(

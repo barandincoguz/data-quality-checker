@@ -172,3 +172,11 @@ def test_the_batch_trend_reads_every_round_and_compares_each_with_the_last(tmp_p
     assert trend["validation"] == [{"round": 0, "model": "M000", "windows_core_f1": 0.90},
                                    {"round": 1, "model": "M001", "windows_core_f1": 0.93}]
     assert json.loads((rounds / "batch_trend.json").read_text()) == trend
+
+
+def test_every_interval_uses_the_published_quantile_method() -> None:
+    """One quantile method across the paper: the linear interpolation of the
+    published paired bootstrap (`_bootstrap_quantile`), not nearest rank."""
+    from data_quality_checker.loop_metrics import _interval
+
+    assert _interval([0.0, 1.0, 2.0, 3.0]) == pytest.approx([0.075, 2.925])

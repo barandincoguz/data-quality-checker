@@ -28,15 +28,26 @@
 >   mlx_worker, normalization, performance, preparation, processing, reference_policy, router, safezip,
 >   storage, text, context_windows, loop_train, loop_sources, loop_ops; benchmark/reference/{evaluate,matching}.py;
 >   annotator/reference/common.py.
-> - **Zincir (tmux `gt750la-chain`, `.../loop/r01_chain.sh`, günlük `r01_chain.log`):** eğitim bitince
+> - **PROMPT TARAMASI (kullanıcı kararı 1 Ekim ~21:40) — R01'den önce:** "küçük alt kümelerde prompt denemesi,
+>   en iyisiyle her şey sabit". Yöntem iki aşama (kullanıcı seçti); önkayıt
+>   `ner-project/Journal/experiments/dq_loop_gt750/prompt_screen_preregistration.json`, plan §8. Kod dalı
+>   `feat/prompt-screen` (worktree `/Users/student2/dq-prompt-screen`, `b0fdd83`): `g0.PROMPTS` (şimdiki + 6 aday),
+>   `g0.loop_prompt(config)` (`loop.prompt_variant`), `loop-train --stop-at N`, `loop-prompt-screen`. Bekleyen betik
+>   tmux `gt750la-prompt` (`.../loop/prompt_screen.sh`, günlük `prompt_screen.log`): eğitim bitince dalı birleştirir →
+>   testler → aşama 1 (temel model, 100 eğitim belgesi, 7 prompt) → aşama 2 (en iyi 2 aday, kendi ayarlarıyla 150 adım;
+>   şimdiki promptun karşılığı M000 v2 @150). **Kazananı karşılaştırıp raporlamak ve R01 zincirini o promptla yeniden
+>   kurmak elle yapılacak.** Ana çalışma ağacını temiz tut (birleştirme bozulmasın).
+> - **Zincir DURDURULDU (21:43, prompt kararı yüzünden; betik duruyor) (tmux `gt750la-chain`, `.../loop/r01_chain.sh`, günlük `r01_chain.log`):** eğitim bitince
 >   `loop-predict --round 1` → `loop-carry-decisions --round 1 --from-config configs/presets/gt750_loop.json`
 >   (uzmanın 23 kararı kanun+madde izdüşümüyle, olay geçmişi, asıl zaman ve `carried_from` ile; önce iki partinin
 >   aynı belgeler olduğu kanıtlanır) → `loop-judge --round 1` (yeni hakem promptu, aday sözleşmesi v2) →
 >   sıfırdan kanıt `data/sensitive/e2e_proof_2026-10-01/e2e_journal_metrics_law_article.py`
 >   (`output_law_article.txt`) → tam tutarsa ekran 5056 (tmux `gt750la-serve`, `.../loop/serve_R01.sh`).
 >   Adım düşerse zincir durur.
-> - **İkinci hat (tmux `gt750la-second`):** zincir bitince tam belge M000 v2 (`--view full_documents`), sonra
+> - **İkinci hat DURDURULDU (prompt seçiminden sonra kurulacak) (tmux `gt750la-second`):** zincir bitince tam belge M000 v2 (`--view full_documents`), sonra
 >   `loop-compare --round 0` → `.../loop/m0_compare.json`.
+> - **Liste imi düzeltmesi (`b5a07e6`, eğitim sürerken, bilinçli):** "-1/1" maddesi artık madde 1; @25 eski kuralla,
+>   @50+ yeni kuralla puanlandı → eğitim bitince iki eğri de son kuralla yeniden puanlanmalı.
 > - **Biçim karşılaştırması:** eski M000'ın doğrulama eğrisi yeni değerlendirici + GT v7 ile yeniden puanlandı
 >   (`.../loop/rescored/2026-10-01_v1_M000_at_law_article/`; @400 0,9272 → 0,9314, temel 0,7815 → 0,8067).
 >   M000 v2 bitince eşleştirilmiş bootstrap ile kıyaslanacak (yalnız doğrulama).

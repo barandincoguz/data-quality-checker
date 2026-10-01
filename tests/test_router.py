@@ -10,35 +10,24 @@ def ref(**updates):
         "kanun_no": "213",
         "kanun_ad": "Vergi Usul Kanunu",
         "madde": "mükerrer 20",
-        "fikra": "1",
-        "bent": "a",
         "source_text": "213 sayılı Vergi Usul Kanununun mükerrer 20 inci maddesi",
     }
     payload.update(updates)
     return payload
 
 
-def test_alias_article_and_extension_normalization() -> None:
-    normalized = normalize_reference(
-        ref(
-            kanun_no="",
-            kanun_ad="VUK",
-            madde="Mükerrer 20 inci maddesi",
-            fikra="(Birinci)",
-            bent="(A)",
-        )
-    )
+def test_alias_and_article_normalization() -> None:
+    normalized = normalize_reference(ref(kanun_no="", kanun_ad="VUK", madde="Mükerrer 20 inci maddesi"))
     assert normalized["kanun_no"] == "213"
     assert normalized["kanun_ad"] == "Vergi Usul Kanunu"
     assert normalized["madde"] == "mükerrer 20"
-    assert normalized["fikra"] == "1"
-    assert normalized["bent"] == "a"
+    assert "fikra" not in normalized and "bent" not in normalized
 
 
 def test_tuple_dedup_and_generic_law_compaction() -> None:
     rows = compact_references(
         [
-            ref(madde="", fikra="", bent="", source_text="generic"),
+            ref(madde="", source_text="generic"),
             ref(),
             ref(source_text="same tuple elsewhere"),
         ]
@@ -56,22 +45,24 @@ def test_green_allows_aliases_and_ignores_source_text() -> None:
     assert decision.similarity == 1.0
 
 
-def test_yellow_for_extension_mismatch() -> None:
-    extension = route_document(
-        human_references=[ref(fikra="1")],
-        model_references=[ref(fikra="2")],
+def test_no_flag_is_raised_for_a_paragraph_difference() -> None:
+    """1 Oct 2026: there is no YELLOW. Lists stored before that day still carry
+    paragraph fields; the same law and article is GREEN whatever they say."""
+    decision = route_document(
+        human_references=[{**ref(), "fikra": "1", "bent": "a"}],
+        model_references=[{**ref(), "fikra": "2", "bent": ""}, ref(madde="Mükerrer 20/b")],
     )
-    assert extension.bucket == "YELLOW"
-    assert extension.reasons == ("extension_mismatch",)
+    assert decision.bucket == "GREEN"
+    assert decision.reasons == ("normalized_law_article_set_equal",)
 
 
-def test_green_when_five_fields_match_despite_different_source_text() -> None:
+def test_green_when_law_and_article_match_despite_different_source_text() -> None:
     decision = route_document(
         human_references=[ref(source_text="first unrelated evidence")],
         model_references=[ref(source_text="second, completely different passage")],
     )
     assert decision.bucket == "GREEN"
-    assert decision.reasons == ("normalized_five_field_set_equal",)
+    assert decision.reasons == ("normalized_law_article_set_equal",)
 
 
 def test_one_character_source_text_still_routes_green() -> None:
@@ -80,7 +71,7 @@ def test_one_character_source_text_still_routes_green() -> None:
         model_references=[ref()],
     )
     assert decision.bucket == "GREEN"
-    assert decision.reasons == ("normalized_five_field_set_equal",)
+    assert decision.reasons == ("normalized_law_article_set_equal",)
 
 
 def test_red_for_missing_or_extra_core_and_conflicting_identity() -> None:
@@ -111,7 +102,7 @@ def test_quarantine_precedes_similarity() -> None:
 
 
 def test_vuk_213_article_413_is_ignored_symmetrically_by_default() -> None:
-    boilerplate = ref(madde="413", fikra="", bent="")
+    boilerplate = ref(madde="413")
     human_only = route_document(
         human_references=[boilerplate],
         model_references=[],
@@ -127,7 +118,7 @@ def test_vuk_213_article_413_is_ignored_symmetrically_by_default() -> None:
 def test_vuk_213_article_413_filter_can_be_disabled_for_impact_audit() -> None:
     decision = route_document(
         human_references=[],
-        model_references=[ref(madde="413", fikra="", bent="")],
+        model_references=[ref(madde="413")],
         reference_policy_id=NO_REFERENCE_FILTER_POLICY_ID,
     )
     assert decision.bucket == "RED"
@@ -138,8 +129,8 @@ def test_vuk_filter_is_exact_and_keeps_other_articles_and_laws() -> None:
     decision = route_document(
         human_references=[],
         model_references=[
-            ref(madde="413/A", fikra="", bent=""),
-            ref(kanun_no="3065", kanun_ad="KDV Kanunu", madde="413", fikra="", bent=""),
+            ref(madde="413/A"),
+            ref(kanun_no="3065", kanun_ad="KDV Kanunu", madde="413"),
         ],
     )
     assert decision.bucket == "RED"

@@ -13,7 +13,11 @@ import itertools
 
 import pytest
 
-from data_quality_checker.normalization import compact_references, core_identity, normalize_reference
+from data_quality_checker.normalization import (
+    compact_references,
+    core_identity,
+    normalize_reference,
+)
 
 
 def _reference(kanun_no: str, madde: str, **legacy: str) -> dict[str, str]:

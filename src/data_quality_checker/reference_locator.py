@@ -1,9 +1,9 @@
 """Locate a known reference in raw document text -- without its quote.
 
-Not extraction. The reference's identity (law, article, paragraph,
-subparagraph) is already decided -- by the expert, or by annotator and model
-agreeing -- and this module only finds *where in the document* that provision
-is cited, so `context_windows.py` can put the reference in the training window
+Not extraction. The reference's identity (a law and an article of it; nothing
+below the article since 1 Oct 2026) is already decided -- by the expert, or by
+annotator and model agreeing -- and this module only finds *where in the
+document* that provision is cited, so `context_windows.py` can put the reference in the training window
 that actually shows it. `context_windows.py` needs a verbatim substring of the
 body (`body.find`), so every span returned here is one.
 
@@ -17,12 +17,13 @@ How:
    GT750's quotes (`ner-project/scripts/gt750/quotes.py`): series ("148, 149
    ve mükerrer 257 nci maddeleri"), ranges ("638-642 inci madde"), "ve
    müteakip/izleyen", qualifiers (geçici, mükerrer, ek), subdivisions
-   ("150/e", "17/4-k") and the paragraph/subparagraph chain after the article
-   word ("maddesinin (1) numaralı fıkrasının (e) bendinde").
+   ("150/e", "17/4-k") and the chain of parts after the article word
+   ("maddesinin (1) numaralı fıkrasının (e) bendinde") -- read in the ruling's
+   text so the article it hangs from is found; a reference carries no part.
 2. **Articles are compared the way the two scoring engines compare them**:
    each cited item goes through `normalization.normalize_reference`, so
    "Geçici 3", "GEÇİCİ 3", "geçiçi 3" and "Geçici Madde 3" are one article and
-   an uppercase "32/A" stays apart from bent "32/a" (`test_engine_agreement.py`).
+   an inserted "32/A" stays apart from article 32 (`test_engine_agreement.py`).
 3. **Each mention gets a law** from its context: the law named immediately
    before it ("213 sayılı Vergi Usul Kanununun 153/A maddesi"), an anaphor
    ("aynı Kanunun", "anılan Kanunun") or, failing both, the last law the text
@@ -30,9 +31,11 @@ How:
    own "N sayılı X Kanunu" and a small registry.
 4. **A reference is placed only on a mention of its article whose law does not
    contradict its own.** A mention explicitly of another law is never used.
-   Among the rest: a mention whose paragraph chain does not contradict the
-   reference before one that does; explicit law before inferred; the chain
-   that says most about the reference; then the earliest.
+   Among the rest: explicit law before inferred; the article itself before a
+   range that contains it; the law written with its number; then the earliest.
+   A mention's chain of parts neither helps nor hurts: the reference names
+   none (1 Oct 2026 -- ranking by it had put "3065 sayılı KDV Kanununun 1/1
+   inci maddesinde" behind a decree's "1 inci maddesine", GT750 doc_405).
 
 An article the text does not cite at all is refused (`None`): that is evidence
 the reference is wrong, and inventing a span would teach the model that an
@@ -112,10 +115,6 @@ _VALUES = rf"{_ONE}(?:\s*(?:,|ve|veya|ile|ila|-)\s*{_ONE})*"
 _SUBWORD = rf"(?i:(?:alt\s*)?(?:fıkra|bend|bent|paragraf|cümle))[{_LO}]*"
 _ELEMENT = rf"{_VALUES}\s*(?:numaralı\s+|nolu\s+|no\.?lu\s+)?{_SUBWORD}"
 _CHAIN = rf"(?:\s+{_ELEMENT})*"
-_ELEMENT_PARTS = re.compile(
-    rf"(?P<vals>{_VALUES})\s*(?:numaralı\s+|nolu\s+|no\.?lu\s+)?(?P<word>{_SUBWORD})"
-)
-
 # Article mention ----------------------------------------------------------
 # Qualifier spellings seen in rulings and annotations, typos included; every
 # one is read through `normalization.article_qualifier`.
@@ -590,75 +589,6 @@ def _ordinal_value(word: str) -> str | None:
     return None
 
 
-def _values(text: str) -> set[str]:
-    found: set[str] = set()
-    for match in re.finditer(rf"{_PAREN}|{_ORD_WORD}|{_NUMV}|{_LETTER}", text):
-        token = match.group(0)
-        if token.startswith("("):
-            found.add(_norm(token.strip("()")))
-        elif token.endswith(")"):
-            found.add(_lower(token[0]))
-        elif token[0].isdigit():
-            found.add(_norm(re.sub(rf"\s*{_ORD_SUFFIX}$", "", token)))
-        else:
-            value = _ordinal_value(re.sub(r"\s+", " ", token))
-            if value:
-                found.add(value)
-    return found
-
-
-def _levels(phrase: str, rest: str | None, numbered: bool) -> tuple[list[set[str]], int]:
-    """The sub-parts a mention names, top-down: [{"1"}, {"6"}, {"b"}]."""
-    levels: list[set[str]] = []
-    if rest:
-        levels.extend({part} for part in re.split(r"[/-]", _norm(rest)) if part)
-    elements = list(_ELEMENT_PARTS.finditer(phrase))
-    if numbered:
-        word = re.search(_SUBWORD, phrase)
-        head = phrase[: word.start()] if word else phrase
-        extra = {
-            _norm(v) for v in re.findall(r"(?:,|ve|veya)\s*([0-9A-Za-zÇĞİÖŞÜ]{1,3})(?=\s|$)", head)
-        }
-        if levels:
-            levels[-1] |= extra
-        elements = [e for e in elements if word and e.start() >= word.end()]
-    optional = 0
-    for element in elements:
-        values = _values(element.group("vals"))
-        if not values:
-            continue
-        if len(values) == 1 and re.search(r"[/-]", next(iter(values))):
-            atoms = [{a} for a in re.split(r"[/-]", next(iter(values))) if a]
-        else:
-            atoms = [values]
-        levels.extend(atoms)
-        is_alt = element.group("word").lower().startswith("alt")
-        optional = optional + len(atoms) if is_alt else 0
-    return levels, optional
-
-
-def _row_parts(reference: Mapping[str, Any]) -> list[str]:
-    parts: list[str] = []
-    for field in ("fikra", "bent"):
-        # "c)" and "(c)" are how a bent is printed; the bent is "c".
-        value = re.sub(r"[()]", "", _norm(reference.get(field)))
-        if value:
-            parts.extend(p for p in re.split(r"[/-]", value) if p)
-    return parts
-
-
-def _fit(parts: list[str], levels: list[set[str]], optional: int) -> tuple[bool, int]:
-    """(does the mention's chain agree with the row's sub-parts, levels it leaves unsaid)."""
-    best: tuple[bool, int] | None = None
-    for depth in range(len(levels), len(levels) - optional - 1, -1):
-        head = levels[:depth]
-        if all(i < len(parts) and parts[i] in level for i, level in enumerate(head)):
-            candidate = (True, max(len(parts) - len(head), 0))
-            if best is None or candidate[1] < best[1]:
-                best = candidate
-    return best or (False, 0)
-
-
 # --- the locator ----------------------------------------------------------
 
 _PAIRS = {"(": ")", "“": "”", '"': '"', "‘": "’"}
@@ -728,7 +658,6 @@ class Placement:
     start: int
     end: int
     law: int  # 0 law written before it, 1 inferred, 2 unknown, 3 inferred other, 5 no law
-    contradicts_subparts: bool  # the mention's paragraph chain disagrees with the row's
     in_range: bool = False  # the mention names a range of articles containing the reference's
 
 
@@ -761,7 +690,7 @@ def ranked_candidates(document_text: str, reference: Mapping[str, Any]) -> list[
     normalized = normalize_reference(
         {
             field: str(reference.get(field) or "")
-            for field in ("kanun_no", "kanun_ad", "madde", "fikra", "bent", "source_text")
+            for field in ("kanun_no", "kanun_ad", "madde", "source_text")
         }
     )
     madde = normalized["madde"]
@@ -775,11 +704,10 @@ def ranked_candidates(document_text: str, reference: Mapping[str, Any]) -> list[
             if _law_agrees(mention, number, stems):
                 fullness = 0 if mention.numbered and mention.stem else 1 if mention.numbered else 2
                 start, end = _trim(document_text, mention.start, mention.end)
-                candidates.append(Candidate((fullness, start), Placement(start, end, 0, False)))
+                candidates.append(Candidate((fullness, start), Placement(start, end, 0)))
         return candidates
 
-    parts = _row_parts(normalized)
-    ranked: list[tuple[int, int, int, int, int, int]] = []
+    ranked: list[tuple[int, ...]] = []
 
     def consider(
         start: int,
@@ -796,13 +724,8 @@ def ranked_candidates(document_text: str, reference: Mapping[str, Any]) -> list[
             return
         if lawless:
             law = 5
-        levels, optional = _levels(phrase, rest, numbered)
-        fits, missing = _fit(parts, levels, optional)
         # The law comes first: the right article of the wrong law is the wrong
-        # provision, a different paragraph of the right article is not. A chain
-        # that contradicts the row's sub-parts still cites the article -- kept,
-        # but behind every mention of the same law standing that does not.
-        # Among mentions of the agreeing law, one that names the article itself
+        # provision. Among mentions of the agreeing law, one that names the article itself
         # comes before a range that merely contains it ("620-645 inci maddeleri").
         # Between equally good mentions, one whose law is written with its number
         # ("3065 sayılı KDV Kanununun 13/d") is the fuller evidence -- and the one
@@ -813,8 +736,6 @@ def ranked_candidates(document_text: str, reference: Mapping[str, Any]) -> list[
                 agreeing,
                 int(in_range),
                 law,
-                0 if fits else 1,
-                missing if fits else 9,
                 0 if numbered_law else 1,
                 start,
                 law_begin,
@@ -855,11 +776,9 @@ def ranked_candidates(document_text: str, reference: Mapping[str, Any]) -> list[
         consider(match.start(), match.end(), match.group(0), rest, True, lawless)
     candidates = []
     for rank in ranked:
-        _, in_range, law, contradiction, _, _, start, law_begin, end = rank
+        _, in_range, law, _, start, law_begin, end = rank
         start, end = _trim(document_text, law_begin if law_begin < start else start, end)
-        candidates.append(
-            Candidate(rank, Placement(start, end, law, bool(contradiction), bool(in_range)))
-        )
+        candidates.append(Candidate(rank, Placement(start, end, law, bool(in_range))))
     return candidates
 
 
@@ -883,7 +802,7 @@ def attach_missing_spans(
     one could be found.
 
     Also returns a refusal list of `{"doc_id", "kanun_no", "kanun_ad",
-    "madde", "fikra", "bent"}`, one entry per reference the locator could not
+    "madde"}`, one entry per reference the locator could not
     place -- this function only reports refusals, it never raises for them.
     `round_training_documents` is the layer that turns a non-empty refusal
     list into one `ContractError` naming all of them at once.
@@ -906,8 +825,6 @@ def attach_missing_spans(
                         "kanun_no": str(reference.get("kanun_no", "")),
                         "kanun_ad": str(reference.get("kanun_ad", "")),
                         "madde": str(reference.get("madde", "")),
-                        "fikra": str(reference.get("fikra", "")),
-                        "bent": str(reference.get("bent", "")),
                     }
                 )
                 new_references.append(reference)

@@ -14,7 +14,6 @@ name -- it just stops being what you get by saying nothing.
 from __future__ import annotations
 
 import inspect
-from pathlib import Path
 
 from benchmark.reference import evaluate as evaluate_module
 

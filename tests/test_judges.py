@@ -170,8 +170,6 @@ def test_blind_pilot_sends_only_text_and_candidates_and_persists_both_models(tmp
                 "kanun_no": "213",
                 "kanun_ad": "Vergi Usul Kanunu",
                 "madde": "353",
-                "fikra": "",
-                "bent": "",
                 "source_text": "Güvenli belge metni",
             }
         ],
@@ -205,7 +203,7 @@ def test_blind_pilot_sends_only_text_and_candidates_and_persists_both_models(tmp
         assert payload["candidate_a"] and payload["candidate_b"]
         for candidate in (payload["candidate_a"], payload["candidate_b"]):
             for reference in candidate:
-                assert set(reference) == {"kanun_no", "kanun_ad", "madde", "fikra", "bent"}
+                assert set(reference) == {"kanun_no", "kanun_ad", "madde"}
     with Store(config.database_path) as store:
         results = store.list_judge_results("batch")
     assert len(results) == 2
@@ -630,8 +628,6 @@ def _judge_payload(**final_reference_updates):
         "kanun_no": "213",
         "kanun_ad": "Vergi Usul Kanunu",
         "madde": "mükerrer 20",
-        "fikra": "",
-        "bent": "",
     }
     reference.update(final_reference_updates)
     return {

@@ -24,8 +24,6 @@ REFERENCE = {
     "kanun_no": "213",
     "kanun_ad": "Vergi Usul Kanunu",
     "madde": "114",
-    "fikra": "",
-    "bent": "",
     "source_text": "114 uncu maddesi",
 }
 

@@ -11,31 +11,22 @@ from data_quality_checker.hitl import ab_diff
 from data_quality_checker.loop_metrics import attribute_errors, rater_agreement
 
 
-def ref(madde: str, fikra: str = "", source: str = "") -> dict[str, str]:
-    return {
-        "kanun_no": "193",
-        "kanun_ad": "Gelir Vergisi Kanunu",
-        "madde": madde,
-        "fikra": fikra,
-        "bent": "",
-        "source_text": source,
-    }
+def ref(madde: str, source: str = "") -> dict[str, str]:
+    return {"kanun_no": "193", "kanun_ad": "Gelir Vergisi Kanunu", "madde": madde, "source_text": source}
 
 
 def test_the_expert_screen_never_reports_a_quote_difference() -> None:
-    rows = ab_diff([ref("94", "1", "bursiyerin alıntısı")], [ref("94", "2", "")])
-    assert rows[0]["status"] == "differs"
-    assert rows[0]["field_diffs"] == ["fikra"]
+    rows = ab_diff([ref("94", "bursiyerin alıntısı")], [ref("94", "")])
+    assert [row["status"] for row in rows] == ["same"]
     same = ab_diff([ref("94", source="bir alıntı")], [ref("94", source="başka alıntı")])
-    assert same[0]["status"] == "same" and same[0]["field_diffs"] == []
+    assert same[0]["status"] == "same" and same[0]["status_label"] == "Aynı"
 
 
 def test_error_attribution_ignores_the_quote() -> None:
-    expert = [ref("94", "1", "uzmanın yazdığı")]
-    annotator = [ref("94", "1", "metinde olmayan bir alıntı")]
+    expert = [ref("94", "uzmanın yazdığı")]
+    annotator = [ref("94", "metinde olmayan bir alıntı")]
     result = attribute_errors(expert=expert, annotator=annotator, model=None, judge=None)
     assert result["annotator"]["missed"] == [] and result["annotator"]["spurious"] == []
-    assert result["annotator"]["detail_mismatch"] == []
     per_rater = rater_agreement([{"expert": expert, "annotator": annotator}])["per_rater"]
     assert per_rater["annotator"]["exact_set_agreement"] == 1.0
     assert "grounding" not in per_rater["annotator"]

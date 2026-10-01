@@ -7,9 +7,9 @@ batch after batch (user story, 1 Oct 2026):
   model errors, expert vs annotator errors; then for every 250-document batch,
   how good the model is and how much it improved."
 
-Two levels: provision (law + article) and reference (law + article + fikra +
-bent). 213/413 drop from both sides; the annotator's `source_text` is never
-read.
+One level: a reference is a law and an article of it (1 Oct 2026; before
+that the table also had a law + article + fikra + bent level). 213/413 drop
+from both sides; the annotator's `source_text` is never read.
 """
 
 from __future__ import annotations
@@ -23,14 +23,15 @@ from data_quality_checker.loop_metrics import (
 )
 
 
-def r(no: str, madde: str, fikra: str = "", bent: str = "") -> dict[str, str]:
-    return {"kanun_no": no, "kanun_ad": "", "madde": madde, "fikra": fikra, "bent": bent, "source_text": ""}
+def r(no: str, madde: str, **legacy: str) -> dict[str, str]:
+    """`legacy` adds paragraph fields a list stored before 1 Oct 2026 carries."""
+    return {"kanun_no": no, "kanun_ad": "", "madde": madde, "source_text": "", **legacy}
 
 
 def _story():
-    expert = [r("193", "94", "1"), r("193", "94", "2"), r("213", "30")]
-    annotator = [r("193", "94", "1"), r("193", "94", "2"), r("213", "30"), r("213", "31"), r("213", "413")]
-    model = [r("193", "94", "1"), r("213", "30", "2")]
+    expert = [r("193", "94", fikra="1"), r("193", "94", fikra="2"), r("213", "30")]
+    annotator = [r("193", "94"), r("213", "30"), r("213", "31"), r("213", "413")]
+    model = [r("193", "94/1"), r("213", "30", fikra="2")]
     return [
         {"doc_id": "d1", "truth": expert, "truth_source": "expert", "annotator": annotator, "model": model, "judge": expert},
         {"doc_id": "d2", "truth": [], "truth_source": "expert", "annotator": [], "model": [r("5520", "10")], "judge": None},
@@ -40,34 +41,33 @@ def _story():
 def test_each_source_counts_what_it_found_and_what_it_got_wrong() -> None:
     table = reference_table(_story(), samples=200)
     assert table["documents"] == 2 and table["documents_by_truth_source"] == {"expert": 2}
+    assert table["level"] == "law_article"
     human = table["sources"]["annotator"]
     assert human["documents"] == 2
-    assert (human["written_rows"], human["policy_dropped"]) == (4, 1)  # 213/413 never counts
-    assert (human["written_references"], human["written_provisions"]) == (4, 3)
-    assert (human["truth_references"], human["truth_provisions"]) == (3, 2)
-    assert (human["full"]["tp"], human["full"]["fp"], human["full"]["fn"]) == (3, 1, 0)
+    assert (human["written_rows"], human["policy_dropped"]) == (3, 1)  # 213/413 never counts
+    assert (human["written_references"], human["truth_references"]) == (3, 2)
     assert (human["core"]["tp"], human["core"]["fp"], human["core"]["fn"]) == (2, 1, 0)
-    assert (human["wrong_references"], human["missed_references"], human["detail_errors"]) == (1, 0, 0)
+    assert (human["wrong_references"], human["missed_references"]) == (1, 0)
 
     model = table["sources"]["model"]
-    assert (model["written_references"], model["written_provisions"]) == (3, 3)
-    # Right article, wrong paragraph twice: right at the provision level, wrong as references.
+    # "94/1" is article 94, and a stored paragraph field names nothing: both right.
+    assert (model["written_references"], model["truth_references"]) == (3, 2)
     assert (model["core"]["tp"], model["core"]["fp"], model["core"]["fn"]) == (2, 1, 0)
-    assert (model["full"]["tp"], model["full"]["fp"], model["full"]["fn"]) == (1, 2, 2)
-    assert (model["wrong_references"], model["missed_references"], model["detail_errors"]) == (2, 2, 2)
-    assert model["full"]["precision"] == pytest.approx(1 / 3)
-    assert model["full"]["recall"] == pytest.approx(1 / 3)
+    assert (model["wrong_references"], model["missed_references"]) == (1, 0)
+    assert model["core"]["precision"] == pytest.approx(2 / 3)
+    assert model["core"]["recall"] == pytest.approx(1.0)
 
     judge = table["sources"]["judge"]
-    assert judge["documents"] == 1 and judge["full"]["fp"] == 0 and judge["full"]["fn"] == 0
+    assert judge["documents"] == 1 and judge["core"]["fp"] == 0 and judge["core"]["fn"] == 0
+    for source in table["sources"].values():
+        assert "full" not in source and "detail_errors" not in source and "written_provisions" not in source
 
 
 def test_every_f1_carries_a_document_bootstrap_interval() -> None:
     table = reference_table(_story(), samples=500, seed=42)
     for source in ("annotator", "model"):
-        for level in ("core", "full"):
-            low, high = table["sources"][source][level]["f1_ci95"]
-            assert low <= table["sources"][source][level]["f1"] <= high
+        low, high = table["sources"][source]["core"]["f1_ci95"]
+        assert low <= table["sources"][source]["core"]["f1"] <= high
     assert table == reference_table(_story(), samples=500, seed=42)  # deterministic
 
 
@@ -151,10 +151,10 @@ def test_the_batch_trend_reads_every_round_and_compares_each_with_the_last(tmp_p
     rounds.mkdir(parents=True)
 
     def table(f1_tp, docs):
-        per_document = {f"d{i}": {"model": {"core": [f1_tp, 2 - f1_tp, 0], "full": [f1_tp, 2 - f1_tp, 0]},
-                                  "annotator": {"core": [2, 0, 0], "full": [2, 0, 0]}} for i in range(docs)}
+        per_document = {f"d{i}": {"model": {"core": [f1_tp, 2 - f1_tp, 0]},
+                                  "annotator": {"core": [2, 0, 0]}} for i in range(docs)}
         return {"documents": docs, "documents_without_truth": [], "documents_by_truth_source": {"expert": docs},
-                "sources": {"model": {"core": {"f1": 0.5}, "full": {"f1": 0.5}}, "annotator": {"core": {"f1": 1.0}, "full": {"f1": 1.0}}},
+                "sources": {"model": {"core": {"f1": 0.5}}, "annotator": {"core": {"f1": 1.0}}},
                 "per_document": per_document}
 
     for k, tp in ((1, 1), (2, 2)):
@@ -183,11 +183,12 @@ def test_every_interval_uses_the_published_quantile_method() -> None:
 
 
 def test_rows_written_twice_and_rows_another_row_covers_are_counted_apart() -> None:
-    """R01 d000081: "Geçici 21" and "geçici 21" are one reference written twice;
-    "193/94" beside "193/94/1" is covered by the more specific row."""
-    annotator = [r("4447", "Geçici 21"), r("4447", "geçici 21"), r("193", "94"), r("193", "94", "1")]
-    records = [{"doc_id": "d", "truth": [r("4447", "geçici 21"), r("193", "94", "1")], "truth_source": "expert",
+    """R01 d000081: "Geçici 21" and "geçici 21" are one reference written twice,
+    and so are "193/94" and "193/94" stored with a paragraph; a law-only "193"
+    beside "193/94" is covered by the article row."""
+    annotator = [r("4447", "Geçici 21"), r("4447", "geçici 21"), r("193", "94"), r("193", "94", fikra="1"), r("193", "")]
+    records = [{"doc_id": "d", "truth": [r("4447", "geçici 21"), r("193", "94")], "truth_source": "expert",
                 "annotator": annotator, "model": [r("4447", "geçici 21")], "judge": None}]
     human = reference_table(records, samples=50)["sources"]["annotator"]
-    assert (human["written_rows"], human["duplicate_rows"], human["subsumed_rows"]) == (4, 1, 1)
-    assert human["written_references"] == 2 and human["full"]["fp"] == 0
+    assert (human["written_rows"], human["duplicate_rows"], human["subsumed_rows"]) == (5, 2, 1)
+    assert human["written_references"] == 2 and human["core"]["fp"] == 0

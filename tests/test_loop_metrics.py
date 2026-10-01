@@ -42,8 +42,6 @@ def ref(**updates: str) -> dict[str, str]:
         "kanun_no": "213",
         "kanun_ad": "Vergi Usul Kanunu",
         "madde": "5",
-        "fikra": "",
-        "bent": "",
         "source_text": "madde 5",
     }
     payload.update(updates)
@@ -99,7 +97,6 @@ def test_attribute_errors_marks_a_missing_rater_unavailable_not_empty() -> None:
         "correct": None,
         "missed": None,
         "spurious": None,
-        "detail_mismatch": None,
     }
     assert result["model"]["available"] is True
 
@@ -708,8 +705,9 @@ def test_model_round_metrics_wraps_the_evaluator_and_splits_parse_failure_from_t
     )
 
     assert result["document_count"] == len(doc_ids)
-    for view in ("core", "full"):
-        assert set(result[view]) == {"tp", "fp", "fn", "precision", "recall", "f1"}
+    # One level only (1 Oct 2026): a reference is a law and an article.
+    assert set(result["core"]) == {"tp", "fp", "fn", "precision", "recall", "f1"}
+    assert "full" not in result
     # Two of the five documents (20, 21) contributed zero references, so the
     # evaluator's own recall must reflect real misses, never a vacuous 1.0.
     assert result["core"]["fn"] > 0

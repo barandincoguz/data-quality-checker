@@ -1,12 +1,24 @@
 """The locator on all of GT750: what it places on the verified quote stays there.
 
-GT750 (750 documents, 4,356 references) is the locator's benchmark. Each
-reference is placed WITHOUT its quote; the verified GT quotes are read only as
+GT750 at law + article (GT v7, 750 documents, 3,561 references) is the
+locator's benchmark. Each reference is placed WITHOUT its quotes; the verified
+GT quotes (every quote of the rows v7 merged, `source_texts`) are read only as
 the answer key (the annotator's `source_text` decides nothing -- user rule, 27
 Sep 2026 -- and GT750's quotes are the verified key, not an annotator's field).
 
-Frozen in `fixtures/locator_gt750_expected.json` (28 Sep 2026, 4,077 of 4,356 on
-the gold quote, 3 refused -- all table/tariff sections, which get no row):
+Frozen in `fixtures/locator_gt750_expected.json`. History:
+- 28 Sep 2026, GT v6 (law + article + fikra + bent): 4,077 of 4,356 rows on
+  the gold quote, 3 refused (all table/tariff sections, which get no row);
+  at law + article that is 3,376 of 3,561 references.
+- 1 Oct 2026, GT v7 (a reference is a law and an article): 3,368 of 3,561,
+  the same 3 refused. 10 references moved off a quoted mention, 2 moved on.
+  Every moved one outside the test split was read: each now sits on another
+  genuine citation of its own law and article that the annotator did not quote
+  (e.g. "3065 sayılı Kanunun (1/1) inci maddesine"); none on a wrong provision.
+  The sub-part ranking that went with fıkra/bent had put doc_405's 3065/1 on a
+  decree's "1 inci maddesine" -- that error is gone.
+
+The guarantees:
 
 * every reference placed on its gold quote stays on it;
 * no reference is refused that is not in the frozen refusal list;
@@ -32,9 +44,9 @@ from data_quality_checker.normalization import core_identity, normalize_referenc
 from data_quality_checker.reference_locator import place_reference
 
 ROOT = Path(__file__).resolve().parents[1]
-GT750 = ROOT / "data/ground_truth/gt_v6_gt750_2026-09-24/validated"
+GT750 = ROOT / "data/ground_truth/gt_v7_gt750_law_article_2026-10-01/validated"
 EXPECTED = Path(__file__).resolve().parent / "fixtures" / "locator_gt750_expected.json"
-FIELDS = ("kanun_no", "kanun_ad", "madde", "fikra", "bent")
+FIELDS = ("kanun_no", "kanun_ad", "madde")
 
 
 def _blind(reference: dict) -> dict[str, str]:
@@ -49,12 +61,12 @@ def _placements() -> dict[str, dict]:
         text = document["text"]
         gold: dict = {}
         for reference in document["references"]:
-            quote = reference.get("source_text") or ""
-            for match in re.finditer(re.escape(quote), text) if quote else []:
-                gold.setdefault(core_identity(normalize_reference(reference)), []).append(match.span())
+            for quote in reference.get("source_texts") or []:
+                for match in re.finditer(re.escape(quote), text):
+                    gold.setdefault(core_identity(normalize_reference(_blind(reference))), []).append(match.span())
         for index, reference in enumerate(document["references"]):
             placement = place_reference(text, _blind(reference))
-            spans = gold.get(core_identity(normalize_reference(reference)), [])
+            spans = gold.get(core_identity(normalize_reference(_blind(reference))), [])
             rows[f"{path.stem}|{index}"] = {
                 "text": text,
                 "reference": _blind(reference),
@@ -82,7 +94,6 @@ def test_no_new_refusal() -> None:
     assert refused <= expected, f"newly refused: {sorted(refused - expected)[:10]}"
 
 
-_ORDINAL = {"1": "birinci", "2": "ikinci", "3": "üçüncü", "4": "dördüncü", "5": "beşinci"}
 
 
 def _respellings(reference: dict[str, str]) -> list[dict[str, str]]:
@@ -100,10 +111,9 @@ def _respellings(reference: dict[str, str]) -> list[dict[str, str]]:
         out.append({**reference, "kanun_no": f"{reference['kanun_no']} sayılı"})
     if reference["kanun_ad"]:
         out.append({**reference, "kanun_ad": reference["kanun_ad"].replace("i", "İ").replace("ı", "I").upper()})
-    if re.fullmatch(r"\d", reference["fikra"]):
-        out += [{**reference, "fikra": f"({reference['fikra']})"}, {**reference, "fikra": _ORDINAL.get(reference["fikra"], reference["fikra"])}]
-    if re.fullmatch(r"[a-zçğıöşü]", reference["bent"]):
-        out += [{**reference, "bent": f"({reference['bent']})"}, {**reference, "bent": f"{reference['bent']})"}]
+    if madde.isdigit():
+        # A part of the article written into `madde` names the same article.
+        out += [{**reference, "madde": f"{madde}/1"}, {**reference, "madde": f"{madde}/2-a"}, {**reference, "madde": f"{madde} (1)"}]
     return out
 
 

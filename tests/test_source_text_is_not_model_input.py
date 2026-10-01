@@ -26,13 +26,11 @@ ANNOTATOR_REFERENCE = {
     "kanun_no": "213",
     "kanun_ad": "Vergi Usul Kanunu",
     "madde": "mükerrer 20",
-    "fikra": "",
-    "bent": "",
     "source_text": "mükerrer 20 nci maddesi",
 }
 MODEL_REFERENCE = {**ANNOTATOR_REFERENCE, "source_text": ""}
 
-# The five decision fields, written out rather than imported from
+# The decision fields -- a law and an article (1 Oct 2026) -- written out rather than imported from
 # `constants.REFERENCE_DECISION_FIELDS`. A guard that compared a payload
 # against that tuple would still pass if the tuple itself ever regained
 # `source_text` -- the exact class of defect this file exists to catch, and
@@ -40,10 +38,10 @@ MODEL_REFERENCE = {**ANNOTATOR_REFERENCE, "source_text": ""}
 # a candidate's contents) let a broken judge pilot through. Writing them out
 # also keeps this file collectable, so its behavioural failure is
 # reproducible in the repo instead of only in a scratch copy.
-DECISION_FIELDS = frozenset({"kanun_no", "kanun_ad", "madde", "fikra", "bent"})
+DECISION_FIELDS = frozenset({"kanun_no", "kanun_ad", "madde"})
 
 
-def test_judge_candidates_carry_only_the_five_decision_fields() -> None:
+def test_judge_candidates_carry_only_the_decision_fields() -> None:
     """Round 1 measured the tell: 494 annotator rows carried `source_text`
     and 610 model rows carried none, so in the GREEN bucket -- where the five
     decision fields are identical by construction -- the judge chose the

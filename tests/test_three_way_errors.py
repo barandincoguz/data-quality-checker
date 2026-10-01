@@ -1,9 +1,9 @@
 """The loop's three error sources -- annotator, model, judge -- scored against the expert.
 
 The paper's error table (`Journal/experiments/dq_loop/DESIGN.md` §5.2) has one
-column per source and five rows: missed, spurious, detail (right article,
-wrong paragraph/subparagraph), grounding (right article, `source_text` not in
-the document) and P/R/F1. The expert screen must let the expert give any of
+column per source: missed, spurious and P/R/F1. A reference is a law and an
+article of it (1 Oct 2026); the old "detail" row (right article, wrong
+paragraph) and the grounding row are gone. The expert screen must let the expert give any of
 the three sources' answer as the truth, and the judge's pilot exam must reach
 the expert at all.
 """
@@ -26,46 +26,42 @@ TOKEN = "t" * 32
 JUDGE = "gemma-4-31b-it-optiq-4bit"
 
 
-def ref(no: str, madde: str, fikra: str = "", bent: str = "", source: str = "") -> dict[str, str]:
-    return {
-        "kanun_no": no,
-        "kanun_ad": "",
-        "madde": madde,
-        "fikra": fikra,
-        "bent": bent,
-        "source_text": source,
-    }
+def ref(no: str, madde: str, source: str = "", **legacy: str) -> dict[str, str]:
+    return {"kanun_no": no, "kanun_ad": "", "madde": madde, "source_text": source, **legacy}
 
 
-def test_a_right_article_with_the_wrong_paragraph_is_a_detail_error() -> None:
+def test_a_right_article_is_right_whatever_paragraph_a_stored_row_names() -> None:
+    """Rows stored before 1 Oct 2026 still carry paragraph fields: the same law
+    and article is correct whatever they say, and no detail error exists."""
     result = attribute_errors(
-        expert=[ref("193", "51", "1"), ref("193", "94")],
-        annotator=[ref("193", "51", "2"), ref("193", "94")],
-        model=[ref("193", "51", "1"), ref("193", "94")],
+        expert=[ref("193", "51", fikra="1"), ref("193", "94")],
+        annotator=[ref("193", "51", fikra="2"), ref("193", "94")],
+        model=[ref("193", "51/1"), ref("193", "94")],
         judge=None,
     )
-    assert result["annotator"]["missed"] == [] and result["annotator"]["spurious"] == []
-    assert result["annotator"]["detail_mismatch"] == [
-        core_identity(normalize_reference(ref("193", "51")))
-    ]
-    assert result["model"]["detail_mismatch"] == []
-    assert result["judge"]["detail_mismatch"] is None
+    for name in ("annotator", "model"):
+        assert result[name]["missed"] == [] and result[name]["spurious"] == []
+        assert result[name]["correct"] == sorted(
+            {core_identity(normalize_reference(ref("193", m))) for m in ("51", "94")}
+        )
+        assert "detail_mismatch" not in result[name]
+    assert result["judge"]["available"] is False
 
 
-def test_rater_agreement_counts_detail_errors_per_source() -> None:
+def test_rater_agreement_has_no_detail_errors() -> None:
     result = rater_agreement(
         [
             {
-                "expert": [ref("193", "51", "1")],
-                "annotator": [ref("193", "51", "2")],
+                "expert": [ref("193", "51", fikra="1")],
+                "annotator": [ref("193", "51", fikra="2")],
                 "model": [ref("193", "51")],
-                "judge": [ref("193", "51", "1")],
+                "judge": [ref("193", "51", fikra="1")],
             }
         ]
     )
-    assert result["per_rater"]["annotator"]["detail_errors"] == 1
-    assert result["per_rater"]["model"]["detail_errors"] == 1
-    assert result["per_rater"]["judge"]["detail_errors"] == 0
+    for name in ("annotator", "model", "judge"):
+        assert result["per_rater"][name]["f1"] == 1.0
+        assert "detail_errors" not in result["per_rater"][name]
 
 
 def test_workload_counts_a_judge_pilot_document_as_required_review() -> None:

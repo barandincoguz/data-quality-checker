@@ -9,15 +9,10 @@ from data_quality_checker.hitl import (
 )
 
 
-def _ref(no="213", ad="Vergi Usul Kanunu", madde="413", fikra="", bent="", src="k"):
-    return {
-        "kanun_no": no,
-        "kanun_ad": ad,
-        "madde": madde,
-        "fikra": fikra,
-        "bent": bent,
-        "source_text": src,
-    }
+def _ref(no="213", ad="Vergi Usul Kanunu", madde="413", src="k", **legacy):
+    """A reference; `legacy` adds the paragraph fields a list stored before
+    1 Oct 2026 still carries, which the screen must read past."""
+    return {"kanun_no": no, "kanun_ad": ad, "madde": madde, "source_text": src, **legacy}
 
 
 def test_ab_diff_marks_identical_reference_as_same() -> None:
@@ -27,7 +22,6 @@ def test_ab_diff_marks_identical_reference_as_same() -> None:
     assert len(rows) == 1
     assert rows[0]["status"] == "same"
     assert rows[0]["status_label"] == "Aynı"
-    assert rows[0]["field_diffs"] == []
     assert rows[0]["core"]["kanun_no"] == "213"
     assert rows[0]["core"]["madde"] == "413"
 
@@ -44,40 +38,21 @@ def test_ab_diff_flags_only_a_and_only_b() -> None:
     assert only_a["status_label"] == "Yalnız insan anotasyonunda"
 
 
-def test_ab_diff_reports_field_level_difference_for_matched_core() -> None:
-    a = _ref(fikra="1", bent="a", src="metin A")
-    b = _ref(fikra="2", bent="a", src="metin B")
-    rows = ab_diff([a], [b])
-
-    assert len(rows) == 1
-    row = rows[0]
-    assert row["status"] == "differs"
-    # The quotes differ too, but the quote decides nothing (27 Sep 2026 rule).
-    assert set(row["field_diffs"]) == {"fikra"}
-    assert "bent" not in row["field_diffs"]
+def test_a_paragraph_difference_in_a_stored_row_is_no_difference() -> None:
+    """1 Oct 2026: a reference is a law and an article. Lists stored before
+    that day still carry paragraph fields; the screen must not show them as
+    a difference -- no flag is raised for them."""
+    rows = ab_diff([_ref(fikra="1", bent="a", src="metin A")], [_ref(fikra="2", bent="a", src="metin B")])
+    assert [(row["status"], row["status_label"]) for row in rows] == [("same", "Aynı")]
 
 
-def test_ab_diff_reports_a_set_difference_when_the_group_is_not_one_to_one() -> None:
-    """Same article on both sides, two references on A against one on B.
-
-    This used to be reported as "differs" with an empty `field_diffs`, and the
-    UI rendered that as "Alan farkı" -- a field difference the expert could
-    never find, because the per-field comparison only runs for a one-to-one
-    group and so had never run. It is now named for what it is: the two sides
-    list different provisions under the same article.
-    """
-    a1 = _ref(fikra="1", src="A birinci fıkra")
-    a2 = _ref(fikra="2", src="A ikinci fıkra")
-    b1 = _ref(fikra="1", src="B birinci fıkra")
-    rows = ab_diff([a1, a2], [b1])
-
-    assert len(rows) == 1
-    row = rows[0]
-    assert row["status"] == "set_differs"
-    assert row["status_label"] == "Aynı madde, farklı fıkra/bent kümesi"
-    assert row["field_diffs"] == []
-    assert len(row["a"]) == 2
-    assert len(row["b"]) == 1
+def test_the_same_article_at_two_depths_is_one_reference_written_twice() -> None:
+    """Two stored rows of one article (paragraphs 1 and 2) against one: the
+    same provision; the repetition is flagged, both rows shown."""
+    a = [_ref(fikra="1", src="A birinci fıkra"), _ref(fikra="2", src="A ikinci fıkra")]
+    row = ab_diff(a, [_ref(fikra="1", src="B")])[0]
+    assert row["status"] == "same" and row["duplicates"] == {"a": 1, "b": 0}
+    assert len(row["a"]) == 2 and len(row["b"]) == 1
 
 
 def test_ab_diff_preserves_first_appearance_order_across_a_then_b() -> None:
@@ -105,10 +80,12 @@ def test_summarize_diff_counts_same_and_different_groups() -> None:
     }
 
 
-def test_review_guidance_explains_red_yellow_and_green_purpose() -> None:
+def test_review_guidance_explains_red_and_green_purpose() -> None:
     assert "Kanun veya madde" in review_guidance("RED")["title"]
-    assert "fıkra, bent" in review_guidance("YELLOW")["explanation"]
     assert "kalite kontrol" in review_guidance("GREEN")["title"]
+    for bucket in ("RED", "GREEN", "QUARANTINE", "YELLOW"):
+        text = " ".join(review_guidance(bucket).values()).casefold()
+        assert "fıkra" not in text and "bent" not in text
 
 
 def test_evidence_segments_returns_single_plain_run_without_spans() -> None:
@@ -201,17 +178,10 @@ def test_ab_diff_shows_the_expert_what_was_actually_written() -> None:
     assert rows[0]["b"][0]["madde"] == "ek 5"
 
 
-def test_ab_diff_does_not_invent_a_field_difference_from_formatting() -> None:
-    """`normalize_extension` already treats "(1)" and "1", and "A" and "a", as
-    the same paragraph. Comparing the raw strings would replace one phantom
-    with another: a matched pair reported as "Alan farkı" over punctuation."""
-    a = _ref(fikra="(1)", bent="A", src="aynı metin")
-    b = _ref(fikra="1", bent="a", src="aynı metin")
-    rows = ab_diff([a], [b])
-
-    assert len(rows) == 1
-    assert rows[0]["status"] == "same"
-    assert rows[0]["field_diffs"] == []
+def test_a_part_of_the_article_written_into_madde_pairs_with_the_article() -> None:
+    """"94/1", "94 (1)" and "94-a" name article 94; the screen pairs them."""
+    rows = ab_diff([_ref(madde="94/1"), _ref(madde="95 (2)")], [_ref(madde="94"), _ref(madde="95-a")])
+    assert [row["status"] for row in rows] == ["same", "same"]
 
 
 def test_ab_diff_still_separates_an_additional_article_from_a_subparagraph() -> None:
@@ -227,40 +197,19 @@ def test_ab_diff_still_separates_an_additional_article_from_a_subparagraph() -> 
     assert {row["status"] for row in rows} == {"only_a", "only_b"}
 
 
-def test_ab_diff_names_a_set_difference_as_what_it_is() -> None:
-    """ "Alan farkı" sent the expert looking for a field that does not differ.
-
-    When both sides cite the same article but list different paragraphs under
-    it, nothing differs field-by-field -- the group simply is not one-to-one,
-    so `field_diffs` stays empty and the label named a comparison that never
-    ran. On batch M01 that was 58 of 70 "Alan farkı" rows, across 43 of 100
-    documents. d000011 is the case that surfaced it: the annotator cited only
-    KVK 3/2 while the model also found 3/3-a and 3/3-c.
-    """
-    a = [_ref(no="5520", ad="Kurumlar Vergisi Kanunu", madde="3", fikra="2")]
-    b = [
-        _ref(no="5520", ad="Kurumlar Vergisi Kanunu", madde="3", fikra="2"),
-        _ref(no="5520", ad="Kurumlar Vergisi Kanunu", madde="3", fikra="3", bent="a"),
-        _ref(no="5520", ad="Kurumlar Vergisi Kanunu", madde="3", fikra="3", bent="c"),
-    ]
-    rows = ab_diff(a, b)
-
-    assert len(rows) == 1
-    assert rows[0]["status"] == "set_differs"
-    assert rows[0]["status_label"] == "Aynı madde, farklı fıkra/bent kümesi"
-    assert rows[0]["field_diffs"] == []
-
-
-def test_ab_diff_keeps_field_difference_for_a_one_to_one_pair() -> None:
-    """The original label stays where it is true: one reference each side,
-    same article, and a field that really does disagree."""
-    a = [_ref(fikra="1", bent="a", src="metin A")]
-    b = [_ref(fikra="2", bent="a", src="metin A")]
-    rows = ab_diff(a, b)
-
-    assert rows[0]["status"] == "differs"
-    assert rows[0]["status_label"] == "Alan farkı"
-    assert rows[0]["field_diffs"] == ["fikra"]
+def test_a_law_only_row_beside_an_article_of_its_law_is_flagged_not_a_difference() -> None:
+    """The screen follows the router's rule: "5520" alone beside "5520/3" on
+    the same side adds no claim, so a GREEN document shows no difference; the
+    row stays visible and flagged."""
+    article = _ref(no="5520", ad="Kurumlar Vergisi Kanunu", madde="3")
+    law_only = _ref(no="5520", ad="Kurumlar Vergisi Kanunu", madde="")
+    rows = ab_diff([article], [law_only, article])
+    assert [row["status"] for row in rows] == ["same", "same"]
+    flagged = next(row for row in rows if row["core"]["madde"] == "")
+    assert flagged["subsumed"] == {"a": 0, "b": 1} and flagged["b"] == [law_only]
+    assert flagged["status_label"] == "Aynı · model çıktısında kanunun bir maddesi de yazıldığı için ayrıca sayılmaz"
+    # A law-only row with no article of its law on that side is a real claim.
+    assert [row["status"] for row in ab_diff([law_only], [])] == ["only_a"]
 
 
 def test_a_reference_written_twice_is_the_same_reference_and_is_flagged() -> None:
@@ -283,24 +232,14 @@ def test_a_reference_written_twice_is_the_same_reference_and_is_flagged() -> Non
     assert row["status_label"] == "Aynı · model çıktısında aynı referans 3 kez yazılmış"
 
 
-def test_a_duplicate_does_not_hide_a_real_set_difference() -> None:
-    a = [_ref("193", "", "94", fikra="1", src=""), _ref("193", "", "94", fikra="1", src=""), _ref("193", "", "94", fikra="2", src="")]
-    b = [_ref("193", "", "94", fikra="1", src="")]
-    row = ab_diff(a, b)[0]
-    assert row["status"] == "set_differs" and row["duplicates"] == {"a": 1, "b": 0}
-    assert row["status_label"].startswith("Aynı madde, farklı fıkra/bent kümesi")
+def test_a_duplicate_does_not_hide_a_real_difference() -> None:
+    a = [_ref("193", "", "94", src=""), _ref("193", "", "94", src=""), _ref("193", "", "95", src="")]
+    rows = ab_diff(a, [_ref("193", "", "94", src="")])
+    assert [(row["status"], row["duplicates"]) for row in rows] == [("same", {"a": 1, "b": 0}), ("only_a", {"a": 0, "b": 0})]
 
 
-def test_one_reference_per_side_written_twice_is_still_compared_field_by_field() -> None:
-    a = [_ref("193", "", "94", fikra="1", src=""), _ref("193", "", "94", fikra="(1)", src="")]
-    b = [_ref("193", "", "94", fikra="2", src="")]
-    row = ab_diff(a, b)[0]
-    assert row["status"] == "differs" and row["field_diffs"] == ["fikra"]
-
-
-def test_two_different_references_each_written_twice_are_counted_as_rows() -> None:
-    a = [_ref("193", "", "94", fikra=f, src="") for f in ("1", "1", "2", "2")]
-    b = [_ref("193", "", "94", fikra=f, src="") for f in ("1", "2")]
-    row = ab_diff(a, b)[0]
-    assert row["status"] == "same" and row["duplicates"] == {"a": 2, "b": 0}
-    assert row["status_label"] == "Aynı · insan anotasyonunda 2 yinelenen satır"
+def test_one_article_written_four_times_is_counted_as_one_reference() -> None:
+    a = [_ref("193", "", "94", src="", fikra=f) for f in ("1", "1", "2", "2")]
+    row = ab_diff(a, [_ref("193", "", "94", src="")])[0]
+    assert row["status"] == "same" and row["duplicates"] == {"a": 3, "b": 0}
+    assert row["status_label"] == "Aynı · insan anotasyonunda aynı referans 4 kez yazılmış"

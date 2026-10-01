@@ -185,7 +185,7 @@ def test_the_whole_document_line_is_trained_on_the_same_round_and_never_sealed(t
     seen = {}
     _second_line_fakes(monkeypatch, seen=seen)
     record = loop_ops.train_loop_candidate(config, round_index=0, resume=False, view="full_documents")
-    assert seen == {"round_index": 0, "resume": False, "view": "full_documents"}
+    assert seen == {"round_index": 0, "resume": False, "view": "full_documents", "stop_at": None}
     path = tmp_path / "public" / "loop" / "candidates" / "round_000_full_documents.json"
     assert json.loads(path.read_text()) == record
     assert record["sealed"] is False and record["training_view_mode"] == "full_documents"
@@ -230,7 +230,7 @@ def test_the_view_flag_never_seals_the_whole_document_line(monkeypatch):
     commands.loop_train(args, None)
     commands.loop_train(SimpleNamespace(round=1, resume=False, no_seal=False, view=None), None)
     assert calls == [
-        ("candidate", {"round_index": 1, "resume": True, "view": "full_documents"}),
+        ("candidate", {"round_index": 1, "resume": True, "view": "full_documents", "stop_at": None}),
         ("sealed", {"round_index": 1, "resume": False}),
     ]
 

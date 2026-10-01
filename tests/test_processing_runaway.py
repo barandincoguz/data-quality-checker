@@ -205,6 +205,7 @@ def _backend(monkeypatch, chunks: list[str], finish_reason: str, module) -> obje
     backend = object.__new__(module.MlxG0Backend)
     backend.tokenizer = _StubTokenizer()
     backend.model = object()
+    backend.system_prompt = "system"
     backend.max_input_tokens = 4096
     backend.max_generation_tokens = 64
 

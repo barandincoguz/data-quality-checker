@@ -278,9 +278,11 @@ def loop_train(args: Namespace, config: AppConfig) -> int:
     view = getattr(args, "view", None)
     # The whole-document line is never sealed: `--view full_documents` always
     # trains a candidate, whatever else is passed.
-    if getattr(args, "no_seal", False) or view == "full_documents":
+    stop_at = getattr(args, "stop_at", None)
+    if getattr(args, "no_seal", False) or view == "full_documents" or stop_at is not None:
+        # A run stopped short is a candidate too: it is never sealed.
         return _print_json(
-            train_loop_candidate(config, round_index=args.round, resume=args.resume, view=view)
+            train_loop_candidate(config, round_index=args.round, resume=args.resume, view=view, stop_at=stop_at)
         )
     return _print_json(train_loop_round(config, round_index=args.round, resume=args.resume))
 
@@ -327,6 +329,15 @@ def loop_carry_decisions(args: Namespace, config: AppConfig) -> int:
             source_label=args.from_config.stem,
         )
     )
+
+
+def loop_prompt_screen(args: Namespace, config: AppConfig) -> int:
+    from .prompt_screen import stage_one, write_stage_two_configs
+
+    selection = stage_one(config, base_run_id=args.base_run_id)
+    configs = write_stage_two_configs(args.config, selection)
+    return _print_json({"ranking": [(r["variant"], round(r["f1"], 4)) for r in selection["ranking"]],
+                        "to_stage_two": selection["to_stage_two"], "configs": [str(p) for p in configs]})
 
 
 def loop_report(args: Namespace, config: AppConfig) -> int:

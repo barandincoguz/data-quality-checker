@@ -199,7 +199,7 @@ def _base_validation_f1(config: Any, run_id: str, *, worker=None, evaluator=None
 
 
 def _train_and_select(
-    config: Any, *, round_index: int, resume: bool, view: str | None = None
+    config: Any, *, round_index: int, resume: bool, view: str | None = None, stop_at: int | None = None
 ) -> dict[str, Any]:
     source = validate_loop_sources(config)
     cleaned = [batch_id_for(k) for k in range(1, round_index + 1)]
@@ -210,7 +210,10 @@ def _train_and_select(
         cleaned_batch_ids=cleaned,
         execute=True,
         candidate_id=LOOP_CANDIDATE,
-        target_updates=None,
+        # None = the whole epoch. A stop is the same schedule cut short (the prompt
+        # screen's short runs): the cosine horizon stays the full epoch, so a
+        # stopped run continues later to exactly the run it would have been.
+        target_updates=stop_at,
         resume=resume,
         view=view,
     )
@@ -230,7 +233,7 @@ def _candidate_path(config: Any, round_index: int, view: str) -> Path:
 
 
 def train_loop_candidate(
-    config: Any, *, round_index: int, resume: bool, view: str | None = None
+    config: Any, *, round_index: int, resume: bool, view: str | None = None, stop_at: int | None = None
 ) -> dict[str, Any]:
     """Train and select round N's model on validation, never sealing it.
 
@@ -248,7 +251,7 @@ def train_loop_candidate(
         if stage != "adjudicated":
             raise GateBlocked(f"round {round_index} is at {stage!r}; run loop-mark --stage adjudicated first")
     mode = training_view_mode(config, view)
-    trained = _train_and_select(config, round_index=round_index, resume=resume, view=mode)
+    trained = _train_and_select(config, round_index=round_index, resume=resume, view=mode, stop_at=stop_at)
     context = _base_run_context(config, trained["run_id"])
     registry = build_g0_registry(
         model_snapshot_path=Path(context["run_config"]["model_snapshot"]["snapshot_path"]),
@@ -256,7 +259,8 @@ def train_loop_candidate(
         max_sequence_length=int(context["run_config"]["selected_sequence_length"]),
     )
     record = {"schema_version": 1, "round": round_index, "generation": round_label(round_index),
-              "training_view_mode": mode, "sealed": False, **trained, "registry": registry}
+              "training_view_mode": mode, "sealed": False, "stopped_at_update": stop_at, **trained,
+              "registry": registry}
     path = _candidate_path(config, round_index, mode)
     write_json_atomic(path, record)
     write_json_atomic(path.with_name(f"{path.stem}_registry.json"), registry, mode=0o644)

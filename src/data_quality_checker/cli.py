@@ -256,6 +256,11 @@ def build_parser() -> argparse.ArgumentParser:
     loop_train.add_argument("--round", type=int, required=True)
     loop_train.add_argument("--resume", action="store_true")
     loop_train.add_argument(
+        "--stop-at",
+        type=int,
+        help="stop at this optimizer update (same full-epoch schedule; never sealed; the prompt screen)",
+    )
+    loop_train.add_argument(
         "--no-seal",
         action="store_true",
         help="train and select on validation, but do not seal it as the round's model",
@@ -295,6 +300,13 @@ def build_parser() -> argparse.ArgumentParser:
     loop_carry.add_argument("--round", type=int, required=True)
     loop_carry.add_argument("--from-config", type=Path, required=True)
     loop_carry.set_defaults(handler=commands.loop_carry_decisions)
+
+    prompt_screen = subparsers.add_parser(
+        "loop-prompt-screen",
+        help="stage 1 of the prompt screen: every registered prompt on 100 training documents, untrained model",
+    )
+    prompt_screen.add_argument("--base-run-id", required=True, help="a loop run whose model snapshot and sequence length to use")
+    prompt_screen.set_defaults(handler=commands.loop_prompt_screen)
 
     loop_mark = subparsers.add_parser("loop-mark", help="record a human-driven round stage")
     loop_mark.add_argument("--round", type=int, required=True)

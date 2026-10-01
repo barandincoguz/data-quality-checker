@@ -23,9 +23,11 @@
 >   **Pilot kaldırıldı (29 Eylül, aşağıda).** Sıra: `loop-judge --round 1` (29 Eyl 19:15'te başlatıldı,
 >   tmux `gt750-judge`, 172 belge) ‖ uzman 172 belgelik kuyruğu karara bağlar (hakemi beklemez) →
 >   `release --batch-id R01 --generation M000` → `loop-mark --round 1 --stage adjudicated` → `loop-train --round 1`.
-> - Uzman ekranı: `http://127.0.0.1:5056/login` (tmux `gt750-serve`; giriş anahtarı
->   `data/sensitive/data_quality_checker_gt750/keys/access_token.txt`, ortam
->   `keys/serve_env.sh`). 5055'teki ekran **eski** M01 turunundur.
+> - Uzman ekranı: `http://127.0.0.1:5056/` — **anahtarsız, giriş sayfası yok** (kullanıcı kararı 1 Ekim,
+>   dq `acac446`; paylaşımlı makinede 127.0.0.1'e herkesin ulaşabileceği söylendi). Başlatma:
+>   tmux `gt750-serve` ← `artifacts/data_quality_checker_gt750/loop/serve_R01.sh` (oturum imzası
+>   `keys/serve_env.sh`). Uzaktan: `ssh -L 5056:127.0.0.1:5056 …`. 5055'teki ekran **eski** M01 turunundur
+>   (o anahtarlı kalır).
 > - Belge kimliği anahtarı: `data/sensitive/data_quality_checker_gt750/keys/gt750_loop.key` —
 >   R01…R05'in hepsinde aynısı kullanılmalı.
 > - **Üç kaynaklı hata (26 Eylül):** `loop-errors --round N` bursiyer / model / hakemi uzmanın

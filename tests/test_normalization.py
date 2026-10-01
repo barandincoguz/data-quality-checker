@@ -12,9 +12,7 @@ from data_quality_checker.normalization import (
     _fold,
     compact_references,
     core_identity,
-    full_identity,
     normalize_article,
-    normalize_extension,
     normalize_law_number,
     normalize_reference,
 )
@@ -25,8 +23,6 @@ def _ref(**updates: str) -> dict[str, str]:
         "kanun_no": "",
         "kanun_ad": "",
         "madde": "1",
-        "fikra": "",
-        "bent": "",
         "source_text": "x",
     }
     payload.update(updates)
@@ -92,24 +88,6 @@ def test_ve_muteakip_suffix_negative_distinct_articles_stay_distinct() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Task 3b: ordinals beyond the tenth, concatenated and space-separated
-# ---------------------------------------------------------------------------
-
-
-def test_ordinal_eleventh_concatenated_and_spaced_match_digit_form() -> None:
-    assert normalize_extension("onbirinci") == "11"
-    assert normalize_extension("on birinci") == "11"
-
-
-def test_ordinal_twentieth_matches_digit_form() -> None:
-    assert normalize_extension("yirminci") == "20"
-
-
-def test_ordinal_negative_distinct_ordinals_stay_distinct() -> None:
-    assert normalize_extension("onbirinci") != normalize_extension("onikinci")
-
-
-# ---------------------------------------------------------------------------
 # Task 3c: leading zeros on the law number
 # ---------------------------------------------------------------------------
 
@@ -128,76 +106,52 @@ def test_law_number_negative_distinct_numbers_stay_distinct() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Task 4: sub-part embedded in the article field
+# A reference is a law and an article (1 Oct 2026): a part of the article
+# written into `madde` is cut off; an inserted article keeps its letter.
 # ---------------------------------------------------------------------------
 
 
-def test_lowercase_slash_suffix_splits_into_empty_bent() -> None:
-    a = normalize_reference(_ref(madde="6/b", bent=""))
-    b = normalize_reference(_ref(madde="6", bent="b"))
-    assert full_identity(a) == full_identity(b)
+def test_a_part_of_the_article_written_into_madde_is_cut_off() -> None:
+    for written in ("6/b", "6/ç", "6 /b", "6/4", "6/4-a", "6 (2)", "6(a)", "6-a", "6/b maddesi"):
+        assert normalize_article(written) == "6", written
 
 
-def test_lowercase_slash_suffix_splits_into_empty_bent_30a() -> None:
-    a = normalize_reference(_ref(madde="30/a", bent=""))
-    b = normalize_reference(_ref(madde="30", bent="a"))
-    assert full_identity(a) == full_identity(b)
-
-
-def test_uppercase_slash_suffix_negative_is_not_split() -> None:
+def test_an_inserted_article_keeps_its_uppercase_letter() -> None:
     # 32/A ("İndirimli kurumlar vergisi") is a distinct article inserted by
-    # amendment, not paragraph A of article 32 -- it must never be split.
-    amendment_article = normalize_reference(_ref(madde="32/A", bent=""))
-    split_form = normalize_reference(_ref(madde="32", bent="A"))
-    plain_article = normalize_reference(_ref(madde="32", bent=""))
-    assert full_identity(amendment_article) != full_identity(split_form)
-    assert full_identity(amendment_article) != full_identity(plain_article)
+    # amendment, not a part of article 32 -- it must never be cut off.
+    assert normalize_article("32/A") == "32/A"
+    assert normalize_article("32/ A") == "32/A"
+    assert normalize_article("mükerrer 20/A-B") == "mükerrer 20/A-B"
+    assert normalize_article("5/A-1") == "5/A"
+    assert normalize_article("32/A") != normalize_article("32")
 
 
-def test_slash_suffix_does_not_overwrite_explicit_bent() -> None:
-    reference = normalize_reference(_ref(madde="6/b", bent="c"))
-    assert reference["bent"] == "c"
+def test_normalizing_twice_changes_nothing() -> None:
+    """The inserted-article letter stays upper case, so a normalized "32/A"
+    is not read as a part of article 32 on a second pass (it was: "32/a")."""
+    for written in ("32/A", "Geçici 21", "mükerrer 20/A-B", "13/a", "466-469", "Ek 5", "229 ve müteakip"):
+        once = normalize_article(written)
+        assert normalize_article(once) == once, written
+        reference = normalize_reference(_ref(madde=written))
+        assert normalize_reference(reference) == reference, written
 
 
-def test_slash_suffix_splits_turkish_lowercase_letter() -> None:
-    a = normalize_reference(_ref(madde="7/ç", bent=""))
-    b = normalize_reference(_ref(madde="7", bent="ç"))
-    assert full_identity(a) == full_identity(b)
+def test_a_stored_row_with_paragraph_fields_is_read_as_its_law_and_article() -> None:
+    """Lists written before 1 Oct 2026 still carry `fikra`/`bent`; they are
+    projected away on read, so the same provision at two depths is one."""
+    deep = normalize_reference({**_ref(kanun_no="193", madde="94"), "fikra": "1", "bent": "a"})
+    plain = normalize_reference(_ref(kanun_no="193", madde="94"))
+    assert deep == plain
+    assert set(deep) == {"kanun_no", "kanun_ad", "madde", "source_text"}
 
 
-# ---------------------------------------------------------------------------
-# Task 5: pin the combined effect on a realistic reference pair, so a future
-# regression is caught by the suite rather than by re-running an analysis.
-# ---------------------------------------------------------------------------
-
-
-def test_uppercase_prefixed_law_with_embedded_bent_matches_its_split_twin() -> None:
+def test_uppercase_prefixed_law_with_embedded_part_matches_its_plain_twin() -> None:
     """One row combining every defect this plan fixes."""
     a = compact_references(
-        [
-            {
-                "kanun_no": "3065",
-                "kanun_ad": "3065 SAYILI KATMA DEĞER VERGİSİ KANUNU",
-                "madde": "6/b",
-                "fikra": "",
-                "bent": "",
-                "source_text": "x",
-            }
-        ]
+        [{"kanun_no": "3065", "kanun_ad": "3065 SAYILI KATMA DEĞER VERGİSİ KANUNU", "madde": "6/b", "source_text": "x"}]
     )
-    b = compact_references(
-        [
-            {
-                "kanun_no": "3065",
-                "kanun_ad": "Katma Değer Vergisi Kanunu",
-                "madde": "6",
-                "fikra": "",
-                "bent": "b",
-                "source_text": "y",
-            }
-        ]
-    )
-    assert full_identity(a[0]) == full_identity(b[0])
+    b = compact_references([{"kanun_no": "3065", "kanun_ad": "Katma Değer Vergisi Kanunu", "madde": "6", "source_text": "y"}])
+    assert core_identity(a[0]) == core_identity(b[0])
 
 
 def test_law_name_is_not_part_of_identity_when_the_number_is_present() -> None:
@@ -220,8 +174,6 @@ def test_law_name_is_not_part_of_identity_when_the_number_is_present() -> None:
                     "kanun_no": number,
                     "kanun_ad": "",
                     "madde": "60",
-                    "fikra": "",
-                    "bent": "",
                     "source_text": "x",
                 }
             ]
@@ -232,8 +184,6 @@ def test_law_name_is_not_part_of_identity_when_the_number_is_present() -> None:
                     "kanun_no": number,
                     "kanun_ad": written,
                     "madde": "60",
-                    "fikra": "",
-                    "bent": "",
                     "source_text": "y",
                 }
             ]
@@ -249,8 +199,6 @@ def test_distinct_laws_stay_distinct_without_the_name() -> None:
                 "kanun_no": "506",
                 "kanun_ad": "",
                 "madde": "60",
-                "fikra": "",
-                "bent": "",
                 "source_text": "x",
             }
         ]
@@ -261,8 +209,6 @@ def test_distinct_laws_stay_distinct_without_the_name() -> None:
                 "kanun_no": "1163",
                 "kanun_ad": "",
                 "madde": "60",
-                "fikra": "",
-                "bent": "",
                 "source_text": "x",
             }
         ]
@@ -278,8 +224,6 @@ def test_the_name_still_identifies_a_law_that_carries_no_number() -> None:
                 "kanun_no": "",
                 "kanun_ad": "Kooperatifler Kanunu",
                 "madde": "93",
-                "fikra": "",
-                "bent": "",
                 "source_text": "x",
             }
         ]
@@ -290,8 +234,6 @@ def test_the_name_still_identifies_a_law_that_carries_no_number() -> None:
                 "kanun_no": "",
                 "kanun_ad": "İş Kanunu",
                 "madde": "93",
-                "fikra": "",
-                "bent": "",
                 "source_text": "x",
             }
         ]

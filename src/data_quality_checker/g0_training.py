@@ -18,6 +18,7 @@ from typing import Any
 from .atomic import fsync_directory, write_json_atomic, write_text_atomic
 from .checkpoints import CheckpointManager
 from .config import AppConfig
+from .constants import REFERENCE_DECISION_FIELDS
 from .errors import FingerprintMismatch, GateBlocked, IntegrityError
 from .fingerprints import fingerprint_json, sha256_file
 from .g0 import (
@@ -339,13 +340,7 @@ def _candidate_contract(
                     "requires_terminal_duplicate_legal_tuple_run": 2,
                     "action": "deduplicate_complete_objects_and_close_array",
                 },
-                "merge_identity": [
-                    "kanun_no",
-                    "kanun_ad",
-                    "madde",
-                    "fikra",
-                    "bent",
-                ],
+                "merge_identity": list(REFERENCE_DECISION_FIELDS),
                 "input_coverage": "complete",
             },
             "temperature": 0.0,

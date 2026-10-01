@@ -10,7 +10,7 @@ from typing import Any, Protocol
 
 from .atomic import write_json_atomic
 from .config import AppConfig
-from .constants import MODEL_ID, MODEL_REVISION
+from .constants import MODEL_ID, MODEL_REVISION, REFERENCE_DECISION_FIELDS
 from .contracts import validate_reference_list
 from .errors import ContractError, FingerprintMismatch, GateBlocked, IntegrityError
 from .fingerprints import fingerprint_json, sha256_file, sha256_text
@@ -67,7 +67,9 @@ class EchoHumanBackend:
         )
 
 
-LEGAL_TUPLE_FIELDS = ("kanun_no", "kanun_ad", "madde", "fikra", "bent")
+# A legal tuple is a law and an article of it (1 Oct 2026): nothing below the
+# article enters a repetition, a deduplication or a salvage decision.
+LEGAL_TUPLE_FIELDS = REFERENCE_DECISION_FIELDS
 # Chosen from the data, not from intuition. Across 1,248 generations that
 # terminated normally -- 98 from M01 under M000, 100 from M01 under G0, and
 # 1,050 M000 validation generations -- the longest run of identical consecutive
@@ -157,12 +159,14 @@ def salvage_repeated_json_prefix(raw_output: str) -> dict[str, Any] | None:
     Damga Vergisi Kanunu articles (1, 3, 9) rather than repeating one of
     them; no terminal *run* exists, but each of those three tuples recurs
     earlier in the array, so deduplication is provably safe and the document
-    is recovered to its ten genuine references. d000059 counted `bent`
-    upward instead -- 201, 202, 203 -- so its terminal tuple never recurs:
+    is recovered to its ten genuine references. A loop that counts upward
+    instead -- article 201, 202, 203 -- never repeats its terminal tuple:
     there is nothing to deduplicate, and closing that array would inject
     hundreds of fabricated references into the batch. Such a document stays
-    quarantined. Either way the safety property is unchanged: only tuples
-    the model itself emitted are ever returned.
+    quarantined. (d000059 under M000 counted `bent` upward on one article;
+    with nothing below the article in a tuple, those rows are one provision
+    repeated, which deduplication recovers.) Either way the safety property is
+    unchanged: only tuples the model itself emitted are ever returned.
     """
     array_start = raw_output.find("[")
     if array_start < 0:

@@ -48,6 +48,28 @@ def _split_path(config: AppConfig, settings: dict[str, Any]) -> Path:
     return path if path.is_absolute() else (config.source_path.parent / path).resolve()
 
 
+def _with_quotes(references: list[dict[str, str]], raw: list[Any]) -> list[dict[str, Any]]:
+    """Keep every quote of a GT v7 row beside its single `source_text`.
+
+    GT v7 merged the rows that named one law and article at different depths
+    into one row, and kept all their quotes under `source_texts`: the training
+    windows read them to find every place the reference is cited. The
+    reference contract keeps only the decision fields and `source_text`, so the
+    quotes are put back here, checked; they are never compared or scored.
+    """
+
+    out: list[dict[str, Any]] = []
+    for index, (reference, row) in enumerate(zip(references, raw, strict=True)):
+        quotes = row.get("source_texts") if isinstance(row, dict) else None
+        if quotes is None:
+            out.append(reference)
+            continue
+        if not isinstance(quotes, list) or not quotes or not all(isinstance(q, str) and q.strip() for q in quotes):
+            raise ContractError(f"reference[{index}].source_texts must be a non-empty list of quotes")
+        out.append({**reference, "source_texts": list(quotes)})
+    return out
+
+
 def validate_loop_sources(config: AppConfig) -> dict[str, Any]:
     settings = _settings(config)
     gt_dir = config.canonical_gt_dir
@@ -68,7 +90,7 @@ def validate_loop_sources(config: AppConfig) -> dict[str, Any]:
             raise ContractError(f"loop GT filename/doc_id mismatch in {path}")
         if not isinstance(payload.get("text"), str) or not payload["text"].strip():
             raise ContractError(f"loop GT document {doc_id} has no text")
-        references = validate_reference_list(payload.get("references"))
+        references = _with_quotes(validate_reference_list(payload.get("references")), payload["references"])
         reference_count += len(references)
         documents[doc_id] = {**payload, "references": references}
     if set(documents) != set(range(1, expected + 1)):

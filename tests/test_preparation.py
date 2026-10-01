@@ -289,8 +289,6 @@ def test_missing_reference_fields_warn_while_invalid_types_and_duplicates_quaran
         "kanun_no": "213",
         "kanun_ad": "",
         "madde": "",
-        "fikra": "",
-        "bent": "",
         "source_text": "",
     }
     assert "reference_missing_field" in {warning["code"] for warning in ready_document["warnings"]}

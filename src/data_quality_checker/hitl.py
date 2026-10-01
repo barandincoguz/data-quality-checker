@@ -7,7 +7,6 @@ import json
 import os
 import secrets
 import time
-from collections import Counter
 from typing import Any
 
 from flask import (
@@ -30,7 +29,6 @@ from .loop_sources import has_loop_settings
 from .normalization import (
     compact_references,
     core_identity,
-    full_identity,
     normalize_reference,
 )
 from .preparation import annotation_attribution_path
@@ -165,7 +163,7 @@ REVIEW_TEMPLATE = """
 {% macro refcell(refs) %}
 {%- for r in refs -%}
 <div class="ref"><strong>{{ r.kanun_no or r.kanun_ad or "Kanun belirtilmemiş" }}</strong>
-· madde {{ r.madde or "—" }}{% if r.fikra %} · fıkra {{ r.fikra }}{% endif %}{% if r.bent %} · bent {{ r.bent }}{% endif %}
+· madde {{ r.madde or "—" }}
 <div class="src">{{ r.source_text }}</div></div>
 {%- else -%}<span class="muted">—</span>{%- endfor -%}
 {% endmacro %}
@@ -212,7 +210,7 @@ pre{white-space:pre-wrap;border:1px solid #bbb;padding:1rem}mark.ev{padding:0 .0
 {% for row in diff %}<tr class="{{ row.status }}">
   <td>{{ row.core.kanun_no }} · {{ row.core.kanun_ad }}<br><small>madde {{ row.core.madde or "—" }}</small></td>
   <td>{{ refcell(row.a) }}</td><td>{{ refcell(row.b) }}</td>
-  <td><span class="badge">{{ row.status_label }}</span>{% if row.field_diffs %}<div class="diffmark">Farklı alan: {{ row.field_diffs|join(", ") }}</div>{% endif %}</td>
+  <td><span class="badge">{{ row.status_label }}</span></td>
 </tr>{% else %}<tr><td colspan="4" class="muted">İki adayda da referans yok.</td></tr>{% endfor %}
 </tbody></table></section>
 
@@ -235,7 +233,7 @@ pre{white-space:pre-wrap;border:1px solid #bbb;padding:1rem}mark.ev{padding:0 .0
     <p class="hint">Başlangıç olarak insan anotasyonunu veya modeli seçin; yalnız yanlış alanları değiştirin.</p>
     <div class="toolbar"><button type="button" id="fill-a">İnsan anotasyonundan başla</button><button type="button" id="fill-b">Model çıktısından başla</button>
     {% if doc.judge_suggestion %}<button type="button" id="fill-judge">Yardımcı görüşten başla</button>{% endif %}<button type="button" id="add-row">+ Referans ekle</button></div>
-    <div class="editor-wrap"><table class="editor"><thead><tr><th>Kanun no</th><th>Kanun adı</th><th>Madde</th><th>Fıkra</th><th>Bent</th><th>Metindeki ifade</th><th></th></tr></thead><tbody id="ref-rows"></tbody></table></div>
+    <div class="editor-wrap"><table class="editor"><thead><tr><th>Kanun no</th><th>Kanun adı</th><th>Madde</th><th>Metindeki ifade</th><th></th></tr></thead><tbody id="ref-rows"></tbody></table></div>
     <details class="technical"><summary>Teknik JSON alanı (yalnız gerekirse)</summary><textarea name="references_json" rows="8" cols="80"></textarea></details>
     <p><button class="save-revision" name="action" value="revise">Düzeltmeyi kaydet ve devam et</button></p>
   </details>
@@ -251,7 +249,7 @@ pre{white-space:pre-wrap;border:1px solid #bbb;padding:1rem}mark.ev{padding:0 .0
 <script>
 (function(){
   var DATA = JSON.parse(document.getElementById('cand').textContent);
-  var FIELDS = ['kanun_no','kanun_ad','madde','fikra','bent','source_text'];
+  var FIELDS = ['kanun_no','kanun_ad','madde','source_text'];
   var rows = document.getElementById('ref-rows');
   var textarea = document.querySelector('textarea[name=references_json]');
   function collect(){
@@ -320,28 +318,22 @@ pre{white-space:pre-wrap;border:1px solid #bbb;padding:1rem}mark.ev{padding:0 .0
 """
 
 
-# The annotator's quote is shown (highlighting), never compared: it decides nothing.
-_DIFF_FIELDS = ("fikra", "bent")
 _DIFF_STATUS_LABELS = {
     "same": "Aynı",
     "only_a": "Yalnız insan anotasyonunda",
     "only_b": "Yalnız model çıktısında",
-    "differs": "Alan farkı",
-    "set_differs": "Aynı madde, farklı fıkra/bent kümesi",
 }
 
 
 def ab_diff(
     candidate_a: list[dict[str, Any]], candidate_b: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
-    """Align human (A) and model (B) references by core law-article identity.
+    """Align human (A) and model (B) references by law-article identity.
 
-    References are grouped by ``core_identity`` in first-appearance order across
-    A then B. Each group reports a ``status``. A one-to-one group whose
-    identities disagree is ``differs``, carrying the subset of
-    ``fikra``/``bent`` that actually differ (never ``source_text``); a group that is
-    not one-to-one is ``set_differs``, meaning the two sides cite different
-    provisions under the same article rather than the same one differently.
+    A reference is a law and an article of it (1 Oct 2026), so a group is one
+    provision and its status is all there is to say: on both sides (``same``),
+    or on one only. The annotator's quote is shown (highlighting), never
+    compared: it decides nothing.
 
     Pairing normalises first; display does not. ``core_identity`` reads its
     fields as given, and every other consumer in the pipeline -- the router,
@@ -353,18 +345,23 @@ def ab_diff(
     on batch M01: 48 such phantom rows across 19 of 100 documents, five of them
     GREEN -- documents the router itself calls identical.
 
-    The same applies to the field comparison: ``normalize_extension`` already
-    treats "(1)" and "1", and "A" and "a", as one paragraph, so comparing the
-    raw strings would trade one phantom for another.
-
     What the expert reads stays exactly as written, though. The groups hold the
     original references and only the keys are normalised -- showing "ek 5"
     where the annotator typed "Ek 5" would misreport the record being audited.
+    A reference written twice ("Geçici 21" and "geçici 21", R01 d000081) is one
+    reference; the repetition is flagged, never hidden -- both rows are shown.
+
+    Presence follows the router's own rule (`compact_references`): a law-only
+    row beside an article of the same law adds no claim, so it does not make a
+    side differ -- the screen must not contradict a GREEN bucket -- but it stays
+    visible and flagged, so the expert can audit what was written.
     """
 
     order: list[tuple[str, str, str, str]] = []
     groups: dict[tuple[str, str, str, str], dict[str, list[dict[str, Any]]]] = {}
+    claimed: dict[str, set[tuple[str, str, str, str]]] = {}
     for label, references in (("a", candidate_a), ("b", candidate_b)):
+        claimed[label] = {core_identity(reference) for reference in compact_references(references)}
         for reference in references:
             key = core_identity(normalize_reference(reference))
             if key not in groups:
@@ -376,42 +373,18 @@ def ab_diff(
     for key in order:
         a_refs = groups[key]["a"]
         b_refs = groups[key]["b"]
-        # Compared as sets, as the router and the metrics do: a reference written
-        # twice ("Geçici 21" and "geçici 21", R01 d000081) is one reference. The
-        # repetition is flagged, never hidden -- both rows are still shown.
-        a_ids = Counter(full_identity(normalize_reference(r)) for r in a_refs)
-        b_ids = Counter(full_identity(normalize_reference(r)) for r in b_refs)
-        a_set, b_set = set(a_ids), set(b_ids)
-        duplicates = {"a": len(a_refs) - len(a_set), "b": len(b_refs) - len(b_set)}
-        repeated = {
-            "a": [n for n in a_ids.values() if n > 1],
-            "b": [n for n in b_ids.values() if n > 1],
+        in_a, in_b = key in claimed["a"], key in claimed["b"]
+        duplicates = {"a": max(0, len(a_refs) - 1), "b": max(0, len(b_refs) - 1)}
+        subsumed = {
+            "a": len(a_refs) if a_refs and not in_a else 0,
+            "b": len(b_refs) if b_refs and not in_b else 0,
         }
-        if a_refs and not b_refs:
+        if in_a and not in_b:
             status = "only_a"
-        elif b_refs and not a_refs:
+        elif in_b and not in_a:
             status = "only_b"
-        elif a_set == b_set:
-            status = "same"
-        elif len(a_set) == 1 and len(b_set) == 1:
-            status = "differs"
         else:
-            # Both sides cite this article but list different provisions under
-            # it. Nothing differs field-by-field -- the group is simply not
-            # one-to-one, so the field comparison below never runs. Calling
-            # that "Alan farkı" sent the expert hunting for a field that does
-            # not disagree; on batch M01 it did so on 58 of 70 such rows,
-            # across 43 of 100 documents.
-            status = "set_differs"
-        field_diffs: list[str] = []
-        if status == "differs":
-            normalized_a = normalize_reference(a_refs[0])
-            normalized_b = normalize_reference(b_refs[0])
-            field_diffs = [
-                field
-                for field in _DIFF_FIELDS
-                if normalized_a.get(field, "") != normalized_b.get(field, "")
-            ]
+            status = "same"
         sample = (a_refs or b_refs)[0]
         rows.append(
             {
@@ -423,18 +396,19 @@ def ab_diff(
                 "status": status,
                 "status_label": _DIFF_STATUS_LABELS[status]
                 + "".join(
-                    (
-                        f" · {side} aynı referans {repeated[key][0]} kez yazılmış"
-                        if len(repeated[key]) == 1
-                        else f" · {side} {duplicates[key]} yinelenen satır"
-                    )
+                    f" · {side} aynı referans {duplicates[key] + 1} kez yazılmış"
                     for key, side in (("a", "insan anotasyonunda"), ("b", "model çıktısında"))
                     if duplicates[key]
+                )
+                + "".join(
+                    f" · {side} kanunun bir maddesi de yazıldığı için ayrıca sayılmaz"
+                    for key, side in (("a", "insan anotasyonunda"), ("b", "model çıktısında"))
+                    if subsumed[key]
                 ),
                 "duplicates": duplicates,
+                "subsumed": subsumed,
                 "a": a_refs,
                 "b": b_refs,
-                "field_diffs": field_diffs,
             }
         )
     return rows
@@ -470,13 +444,6 @@ def review_guidance(bucket: str) -> dict[str, str]:
                 "Adaylardan biri hedef referansı kaçırmış ya da fazladan bir "
                 "referans üretmiş olabilir. Belge metnindeki tüm kanun ve maddeleri "
                 "özellikle kontrol edin."
-            ),
-        },
-        "YELLOW": {
-            "title": "Referans ayrıntıları uyuşmuyor",
-            "explanation": (
-                "Ana kanun ve madde büyük ölçüde uyumlu görünüyor; fıkra, bent veya "
-                "metindeki kanıt parçasında fark olabilir."
             ),
         },
         "GREEN": {
@@ -782,8 +749,8 @@ def _trigger_green_escalation(
     if document["internal_doc_id"] not in set(audit["sample_internal_doc_ids"]):
         return False
     original, _ = apply_reference_policy(json.loads(document["human_references_json"]))
-    original_set = {full_identity(row) for row in compact_references(original)}
-    final_set = {full_identity(row) for row in compact_references(final)}
+    original_set = {core_identity(row) for row in compact_references(original)}
+    final_set = {core_identity(row) for row in compact_references(final)}
     if original_set == final_set:
         return False
     path = config.public_root / "batches" / batch_id / "green_escalation.json"

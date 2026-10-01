@@ -545,3 +545,28 @@ def test_dense_replay_raises_when_a_single_reference_row_exceeds_max_sequence_le
             max_sequence_length=8,
         )
     assert "dense replay row" in str(excinfo.value)
+
+
+def test_a_reference_cited_in_two_places_is_in_both_windows(tmp_path: Path, monkeypatch) -> None:
+    """GT v7 (1 Oct 2026) keeps one row per law and article and every quote of
+    the rows it merged under `source_texts`. A window holding any of them holds
+    the reference: reading only the first quote would teach the model that the
+    other window does not cite it. Neither quote field reaches the target."""
+    monkeypatch.setattr(context_windows, "_primary_window_geometry", lambda _: (4, 0))
+    monkeypatch.setattr(context_windows, "FALLBACK_WINDOW_TOKENS", 2)
+    monkeypatch.setattr(context_windows, "FALLBACK_OVERLAP_TOKENS", 1)
+    monkeypatch.setattr(context_windows, "_include_dense_replay", lambda _: False)
+    source, doc_ids = tmp_path / "train.jsonl", tmp_path / "train_doc_ids.json"
+    reference = {"kanun_no": "193", "kanun_ad": "", "madde": "94", "source_text": "w1 w2",
+                 "source_texts": ["w1 w2", "w5 w6"]}
+    source.write_text(json.dumps(_row("w0 w1 w2 w3 w4 w5 w6 w7", [reference])) + "\n", encoding="utf-8")
+    doc_ids.write_text("[1]\n", encoding="utf-8")
+    build_context_window_view(
+        source_path=source, source_doc_ids_path=doc_ids, output_path=tmp_path / "out.jsonl",
+        output_doc_ids_path=tmp_path / "out_ids.json", manifest_path=tmp_path / "manifest.json",
+        tokenizer=_Tokenizer(), model_fingerprint="a" * 64, max_sequence_length=8,
+    )
+    rows = [json.loads(line) for line in (tmp_path / "out.jsonl").read_text().splitlines()]
+    targets = [json.loads(row["messages"][-1]["content"]) for row in rows]
+    assert [row["messages"][1]["content"] for row in rows] == ["w0 w1 w2 w3", "w4 w5 w6 w7"]
+    assert targets == [[{"kanun_no": "193", "kanun_ad": "", "madde": "94"}]] * 2

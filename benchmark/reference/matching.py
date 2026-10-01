@@ -19,8 +19,11 @@ This module implements the replacement semantics:
 * **Optimal matching.** Pairing is a minimum-cost maximum-flow assignment, so the
   true-positive count is the maximum-cardinality matching of the compatibility
   graph -- a graph invariant, hence independent of row order. Ties between
-  equal-cardinality matchings are broken by a deterministic quality score so the
-  reported ``fikra``/``bent`` diagnostics are also stable.
+  equal-cardinality matchings are broken by a deterministic quality score.
+
+A reference is a law and an article of it (user decision, 1 Oct 2026): nothing
+below the article is read, matched or reported. The archived matcher is at git
+tag archive/gt750-v1-fikra-bent.
 """
 
 from __future__ import annotations
@@ -37,18 +40,14 @@ from annotator.reference.common import (
     normalize_reference,
 )
 
-#: A single letter after ``/`` at the end of an article number. Its *case*
-#: decides what it means in Turkish legal citation:
-#:
-#: * **lowercase** -- a subparagraph (*bent*), as in KDV Kanunu ``13/a``.
-#:   Subparagraphs are normally written ``(a) bendi``, ``a)`` or ``5/1-a``.
-#: * **UPPERCASE** -- part of the article number itself. ``32/A`` (KVK indirimli
-#:   kurumlar vergisi), ``38/A``, ``39/A``, ``14/A``, ``3/A`` and ``3/B`` are
-#:   separate articles whose number happens to contain a letter; the correct
-#:   reading is "32/A maddesi", never "32. maddenin A bendi". In GT v3 half of
-#:   those rows carry a ``fikra`` of their own, which corroborates this.
+#: An UPPERCASE letter (or pair) after ``/`` at the end of an article number is
+#: part of the number itself: ``32/A`` (KVK indirimli kurumlar vergisi),
+#: ``38/A``, ``39/A``, ``14/A``, ``mükerrer 20/A-B`` are separate articles whose
+#: number happens to contain a letter -- "32/A maddesi", never a part of article
+#: 32. A *lowercase* letter there is a part of the article and was already cut
+#: off by ``annotator.reference.common.normalize_madde``.
 RE_ARTICLE_LETTER_SUFFIX = re.compile(
-    r"^(?P<head>.+?)/(?P<suffix>[A-Za-zÇĞİÖŞÜçğıöşü])$"
+    r"^(?P<head>.+?)/(?P<suffix>[A-ZÇĞİÖŞÜ](?:-[A-ZÇĞİÖŞÜ])?)$"
 )
 
 #: ``466-469``, ``466 – 469`` and ``466 ila 469`` are the same span written two ways.
@@ -118,68 +117,39 @@ def _fold_article_text(text: str) -> str:
     return _canonical_folded_article(without_marks.translate(_TURKISH_FOLD).casefold())
 
 
-def split_article_subparagraph(
-    madde: str,
-    fikra: str,
-    bent: str,
-) -> tuple[str, str, str]:
-    """Move a *lowercase* subparagraph letter out of ``madde`` into ``bent``.
+def canonical_article(ref: dict[str, str]) -> str:
+    """Return ``madde`` in a comparison-stable canonical form.
 
-    GT v3 stores KDV ``13/a`` style citations entirely inside ``madde``, which
-    silently gives those rows strict subparagraph matching while every other row
-    treats ``bent`` as soft detail. Splitting them restores one uniform rule.
-
-    An uppercase suffix is never split: ``32/A`` is a whole article number, not
-    article 32 subparagraph A. A row that already carries a ``bent`` is left
-    alone too, so no existing subparagraph can be overwritten.
-    """
-    match = RE_ARTICLE_LETTER_SUFFIX.match(madde)
-    if match and match.group("suffix").islower() and not bent:
-        return match.group("head"), fikra, match.group("suffix")
-    return madde, fikra, bent
-
-
-def canonical_article_fields(ref: dict[str, str]) -> tuple[str, str, str]:
-    """Return ``(madde, fikra, bent)`` in a comparison-stable canonical form.
-
-    Folds the encoding inconsistencies found in GT v3: the subparagraph split
-    above, the ``466-469`` / ``466 ila 469`` range spelling, and the
-    ``mükerrer 257`` / ``Mükerrer 257`` capitalisation split that made 88 gold
-    rows fail to compare equal to their own duplicates.
+    Folds the encoding inconsistencies found in the gold data: the ``466-469`` /
+    ``466 ila 469`` range spelling and the ``mükerrer 257`` / ``Mükerrer 257``
+    capitalisation split that made 88 gold rows fail to compare equal to their
+    own duplicates.
 
     The letter suffix of an article number keeps its original case, which is
     what makes this function idempotent. Folding it would rewrite ``32/A`` to
-    ``32/a``, and a second application would then mistake that for a
-    subparagraph and destroy the article number.
+    ``32/a``, and a second application would then read that as a part of
+    article 32 and destroy the article number.
     """
-    madde, fikra, bent = split_article_subparagraph(
-        ref.get("madde", ""), ref.get("fikra", ""), ref.get("bent", "")
-    )
+    madde = ref.get("madde", "")
     match = RE_ARTICLE_LETTER_SUFFIX.match(madde)
     if match:
-        madde = f"{_fold_article_text(match.group('head'))}/{match.group('suffix')}"
-    else:
-        madde = _fold_article_text(madde)
-    return (madde, fikra.casefold(), bent.casefold())
+        return f"{_fold_article_text(match.group('head'))}/{match.group('suffix')}"
+    return _fold_article_text(madde)
 
 
 def canonical_article_key(ref: dict[str, str]) -> str:
     """Return the article identity used by the core metric."""
-    return canonical_article_fields(ref)[0]
+    return canonical_article(ref)
 
 
 def canonicalize_reference(reference: dict[str, str]) -> dict[str, str]:
     """Normalize a reference and rewrite its article fields into canonical form.
 
-    Applied once per row before matching so deduplication, pairing and the
-    ``fikra``/``bent`` diagnostics all observe the same values. The operation is
-    idempotent.
+    Applied once per row before matching so deduplication and pairing observe
+    the same values. The operation is idempotent.
     """
     normalized = normalize_reference(reference)
-    madde, fikra, bent = canonical_article_fields(normalized)
-    normalized["madde"] = madde
-    normalized["fikra"] = fikra
-    normalized["bent"] = bent
+    normalized["madde"] = canonical_article(normalized)
     return normalized
 
 #: Cardinality must dominate every quality bonus so the assignment stays maximum.
@@ -234,22 +204,19 @@ def effective_law_name(ref: dict[str, str]) -> str:
 
 
 def core_identity_key(ref: dict[str, str]) -> tuple[str, str, str]:
-    """Return the article-level identity used for *matching* and reporting."""
-    return (ref.get("kanun_no", ""), effective_law_name(ref), canonical_article_key(ref))
+    """Return the article-level identity used for *matching* and reporting.
 
-
-def reference_identity_key(ref: dict[str, str]) -> tuple[str, str, str, str, str]:
-    """Return the full reference identity, including ``fikra`` and ``bent``.
-
-    Not used for core deduplication -- ``core_law_article_strict`` scores at
-    article level, so VUK ``17/4-a`` and ``17/1-b`` are one core reference. Kept
-    for callers that need reference-level rather than article-level identity.
+    The number decides which law it is: the name is part of the identity only
+    when a row has no number (1 Oct 2026: only the law number and the article
+    are compared). Before, two rows naming 3294 article 9 with two spellings of
+    the law's name were deduplicated as two references, and a single
+    prediction of that article was charged a missed one (GT750 doc 675).
     """
-    madde, fikra, bent = canonical_article_fields(ref)
-    return (ref.get("kanun_no", ""), effective_law_name(ref), madde, fikra, bent)
+    kanun_no = ref.get("kanun_no", "")
+    return (kanun_no, "" if kanun_no else effective_law_name(ref), canonical_article_key(ref))
 
 
-def _survivor_rank(row: dict[str, str]) -> tuple[int, int, int, tuple[str, ...]]:
+def _survivor_rank(row: dict[str, str]) -> tuple[int, int, tuple[str, ...]]:
     """Rank duplicate rows sharing one identity; the highest rank survives.
 
     The final component is the row's own content, never its position. Ranking by
@@ -258,16 +225,13 @@ def _survivor_rank(row: dict[str, str]) -> tuple[int, int, int, tuple[str, ...]]
     """
     status = str(row.get("status", "")).strip().lower()
     status_score = 2 if status == "approved" else 1 if status else 0
-    detail_score = sum(1 for field in ("fikra", "bent") if row.get(field))
     source_score = 1 if row.get("source_text") else 0
     content = (
-        row.get("fikra", ""),
-        row.get("bent", ""),
         row.get("kanun_no", ""),
         row.get("kanun_ad", ""),
         row.get("source_text", ""),
     )
-    return (status_score, detail_score, source_score, content)
+    return (status_score, source_score, content)
 
 
 def canonical_sort_key(ref: dict[str, str]) -> tuple[str, ...]:
@@ -276,8 +240,6 @@ def canonical_sort_key(ref: dict[str, str]) -> tuple[str, ...]:
         ref.get("kanun_no", ""),
         effective_law_name(ref),
         ref.get("madde", ""),
-        ref.get("fikra", ""),
-        ref.get("bent", ""),
         ref.get("source_text", ""),
     )
 
@@ -316,17 +278,15 @@ def deduplicate_core_identities(
 ) -> tuple[list[dict[str, str]], int]:
     """Collapse rows sharing the article-level identity ``(kanun_no, kanun_ad, madde)``.
 
-    Matches the article-level semantics of ``core_law_article_strict``: VUK
-    ``17/4-a`` and ``17/1-b`` are one core reference, and after the subparagraph
-    split so are KDV ``13/a`` and ``13/d``. The subparagraph itself is still
-    scored, in the soft ``fikra``/``bent`` diagnostics. Unlike the legacy
+    A reference is a law and an article: VUK ``17/4-a`` and ``17/1-b`` are both
+    article 17, and so are KDV ``13/a`` and ``13/d``. Unlike the legacy
     ``core_set`` view this also folds law-level rows, so duplicates are removed
     on both sides regardless of whether ``madde`` is set.
     """
     normalized = [canonicalize_reference(ref) for ref in references]
     kept: list[dict[str, str]] = []
     position: dict[tuple[str, str, str], int] = {}
-    ranks: dict[tuple[str, str, str], tuple[int, int, int, tuple[str, ...]]] = {}
+    ranks: dict[tuple[str, str, str], tuple[int, int, tuple[str, ...]]] = {}
     removed = 0
 
     for row in normalized:
@@ -379,7 +339,7 @@ def absorb_subsumed_identities(
             other_index
             for other_index, other in enumerate(references)
             if other_index != index
-            and canonical_article_fields(other) == canonical_article_fields(row)
+            and canonical_article(other) == canonical_article(row)
             and _subsumes(other, row)
         ]
         if len(absorbers) == 1:
@@ -465,13 +425,10 @@ def references_compatible(gold_entry: MatchEntry, pred_entry: MatchEntry) -> boo
 def match_quality(gold_ref: dict[str, str], pred_ref: dict[str, str]) -> int:
     """Deterministic tie-breaking bonus among equal-cardinality matchings.
 
-    Prefers pairs whose optional ``fikra``/``bent`` detail agrees and whose law
-    identity is stated with the same completeness on both sides.
+    Prefers pairs whose law identity is stated with the same completeness on
+    both sides.
     """
     quality = 0
-    for field in ("fikra", "bent"):
-        if gold_ref.get(field, "") == pred_ref.get(field, ""):
-            quality += 4
     for field in ("kanun_no", "kanun_ad"):
         if bool(gold_ref.get(field, "")) == bool(pred_ref.get(field, "")):
             quality += 1

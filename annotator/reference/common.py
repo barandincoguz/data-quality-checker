@@ -8,21 +8,35 @@ from collections import OrderedDict
 from typing import Iterable
 
 REFERENCE_TYPE = "kanun_madde_referansi"
-REFERENCE_FIELDS = ("type", "kanun_no", "kanun_ad", "madde", "fikra", "bent", "source_text")
-CORE_FIELDS = ("kanun_no", "kanun_ad", "madde", "fikra", "bent")
+# A reference is a law and an article of it (user decision, 1 Oct 2026); no
+# field below the article exists. The archived five-field schema is at git tag
+# archive/gt750-v1-fikra-bent.
+REFERENCE_FIELDS = ("type", "kanun_no", "kanun_ad", "madde", "source_text")
+CORE_FIELDS = ("kanun_no", "kanun_ad", "madde")
 
-ORDINAL_MAP = {
-    "birinci": "1",
-    "ikinci": "2",
-    "ucuncu": "3",
-    "dorduncu": "4",
-    "besinci": "5",
-    "altinci": "6",
-    "yedinci": "7",
-    "sekizinci": "8",
-    "dokuzuncu": "9",
-    "onuncu": "10",
-}
+# A part of an article written into `madde` itself is cut off -- "13/a",
+# "4-a" (a lowercase letter is a sub-part, never an article), "17/4",
+# "17/4-a", "10 (2)" -- while an inserted article's uppercase letter ("32/A",
+# "20/A-B") is part of its name and stays. Mirrors
+# `data_quality_checker.normalization.strip_article_subpart` (pinned by
+# tests/test_engine_agreement.py).
+_SUBPART_TAILS = (
+    re.compile(r"\s*\(\s*[0-9a-zçğıöşü]{1,3}\s*\)$"),
+    re.compile(r"\s*/\s*\d[^/]*$"),
+    re.compile(r"\s*/\s*[a-zçğıöşü](?:\s*-\s*\S+)?$"),
+    re.compile(r"\s*-\s*[a-zçğıöşü]$"),
+    re.compile(r"(?<=/[A-ZÇĞİÖŞÜ])\s*-\s*\d+$"),
+)
+
+
+def strip_article_subpart(text: str) -> str:
+    """The article a `madde` value names, with any part of it cut off."""
+    previous = None
+    while text != previous:
+        previous = text
+        for pattern in _SUBPART_TAILS:
+            text = pattern.sub("", text).strip()
+    return text
 
 ORDINAL_SUFFIX_RE = r"(?:[i\u0131u\u00fc]nc[i\u0131u\u00fc]|nc[i\u0131u\u00fc])"
 
@@ -134,7 +148,6 @@ LAW_NAME_ALIASES = {
     "DAMGAVERGISIKANUNUNUN": "Damga Vergisi Kanunu",
 }
 
-ORDINAL_WORD_PATTERN = r"birinci|ikinci|ucuncu|dorduncu|besinci|altinci|yedinci|sekizinci|dokuzuncu|onuncu"
 
 KNOWN_LAW_NAMES = sorted(
     set(CANONICAL_LAW_BY_NO.values())
@@ -231,37 +244,6 @@ def normalize_kanun_adi(text: str, kanun_no: str = "") -> str:
     return value
 
 
-def normalize_identifier(value: str) -> str:
-    """Normalize identifier values used in `fikra` and `bent` fields."""
-    if not value:
-        return ""
-    raw = collapse_ws(value).strip("()[]{}")
-    lowered = _normalize_turkish_key(raw).lower()
-    return ORDINAL_MAP.get(lowered, raw)
-
-
-RE_IDENTIFIER_SERIES_ITEM = re.compile(
-    rf"\((?P<par>[A-Za-z0-9]+)\)|(?P<num>\d+)(?:\s*{ORDINAL_SUFFIX_RE})?|(?P<ord>{ORDINAL_WORD_PATTERN})",
-    re.IGNORECASE | re.UNICODE,
-)
-
-
-def extract_identifier_series(text: str) -> list[str]:
-    """Extract ordered identifier lists such as `(1), (2) ve (4)`."""
-    if not text:
-        return []
-    values: list[str] = []
-    seen: set[str] = set()
-    for match in RE_IDENTIFIER_SERIES_ITEM.finditer(text):
-        value = match.group("par") or match.group("num") or match.group("ord") or ""
-        normalized = normalize_identifier(value)
-        if not normalized or normalized in seen:
-            continue
-        seen.add(normalized)
-        values.append(normalized)
-    return values
-
-
 def normalize_madde(value: str) -> str:
     """Normalize article text to canonical `madde` style."""
     if not value:
@@ -277,44 +259,13 @@ def normalize_madde(value: str) -> str:
     # and what survived was "37 nci" -- an article that matches nothing.
     raw = re.sub(r"\s*madd\w*$", "", raw, flags=re.IGNORECASE)
     raw = re.sub(rf"\s+{ORDINAL_SUFFIX_RE}$", "", raw, flags=re.IGNORECASE)
+    raw = strip_article_subpart(raw)
     raw = raw.strip(" .()")
     raw = re.sub(r"\s+", " ", raw)
     if re.match(r"(?i)^ek\s+madde\s+\d+$", raw):
         number = raw.split()[-1]
         raw = f"Ek {number}"
     return collapse_ws(raw)
-
-
-def parse_madde_token(token: str) -> tuple[str, str, str]:
-    """Parse article token into `(madde, fikra, bent)` components."""
-    cleaned = normalize_madde(token)
-    if not cleaned:
-        return "", "", ""
-
-    head = cleaned
-    fikra = ""
-    bent = ""
-
-    if "/" in cleaned:
-        left, right = cleaned.split("/", 1)
-        head = left.strip()
-        right = right.strip()
-        if "-" in right:
-            first, second = right.split("-", 1)
-            if first.isdigit():
-                fikra = first
-                bent = normalize_identifier(second)
-            else:
-                bent = normalize_identifier(right)
-        elif right.isdigit():
-            fikra = right
-        else:
-            # In this project, `13/a maddesi` is an article surface form, not a bent.
-            if re.fullmatch(r"[A-Za-zÇĞİÖŞÜçğıöşü]", right):
-                return cleaned, "", ""
-            bent = normalize_identifier(right)
-
-    return head, fikra, bent
 
 
 def normalize_reference(reference: dict) -> dict:
@@ -327,8 +278,6 @@ def normalize_reference(reference: dict) -> dict:
         "kanun_no": kanun_no,
         "kanun_ad": kanun_ad,
         "madde": normalize_madde(str(reference.get("madde", ""))),
-        "fikra": normalize_identifier(str(reference.get("fikra", ""))),
-        "bent": normalize_identifier(str(reference.get("bent", ""))),
         "source_text": collapse_ws(str(reference.get("source_text", ""))),
     }
     return ref
@@ -345,7 +294,7 @@ def deduplicate_references(references: Iterable[dict]) -> list[dict]:
     return list(unique.values())
 
 
-def reference_tuple_key(reference: dict) -> tuple[str, str, str, str, str, str]:
+def reference_tuple_key(reference: dict) -> tuple[str, str, str, str]:
     """Return a document-level identity key that ignores `source_text`."""
     ref = normalize_reference(reference)
     return (
@@ -353,8 +302,6 @@ def reference_tuple_key(reference: dict) -> tuple[str, str, str, str, str, str]:
         ref["kanun_no"],
         ref["kanun_ad"],
         ref["madde"],
-        ref["fikra"],
-        ref["bent"],
     )
 
 
@@ -369,9 +316,9 @@ def law_family_key(reference: dict) -> str:
 
 
 def is_specific_reference(reference: dict) -> bool:
-    """Return whether a reference carries article / paragraph / subparagraph detail."""
+    """Return whether a reference names an article, not only a law."""
     ref = normalize_reference(reference)
-    return bool(ref["madde"] or ref["fikra"] or ref["bent"])
+    return bool(ref["madde"])
 
 
 def compact_law_references(references: Iterable[dict]) -> tuple[list[dict], dict[str, int]]:
@@ -412,7 +359,7 @@ def compact_law_references(references: Iterable[dict]) -> tuple[list[dict], dict
             identity_score = 2
         elif row.get("kanun_ad"):
             identity_score = 1
-        detail_score = sum(1 for field in ("madde", "fikra", "bent") if row.get(field))
+        detail_score = 1 if row.get("madde") else 0
         source_score = 1 if row.get("source_text") else 0
         order_score = -int(row.get("_assist_order", 0))
         return (status_score, origin_score, identity_score, detail_score, source_score, order_score)
@@ -442,7 +389,7 @@ def compact_law_references(references: Iterable[dict]) -> tuple[list[dict], dict
 
     survivors.extend(ungrouped)
 
-    unique_rows: OrderedDict[tuple[str, str, str, str, str, str], dict] = OrderedDict()
+    unique_rows: OrderedDict[tuple[str, str, str, str], dict] = OrderedDict()
     for row in survivors:
         key = reference_tuple_key(row)
         existing = unique_rows.get(key)

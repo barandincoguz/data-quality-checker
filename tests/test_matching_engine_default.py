@@ -17,7 +17,6 @@ import inspect
 from pathlib import Path
 
 from benchmark.reference import evaluate as evaluate_module
-from benchmark.reference import run as run_module
 
 
 def test_library_default_is_optimal() -> None:
@@ -51,8 +50,11 @@ def test_a_report_without_an_engine_stamp_is_still_read_back_as_greedy() -> None
     assert len(fallbacks) == 2, fallbacks
 
 
-def test_both_cli_defaults_are_optimal() -> None:
-    for module in (evaluate_module, run_module):
+def test_the_cli_default_is_optimal() -> None:
+    # `benchmark/reference/run.py` (the extraction-method runner) left this
+    # repository on 1 Oct 2026 with the prompts it drove; it lives on in
+    # ner-project. The evaluator's own CLI is what the loop calls.
+    for module in (evaluate_module,):
         source = inspect.getsource(module.parse_args)
         index = source.index("--matching-engine")
         window = source[index : index + 400]
@@ -76,30 +78,3 @@ def test_the_controlled_q36_track_is_scored_with_optimal_too() -> None:
     source = inspect.getsource(q36_p1)
     assert '"matching_engine": "greedy"' not in source
     assert '"matching_engine": "optimal"' in source
-
-
-def test_every_evaluator_call_in_run_py_passes_the_requested_engine() -> None:
-    """A call that omits `matching_engine` silently takes the library default.
-
-    `run.py`'s hard-case block did exactly that: the main-report call passed the
-    engine while the hard-case call a hundred lines below did not, so
-    `--matching-engine greedy` produced a greedy main report and an optimal
-    hard-case report with no error -- and before the default flipped, the bug
-    was invisible because the default happened to match the CLI's.
-
-    Parsed rather than grepped, so a future call site is caught too.
-    """
-    import ast
-
-    source = Path(run_module.__file__).read_text(encoding="utf-8")
-    calls = [
-        node
-        for node in ast.walk(ast.parse(source))
-        if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Name)
-        and node.func.id == "evaluate_prediction_file"
-    ]
-    assert calls, "no evaluate_prediction_file call found -- has it been renamed?"
-    for call in calls:
-        keywords = {keyword.arg for keyword in call.keywords}
-        assert "matching_engine" in keywords, f"run.py:{call.lineno} omits matching_engine"

@@ -42,7 +42,7 @@ from __future__ import annotations
 import itertools
 import json
 import random
-from collections import Counter, defaultdict
+from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -50,7 +50,7 @@ from typing import Any
 from .constants import EXPERT_ACTIONS, REVIEW_STATUSES
 from .errors import ContractError, IntegrityError
 from .g0_training import canonical_evaluate
-from .normalization import compact_references, core_identity, full_identity, normalize_reference
+from .normalization import compact_references, core_identity, normalize_reference
 from .performance import _percentile, summarize_operational_records
 from .reference_policy import apply_reference_policy
 
@@ -77,18 +77,6 @@ def _core_identity_set(references: Iterable[Mapping[str, Any]] | None) -> set[Id
     return {core_identity(reference) for reference in compacted}
 
 
-def _details_by_core(
-    references: Iterable[Mapping[str, Any]],
-) -> dict[Identity, set[tuple[str, str]]]:
-    """The (fikra, bent) pairs each core identity is written with, after the same
-    policy and compaction `_core_identity_set` applies."""
-    kept, _ = apply_reference_policy(list(references))
-    details: defaultdict[Identity, set[tuple[str, str]]] = defaultdict(set)
-    for reference in compact_references(kept):
-        details[core_identity(reference)].add((reference["fikra"], reference["bent"]))
-    return details
-
-
 def attribute_errors(
     *,
     expert: Iterable[Mapping[str, Any]],
@@ -107,22 +95,19 @@ def attribute_errors(
     `None` if the rater has no usable output for this document.
 
     Returns, per rater, one of:
-    - `{"available": False, "correct": None, "missed": None, "spurious": None,
-      "detail_mismatch": None}` when the rater has no data for this document; or
-    - `{"available": True, "correct": [...], "missed": [...], "spurious": [...],
-      "detail_mismatch": [...]}` where `correct` is the core identities in both
-      the expert's and the rater's set, `missed` is in the expert's set but not
-      the rater's, `spurious` is in the rater's set but not the expert's, and
-      `detail_mismatch` is the subset of `correct` whose paragraph/subparagraph
-      (`fikra`/`bent`) set differs from the expert's -- the right article with
-      the wrong detail, a mistake the core-identity score cannot see. Each is a
-      sorted list of core-identity 4-tuples.
+    - `{"available": False, "correct": None, "missed": None, "spurious": None}`
+      when the rater has no data for this document; or
+    - `{"available": True, "correct": [...], "missed": [...], "spurious": [...]}`
+      where `correct` is the core identities (law + article) in both the
+      expert's and the rater's set, `missed` is in the expert's set but not the
+      rater's, and `spurious` is in the rater's set but not the expert's. Each
+      is a sorted list of core-identity 4-tuples. Nothing below the article is
+      scored (1 Oct 2026).
     """
     if expert is None:
         raise ContractError("attribute_errors requires the expert's finalized references")
     expert_set = _core_identity_set(expert)
     assert expert_set is not None  # narrows for mypy; expert is never None here
-    expert_details = _details_by_core(expert)
 
     raw_by_rater = {"annotator": annotator, "model": model, "judge": judge}
     result: dict[str, Any] = {}
@@ -134,21 +119,13 @@ def attribute_errors(
                 "correct": None,
                 "missed": None,
                 "spurious": None,
-                "detail_mismatch": None,
             }
             continue
-        rater_details = _details_by_core(raw_by_rater[name])
-        correct = sorted(expert_set & rater_set)
         result[name] = {
             "available": True,
-            "correct": correct,
+            "correct": sorted(expert_set & rater_set),
             "missed": sorted(expert_set - rater_set),
             "spurious": sorted(rater_set - expert_set),
-            "detail_mismatch": [
-                identity
-                for identity in correct
-                if expert_details[identity] != rater_details[identity]
-            ],
         }
     return result
 
@@ -253,8 +230,7 @@ def rater_agreement(records: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     part of, and Fleiss' kappa).
 
     Emits, per rater, precision/recall/F1/exact-set-agreement each with
-    their tp/fp/fn or match/document counts and `detail_errors` (right article,
-    wrong `fikra`/`bent`). The annotator's `source_text` is never read: it
+    their tp/fp/fn or match/document counts. The annotator's `source_text` is never read: it
     decides nothing (user rule, 27 September 2026); `joint_miss_count` -- references
     the expert kept that *no* rater produced, counted only over documents
     where all three raters have data, since a document where a rater is
@@ -268,7 +244,6 @@ def rater_agreement(records: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     per_rater_fn = {name: 0 for name in _RATER_NAMES}
     per_rater_exact_matches = {name: 0 for name in _RATER_NAMES}
     per_rater_documents = {name: 0 for name in _RATER_NAMES}
-    per_rater_detail = {name: 0 for name in _RATER_NAMES}
 
     joint_miss_count = 0
     total_expert_reference_count = 0
@@ -309,7 +284,6 @@ def rater_agreement(records: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
             per_rater_tp[name] += len(rater["correct"])
             per_rater_fp[name] += len(rater["spurious"])
             per_rater_fn[name] += len(rater["missed"])
-            per_rater_detail[name] += len(rater["detail_mismatch"])
             if not rater["missed"] and not rater["spurious"]:
                 per_rater_exact_matches[name] += 1
 
@@ -360,7 +334,6 @@ def rater_agreement(records: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
                 "exact_set_matches": 0,
                 "exact_set_documents": 0,
                 "exact_set_agreement": None,
-                "detail_errors": None,
             }
             continue
         precision = _rate(tp, tp + fp)
@@ -376,7 +349,6 @@ def rater_agreement(records: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
             "exact_set_matches": per_rater_exact_matches[name],
             "exact_set_documents": documents,
             "exact_set_agreement": per_rater_exact_matches[name] / documents,
-            "detail_errors": per_rater_detail[name],
         }
 
     pairwise = {
@@ -684,13 +656,10 @@ def model_round_metrics(
     Returns a dict with:
     - `document_count`: the evaluated document count (`== expected_doc_count`
       once the coverage gate above has passed).
-    - `core` / `full`: `{tp, fp, fn, precision, recall, f1}` at core identity
-      (law + article; the evaluator's `core_law_article_strict`) and full
-      identity (core + fikra + bent; the evaluator's `overall`) respectively.
-      Core is the identity level `paired_delta` below and the loop's own
-      checkpoint selection both use; full is reported alongside it because a
-      round can gain or lose only on fikra/bent while core holds steady, and
-      that would otherwise be invisible.
+    - `core`: `{tp, fp, fn, precision, recall, f1}` at core identity (law +
+      article; the evaluator's `core_law_article_strict`) -- the only level a
+      reference has (1 Oct 2026), the one `paired_delta` below and the loop's
+      own checkpoint selection both use.
     - `docwise_f1_distribution`: the evaluator's own per-document core-F1
       distribution (`core_doc_level_diagnostics`) -- `perfect_f1_count`,
       `zero_f1_count`, and the min/max/mean/median/p25/p75 of per-document F1
@@ -755,7 +724,6 @@ def model_round_metrics(
         raise ContractError("canonical evaluator report is missing per-document core metrics")
 
     core_metric = result["core_law_article_strict"]
-    full_metric = result["overall"]
     docwise = result["core_doc_level_diagnostics"]
 
     status_counts: Counter[str] = Counter(
@@ -789,7 +757,6 @@ def model_round_metrics(
     return {
         "document_count": result["evaluated_doc_count"],
         "core": {field: core_metric[field] for field in _CORE_METRIC_FIELDS},
-        "full": {field: full_metric[field] for field in _CORE_METRIC_FIELDS},
         "docwise_f1_distribution": {
             "total_docs": docwise["total_docs"],
             "perfect_f1_count": docwise["perfect_f1_count"],
@@ -978,15 +945,15 @@ def paired_delta(
 # --- the journal's per-batch table (user story, 1 Oct 2026) -----------------
 
 
-def _claims(references: Iterable[Mapping[str, Any]]) -> tuple[int, int, set[Any], set[Any], int]:
-    """(rows after the policy, rows the policy dropped, reference set, provision set,
-    distinct normalised rows).
+def _claims(references: Iterable[Mapping[str, Any]]) -> tuple[int, int, set[Any], int]:
+    """(rows after the policy, rows the policy dropped, reference set, distinct
+    references among the rows).
 
-    A reference is a law + article + fikra + bent claim; a provision is the law
-    + article it is about. Rows another row already accounts for are one claim
+    A reference is a law + article claim (1 Oct 2026: nothing below the
+    article). Rows another row already accounts for are one claim
     (`compact_references`); 213/413 is dropped (`apply_reference_policy`). The
-    distinct normalised rows tell a row written twice ("Geçici 21", "geçici 21")
-    from a row a more specific one covers ("193/94" beside "193/94/1").
+    distinct references tell a row written twice ("Geçici 21", "geçici 21") from
+    a law-only row an article of the same law covers ("193" beside "193/94").
     """
     rows = list(references)
     kept, _ = apply_reference_policy(rows)
@@ -994,9 +961,8 @@ def _claims(references: Iterable[Mapping[str, Any]]) -> tuple[int, int, set[Any]
     return (
         len(kept),
         len(rows) - len(kept),
-        {full_identity(reference) for reference in compacted},
         {core_identity(reference) for reference in compacted},
-        len({full_identity(normalize_reference(dict(reference))) for reference in kept}),
+        len({core_identity(normalize_reference(dict(reference))) for reference in kept}),
     )
 
 
@@ -1037,21 +1003,20 @@ def reference_table(
 
     `records`: one per document, `{"doc_id", "truth", "truth_source", "annotator",
     "model", "judge"}` (`scoped_truth_records`); a source's list is `None` when it
-    has nothing for that document, which then leaves its counts. For each source:
+    has nothing for that document, which then leaves its counts. A reference is a
+    law and an article of it -- the only level there is (1 Oct 2026). For each
+    source:
 
     - `written_rows` / `policy_dropped`: rows it wrote after / dropped by 213/413;
       of the written rows, `duplicate_rows` repeat a reference already written
-      (case/spelling apart) and `subsumed_rows` are covered by a more specific
-      row ("193/94" beside "193/94/1");
-    - `written_references` / `written_provisions`: distinct claims it made, as
-      references (law + article + fikra + bent) and as provisions (law + article);
-    - `truth_references` / `truth_provisions`: the same for the truth, over the
-      documents the source has;
-    - `full` (references) and `core` (provisions): tp / fp / fn, P / R / F1 and a
-      95% document-bootstrap interval for F1 (`samples`, `seed`);
-    - `wrong_references` (its references the truth does not hold),
-      `missed_references` (the truth's it does not), `detail_errors` (right
-      provision, wrong fikra/bent).
+      (case/spelling apart) and `subsumed_rows` are law-only rows an article of
+      the same law covers ("193" beside "193/94");
+    - `written_references`: distinct references it made;
+    - `truth_references`: the same for the truth, over the documents the source has;
+    - `core`: tp / fp / fn, P / R / F1 and a 95% document-bootstrap interval for
+      F1 (`samples`, `seed`);
+    - `wrong_references` (its references the truth does not hold) and
+      `missed_references` (the truth's it does not).
 
     `per_document` keeps each document's counts, for batch-to-batch deltas.
     """
@@ -1059,54 +1024,42 @@ def reference_table(
     per_document: dict[str, dict[str, Any]] = {}
     for name in _RATER_NAMES:
         totals = Counter()
-        rows_full: list[tuple[int, int, int]] = []
         rows_core: list[tuple[int, int, int]] = []
         documents = 0
         for record in records:
             if record.get(name) is None:
                 continue
             documents += 1
-            _, _, truth_full, truth_core, _ = _claims(record["truth"])
-            kept, dropped, full, core, distinct = _claims(record[name])
-            detail = sum(
-                1
-                for identity in truth_core & core
-                if {x[4:] for x in truth_full if x[:4] == identity} != {x[4:] for x in full if x[:4] == identity}
-            )
-            counts_full = (len(full & truth_full), len(full - truth_full), len(truth_full - full))
+            _, _, truth_core, _ = _claims(record["truth"])
+            kept, dropped, core, distinct = _claims(record[name])
             counts_core = (len(core & truth_core), len(core - truth_core), len(truth_core - core))
-            rows_full.append(counts_full)
             rows_core.append(counts_core)
             totals.update(
                 written_rows=kept, policy_dropped=dropped, duplicate_rows=kept - distinct,
-                subsumed_rows=distinct - len(full), written_references=len(full),
-                written_provisions=len(core), truth_references=len(truth_full),
-                truth_provisions=len(truth_core), detail_errors=detail,
+                subsumed_rows=distinct - len(core), written_references=len(core),
+                truth_references=len(truth_core),
             )
-            per_document.setdefault(str(record["doc_id"]), {})[name] = {
-                "full": list(counts_full), "core": list(counts_core)}
-        levels = {}
-        for level, rows in (("full", rows_full), ("core", rows_core)):
-            tp, fp, fn = (sum(row[i] for row in rows) for i in range(3))
-            precision, recall, f1 = _table_prf(tp, fp, fn)
-            levels[level] = {
-                "tp": tp, "fp": fp, "fn": fn, "precision": precision, "recall": recall, "f1": f1,
-                "f1_ci95": _interval(_table_bootstrap_f1(rows, samples=samples, seed=seed)),
-            }
+            per_document.setdefault(str(record["doc_id"]), {})[name] = {"core": list(counts_core)}
+        tp, fp, fn = (sum(row[i] for row in rows_core) for i in range(3))
+        precision, recall, f1 = _table_prf(tp, fp, fn)
+        level = {
+            "tp": tp, "fp": fp, "fn": fn, "precision": precision, "recall": recall, "f1": f1,
+            "f1_ci95": _interval(_table_bootstrap_f1(rows_core, samples=samples, seed=seed)),
+        }
         sources[name] = {
             "documents": documents,
             **{key: totals.get(key, 0) for key in (
                 "written_rows", "policy_dropped", "duplicate_rows", "subsumed_rows",
-                "written_references", "written_provisions",
-                "truth_references", "truth_provisions", "detail_errors")},
-            **levels,
-            "wrong_references": levels["full"]["fp"],
-            "missed_references": levels["full"]["fn"],
+                "written_references", "truth_references")},
+            "core": level,
+            "wrong_references": fp,
+            "missed_references": fn,
         }
     return {
         "documents": len(records),
         "documents_by_truth_source": dict(Counter(str(record["truth_source"]) for record in records)),
         "bootstrap": {"samples": samples, "seed": seed, "unit": "document"},
+        "level": "law_article",
         "sources": sources,
         "per_document": per_document,
     }

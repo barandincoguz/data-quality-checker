@@ -90,15 +90,42 @@ def _compact_references(value: str) -> list[dict[str, Any]]:
     return references
 
 
+_LOCATING_FIELDS = frozenset({"source_text", "source_texts"})
+
+
 def _without_source_text(reference: dict[str, Any]) -> dict[str, Any]:
     """Drop annotator source_text before it reaches the assistant target.
 
     source_text still locates a reference inside the ruling while a window
     is being built; it must never appear in what the model is trained to
     emit, so every assistant-content JSON dump strips it here first.
+    `source_texts` is the same evidence for a reference cited in several
+    places (GT v7 keeps every quote of the rows it merged into one law and
+    article); it is stripped the same way.
     """
 
-    return {field: value for field, value in reference.items() if field != "source_text"}
+    return {field: value for field, value in reference.items() if field not in _LOCATING_FIELDS}
+
+
+def _quotes(reference: dict[str, Any]) -> list[str]:
+    """Every passage that locates a reference: all of `source_texts`, else `source_text`.
+
+    One law-and-article reference is often cited at several places in a ruling
+    (once per paragraph it names, before 1 Oct 2026 a row each). A window that
+    contains any of them contains the reference; reading only one would teach
+    the model that the other windows do not cite it.
+    """
+
+    many = reference.get("source_texts")
+    quotes = many if isinstance(many, list) else [reference.get("source_text")]
+    return [quote.strip() for quote in quotes if isinstance(quote, str) and quote.strip()]
+
+
+def _first_located(body: str, reference: dict[str, Any]) -> tuple[int, str] | None:
+    """The earliest place in `body` any quote of the reference occurs."""
+
+    found = [(body.find(quote), quote) for quote in _quotes(reference) if quote in body]
+    return min(found) if found else None
 
 
 def _rendered_token_count(tokenizer: Any, messages: list[dict[str, str]]) -> int:
@@ -162,9 +189,7 @@ def _window_row(
     visible_indices = {
         index
         for index, reference in enumerate(references)
-        if isinstance(reference.get("source_text"), str)
-        and reference["source_text"]
-        and reference["source_text"] in text
+        if any(quote in text for quote in _quotes(reference))
     }
     visible = [references[index] for index in sorted(visible_indices)]
     messages = [
@@ -221,15 +246,14 @@ def _dense_replay_rows(
 
     located: list[tuple[int, int, dict[str, Any]]] = []
     for reference_index, reference in enumerate(references):
-        source_text = reference.get("source_text")
-        if not isinstance(source_text, str) or not source_text.strip():
+        if not _quotes(reference):
             raise IntegrityError(f"dense replay reference {reference_index} has no source_text")
-        source_text = source_text.strip()
-        char_start = body.find(source_text)
-        if char_start < 0:
+        place = _first_located(body, reference)
+        if place is None:
             raise IntegrityError(
                 f"dense replay reference {reference_index} is absent from source text"
             )
+        char_start, source_text = place
         located.append((char_start, char_start + len(source_text), reference))
     located.sort(key=lambda item: (item[0], item[1]))
 
@@ -332,6 +356,7 @@ def build_context_window_view(
             "possible_values": 256,
         },
         "thinking_control": "chat_template_enable_thinking_false",
+        "reference_location": "any_quote_of_source_texts_v1",
     }
     request["fingerprint"] = fingerprint_json(request)
     if cached := _validate_cached_view(
@@ -531,14 +556,14 @@ def build_context_window_view(
             if reference_index in visible_union:
                 continue
             reference = references[reference_index]
-            source_text = reference.get("source_text")
-            if not isinstance(source_text, str) or not source_text:
+            if not _quotes(reference):
                 raise IntegrityError(
                     f"reference rescue has no source_text at source row {row_index}"
                 )
-            char_start = body.find(source_text)
-            if char_start < 0:
+            place = _first_located(body, reference)
+            if place is None:
                 raise IntegrityError(f"reference rescue span is absent at source row {row_index}")
+            char_start, source_text = place
             # The span locates the passage; the passage is what is served.
             # A rescue row used to put the annotator's bare span in the user
             # turn -- text that never occurs at inference, from a field the

@@ -13,7 +13,7 @@ from data_quality_checker.processing import (
 
 def _objects(*tuples: tuple[str, str]) -> str:
     return ",".join(
-        '{"kanun_no":"%s","kanun_ad":"K","madde":"%s","fikra":"","bent":""}' % (no, madde)
+        '{"kanun_no":"%s","kanun_ad":"K","madde":"%s"}' % (no, madde)
         for no, madde in tuples
     )
 
@@ -125,24 +125,26 @@ class TestSalvage:
         assert result["terminal_duplicate_repeat_count"] == 4
 
     def test_an_enumeration_runaway_is_refused(self) -> None:
-        """d000059 counted `bent` upward -- 201, 202, 203 -- so no two tuples
-        are equal and there is nothing to deduplicate. Closing the array would
+        """A loop that counts the article upward -- 201, 202, 203 -- repeats no
+        tuple, so there is nothing to deduplicate. Closing the array would
         inject fabricated references into the batch, so the rule must refuse
         and let the document be quarantined.
         """
         raw = "[" + ",".join(
-            '{"kanun_no":"5520","kanun_ad":"K","madde":"30","fikra":"1","bent":"%d"}' % index
-            for index in range(200, 260)
+            '{"kanun_no":"5520","kanun_ad":"K","madde":"%d"}' % index for index in range(200, 260)
         )
         assert salvage_repeated_json_prefix(raw) is None
 
-    def test_the_real_archived_enumeration_runaway_stays_refused(self) -> None:
+    def test_the_real_archived_enumeration_runaway_is_one_article_repeated(self) -> None:
         """Regression pin on the real d000059 output, not a reduced shape.
 
-        424 parsed objects, 424 unique -- `bent` counts upward across the
-        whole tail, so the terminal tuple never recurs and there is nothing
-        this rule can prove is a duplicate. Skips rather than passing silently
-        if the archived evidence file is not present.
+        Under M000 (2026-09-07) it was 424 objects, 424 unique: `bent` counted
+        upward on 5520 article 30, so no tuple recurred and the document stayed
+        quarantined. A tuple is now a law and an article (1 Oct 2026), so that
+        tail is one provision written 415 times: the rule proves it a
+        duplicate and returns the model's own four provisions, nothing else.
+        Skips rather than passing silently if the archived evidence file is
+        not present.
         """
         archive = (
             Path(__file__).resolve().parent.parent
@@ -155,7 +157,12 @@ class TestSalvage:
         if not archive.is_file():
             pytest.skip(f"archived evidence file not present at {archive}")
         raw = archive.read_text(encoding="utf-8")
-        assert salvage_repeated_json_prefix(raw) is None
+        result = salvage_repeated_json_prefix(raw)
+        assert result is not None
+        assert result["complete_reference_count"] == 424 and result["unique_reference_count"] == 4
+        recovered = {(r["kanun_no"], r["madde"]) for r in result["references"]}
+        assert recovered == {("5520", "3"), ("5520", "1"), ("193", "7"), ("5520", "30")}
+        assert all(f'"madde":"{madde}"' in raw for _, madde in recovered)
 
     def test_output_with_no_array_is_refused(self) -> None:
         assert salvage_repeated_json_prefix("I cannot answer that") is None
@@ -218,7 +225,7 @@ def _backend(monkeypatch, chunks: list[str], finish_reason: str, module) -> obje
 
 
 def _object(no: str, madde: str) -> str:
-    return '{"kanun_no":"%s","kanun_ad":"K","madde":"%s","fikra":"","bent":""}' % (no, madde)
+    return '{"kanun_no":"%s","kanun_ad":"K","madde":"%s"}' % (no, madde)
 
 
 def test_predict_stops_a_tuple_loop_and_returns_the_unique_references(monkeypatch) -> None:
@@ -248,8 +255,7 @@ def test_predict_leaves_an_enumeration_runaway_as_an_error(monkeypatch) -> None:
     from data_quality_checker import processing
 
     chunks = ["["] + [
-        ',{"kanun_no":"5520","kanun_ad":"K","madde":"30","fikra":"1","bent":"%d"}' % index
-        for index in range(200, 240)
+        ',{"kanun_no":"5520","kanun_ad":"K","madde":"%d"}' % index for index in range(200, 240)
     ]
     chunks[1] = chunks[1].lstrip(",")
     backend = _backend(monkeypatch, chunks, "length", processing)

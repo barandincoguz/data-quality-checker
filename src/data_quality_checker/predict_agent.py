@@ -179,8 +179,6 @@ def _clip_reference(reference: Mapping[str, Any]) -> tuple[dict[str, Any], bool]
         "kanun_no": 64,
         "kanun_ad": 512,
         "madde": 64,
-        "fikra": 64,
-        "bent": 64,
         "source_text": 4_000,
     }
     clipped = False

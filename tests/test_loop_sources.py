@@ -104,3 +104,30 @@ def test_the_preset_carries_the_real_seals():
 
     assert source["summary"]["split_counts"] == {"train": 500, "valid": 50, "test": 200}
     assert loop_sources.loop_split_policy(config) == "loop-gt750-500-50-200"
+
+
+LAW_ARTICLE_PRESET = REPO / "configs" / "presets" / "gt750_law_article_loop.json"
+
+
+def test_the_law_article_loop_reads_gt_v7_with_every_quote_and_no_paragraph_field():
+    """The loop since 1 Oct 2026: GT v7, sealed; the same SPLIT.json as v6;
+    every reference a law and an article, each carrying all its quotes."""
+    config = load_config(LAW_ARTICLE_PRESET)
+    old = json.loads(PRESET.read_text())["loop"]
+    assert config.raw["loop"]["split_sha256"] == old["split_sha256"]
+    source = loop_sources.validate_loop_sources(config)
+    references = [r for doc in source["documents"].values() for r in doc["references"]]
+    assert source["summary"]["canonical_reference_count"] == 3561 == len(references)
+    assert all(set(r) <= {"kanun_no", "kanun_ad", "madde", "source_text", "source_texts"} for r in references)
+    assert all(r["source_texts"][0] == r["source_text"] for r in references if "source_texts" in r)
+    assert sum(len(r.get("source_texts", [])) > 1 for r in references) > 0
+
+
+def test_a_malformed_quote_list_is_refused(tmp_path):
+    gt, split_path = _write_universe(tmp_path)
+    path = gt / "doc_1.json"
+    payload = json.loads(path.read_text())
+    payload["references"] = [{"kanun_no": "193", "madde": "94", "source_text": "a", "source_texts": [""]}]
+    path.write_text(json.dumps(payload))
+    with pytest.raises(ContractError, match="source_texts"):
+        loop_sources.validate_loop_sources(_config(tmp_path, gt, split_path))

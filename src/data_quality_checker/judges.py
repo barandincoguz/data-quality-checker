@@ -28,7 +28,7 @@ from .errors import ContractError, DQCheckError, GateBlocked, IntegrityError
 from .fingerprints import fingerprint_json, sha256_file
 from .heartbeat import RunLease
 from .judge_model import assert_gemma_thinking_is_disabled, resolve_judge_snapshot
-from .normalization import compact_references, core_identity, full_identity
+from .normalization import compact_references, core_identity
 from .performance import _percentile
 from .preparation import validate_ready
 from .reference_policy import apply_reference_policy
@@ -61,9 +61,9 @@ JUDGE_PROMPT = (
     "heading such as KURUMLAR VERGİSİ KANUNU YÖNÜNDEN opens a new such "
     "context. Signature blocks, addresses, telephone and fax lines and page "
     "footers are not legal context and never carry a back-reference across "
-    "them. In an article number, a slash before an uppercase letter marks an "
-    "additional article in its own right, while a slash before a lowercase "
-    "letter marks a sub-part of that article. "
+    "them. A reference is a law and one article of that law; madde is the "
+    "article's own designation, and a slash before an uppercase letter, as in "
+    "32/A, marks an additional article in its own right. "
     "These instructions are not part of the document. Every evidence span "
     "must be copied from document_text alone; a span taken "
     "from this instruction text is rejected. Before keeping any span, find "
@@ -85,7 +85,8 @@ def judge_prompt_fingerprint() -> str:
     return hashlib.sha256(JUDGE_PROMPT.encode("utf-8")).hexdigest()
 
 
-CANDIDATE_PAYLOAD_CONTRACT = "decision_fields_only_v1"
+# v2 (1 Oct 2026): the decision fields are the law and the article only.
+CANDIDATE_PAYLOAD_CONTRACT = "decision_fields_only_v2_law_article"
 
 
 def judge_instrument() -> dict[str, str]:
@@ -1143,11 +1144,8 @@ def run_judge_pilot(
         raise
 
 
-def _set_metric(references: list[dict[str, Any]], *, core: bool) -> set[Any]:
-    compacted = compact_references(references)
-    return {
-        core_identity(reference) if core else full_identity(reference) for reference in compacted
-    }
+def _set_metric(references: list[dict[str, Any]]) -> set[Any]:
+    return {core_identity(reference) for reference in compact_references(references)}
 
 
 def _resolve_verdict(verdict: str | None, blind_mapping: str) -> str:
@@ -1235,15 +1233,8 @@ def judge_expert_metrics(
         unverified_spans = result_data.get("unverified_evidence") or []
         unverified_evidence_spans += len(unverified_spans)
         evidence_spans_seen += len(verified_spans) + len(unverified_spans)
-        expert_full, judge_full = (
-            _set_metric(expert, core=False),
-            _set_metric(judge, core=False),
-        )
-        exact += expert_full == judge_full
-        expert_core, judge_core = (
-            _set_metric(expert, core=True),
-            _set_metric(judge, core=True),
-        )
+        expert_core, judge_core = _set_metric(expert), _set_metric(judge)
+        exact += expert_core == judge_core
         tp += len(expert_core & judge_core)
         fp += len(judge_core - expert_core)
         fn += len(expert_core - judge_core)

@@ -13,14 +13,15 @@ expert would otherwise perform by hand each cleaning round:
   every disagreement.
 
 Both take references in the repo's normal shape (`kanun_no`, `kanun_ad`,
-`madde`, `fikra`, `bent`, `source_text`) and run them through
+`madde`, `source_text`) and run them through
 `reference_policy.apply_reference_policy` and `normalization.compact_references`
 before anything is checked, so the shared VUK-213/article-413 policy and
 ordinary normalization artefacts (whitespace, casing, alias spelling,
-embedded-bent splitting, ...) are already gone before a finding is reported.
+a part of an article written into `madde`, ...) are already gone before a
+finding is reported.
 `duplicate_row` is the one exception, and is documented at its own check
 below: `compact_references`'s own dedup pass collapses every row sharing a
-`full_identity`, regardless of span, down to one -- so a check that needs to
+`core_identity`, regardless of span, down to one -- so a check that needs to
 tell *"two rows, same span"* (a defect) apart from *"two rows, different
 spans"* (two legitimate mentions of one provision) cannot be computed from
 the compacted output at all, and instead uses `normalize_reference` directly
@@ -59,7 +60,6 @@ from .normalization import (
     CANONICAL_LAW_BY_NO,
     compact_references,
     core_identity,
-    full_identity,
     normalize_reference,
 )
 from .reference_policy import apply_reference_policy
@@ -168,7 +168,7 @@ def _duplicate_groups(
 ) -> list[list[dict[str, str]]]:
     groups: dict[tuple[Any, ...], list[dict[str, str]]] = defaultdict(list)
     for reference in normalized_rows:
-        key = (full_identity(reference), reference["source_text"])
+        key = (core_identity(reference), reference["source_text"])
         groups[key].append(reference)
     return [group for group in groups.values() if len(group) > 1]
 
@@ -190,7 +190,7 @@ def audit_reference_set(
     - `law_number_name_conflict`: `kanun_no` is one of the eight canonical
       statutes and the (already alias-resolved) `kanun_ad` disagrees with
       the canonical name for that number.
-    - `duplicate_row`: raw rows sharing a `full_identity` *and* the same
+    - `duplicate_row`: raw rows sharing a `core_identity` *and* the same
       collapsed `source_text` -- see the module docstring for why this one
       check is computed from the normalized-but-undeduplicated rows rather
       than the compacted list every other check uses.

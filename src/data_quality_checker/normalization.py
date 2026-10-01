@@ -49,7 +49,6 @@ _ARTICLE_SUFFIX_RE = re.compile(
     r"\s*(?:inci|ıncı|uncu|üncü|nci|ncı|ncu|ncü)?\s*(?:madde(?:si|sinin|sinde|sinden)?|maddesi|maddesinde)?\s*$",
     re.IGNORECASE,
 )
-_PARENS_RE = re.compile(r"^[\[(]\s*(.*?)\s*[\])]$")
 # "229 ve müteakip maddelerinde" cites article 229 onwards; the article is 229.
 # The same prose comes as "ve izleyen", "ve devamı", "ve takip eden", and with
 # the typo "mütakip" -- all found in the GT750 data (27 Sep 2026).
@@ -65,57 +64,26 @@ _LEADING_WORD_RE = re.compile(r"^(?P<word>[^\W\d_]+)\.?\s*(?P<rest>.*)$")
 # slip ("geçiçi", "mükrrer"): the number carries the identity, so folding the
 # qualifier cannot merge two articles. "ek" is too short to allow a slip.
 _QUALIFIERS = {"mukerrer": "mükerrer", "gecici": "geçici"}
-# A trailing "/" plus a *lowercase* letter is a sub-part written inline
-# ("6/b"); a trailing "/" plus an *uppercase* letter is part of the
-# article's own name inserted by amendment (e.g. 5520 art. "32/A") and must
-# never be split out. Case is therefore load-bearing in this class, not
-# folded away.
-_EMBEDDED_BENT_RE = re.compile(r"^(?P<madde>.*\S)\s*/\s*(?P<bent>[a-zçğıöşü])$")
+# A reference names a law and an article -- nothing below the article (user
+# decision, 1 Oct 2026). A part of the article written into `madde` itself is
+# therefore cut off: "13/a" and "4-a" (a lowercase letter: a sub-part, never an
+# article), "17/4" and "17/4-a" (a number after the slash), "10 (2)". A
+# trailing "/" plus an *uppercase* letter is part of the article's own name,
+# inserted by amendment (5520 art. "32/A"), and is kept -- in upper case, so
+# that normalizing an already normalized value changes nothing. Case is
+# load-bearing in this class, not folded away.
+_INSERTED_ARTICLE_RE = re.compile(
+    r"^(?P<head>.*\S)\s*/\s*(?P<letter>[A-ZÇĞİÖŞÜ](?:\s*-\s*[A-ZÇĞİÖŞÜ])?)$"
+)
+_SUBPART_TAILS = (
+    re.compile(r"\s*\(\s*[0-9a-zçğıöşü]{1,3}\s*\)$"),
+    re.compile(r"\s*/\s*\d[^/]*$"),
+    re.compile(r"\s*/\s*[a-zçğıöşü](?:\s*-\s*\S+)?$"),
+    re.compile(r"\s*-\s*[a-zçğıöşü]$"),
+    re.compile(r"(?<=/[A-ZÇĞİÖŞÜ])\s*-\s*\d+$"),
+)
 _LAW_NAME_PUNCT = " .,:;-'\""
 _LAW_NUMBER_PREFIX_RE = re.compile(r"^\d+\s*(?:sayılı|sayili)\s*", re.IGNORECASE)
-_ORDINALS = {
-    "birinci": "1",
-    "ikinci": "2",
-    "üçüncü": "3",
-    "ucuncu": "3",
-    "dördüncü": "4",
-    "dorduncu": "4",
-    "beşinci": "5",
-    "besinci": "5",
-    "altıncı": "6",
-    "altinci": "6",
-    "yedinci": "7",
-    "sekizinci": "8",
-    "dokuzuncu": "9",
-    "onuncu": "10",
-    "onbirinci": "11",
-    "on birinci": "11",
-    "onikinci": "12",
-    "on ikinci": "12",
-    "onüçüncü": "13",
-    "on üçüncü": "13",
-    "onucuncu": "13",
-    "on ucuncu": "13",
-    "ondördüncü": "14",
-    "on dördüncü": "14",
-    "ondorduncu": "14",
-    "on dorduncu": "14",
-    "onbeşinci": "15",
-    "on beşinci": "15",
-    "onbesinci": "15",
-    "on besinci": "15",
-    "onaltıncı": "16",
-    "on altıncı": "16",
-    "onaltinci": "16",
-    "on altinci": "16",
-    "onyedinci": "17",
-    "on yedinci": "17",
-    "onsekizinci": "18",
-    "on sekizinci": "18",
-    "ondokuzuncu": "19",
-    "on dokuzuncu": "19",
-    "yirminci": "20",
-}
 
 
 def _ascii_fold(value: str) -> str:
@@ -190,10 +158,21 @@ def article_qualifier(word: str) -> str | None:
     return None
 
 
+def strip_article_subpart(text: str) -> str:
+    """The article a `madde` value names, with any part of it cut off."""
+    previous = None
+    while text != previous:
+        previous = text
+        for pattern in _SUBPART_TAILS:
+            text = pattern.sub("", text).strip()
+    return text
+
+
 def normalize_article(value: Any) -> str:
     text = normalize_text(value).strip(" .,:;\"'")
     text = _MUTEAKIP_RE.sub("", text).strip()
     text = _ARTICLE_SUFFIX_RE.sub("", text).strip()
+    text = strip_article_subpart(text)
     leading = _LEADING_WORD_RE.match(text)
     if leading and _fold(leading.group("word")) == "degisik":
         # "Değişik 3" is article 3 as amended, not a different article.
@@ -202,32 +181,20 @@ def normalize_article(value: Any) -> str:
     if leading and (qualifier := article_qualifier(leading.group("word"))):
         rest = re.sub(r"^madde\w*\s+", "", leading.group("rest"), flags=re.IGNORECASE)
         text = f"{qualifier} {rest}"
-    text = _SPACE_RE.sub(" ", text).strip().casefold()
+    text = _SPACE_RE.sub(" ", text).strip()
+    inserted = _INSERTED_ARTICLE_RE.match(text)
+    if inserted:
+        letter = re.sub(r"\s+", "", inserted.group("letter"))
+        return f"{inserted.group('head').casefold()}/{letter}"
+    text = text.casefold()
     article_range = _ARTICLE_RANGE_RE.match(text)
     if article_range:
         text = f"{article_range.group(1)} ila {article_range.group(2)}"
     return text
 
 
-def normalize_extension(value: Any) -> str:
-    text = normalize_text(value).strip(" .,:;\"'")
-    match = _PARENS_RE.match(text)
-    if match:
-        text = match.group(1).strip()
-    folded = text.casefold()
-    return _ORDINALS.get(folded, folded)
-
-
 def normalize_reference(raw: dict[str, Any]) -> dict[str, str]:
     validated = validate_reference_list([raw])[0]
-    madde_value = validated["madde"]
-    bent_value = validated["bent"]
-    if not normalize_text(bent_value):
-        # Only when bent is empty: an explicit annotation is never overwritten.
-        embedded = _EMBEDDED_BENT_RE.match(normalize_text(madde_value))
-        if embedded:
-            madde_value = embedded.group("madde")
-            bent_value = embedded.group("bent")
     law_number = normalize_law_number(validated["kanun_no"])
     law_name = normalize_law_name(validated["kanun_ad"], law_number=law_number)
     if not law_number and law_name in CANONICAL_NO_BY_NAME:
@@ -235,9 +202,7 @@ def normalize_reference(raw: dict[str, Any]) -> dict[str, str]:
     return {
         "kanun_no": law_number,
         "kanun_ad": normalize_law_name(law_name, law_number=law_number),
-        "madde": normalize_article(madde_value),
-        "fikra": normalize_extension(validated["fikra"]),
-        "bent": normalize_extension(bent_value),
+        "madde": normalize_article(validated["madde"]),
         "source_text": normalize_text(validated["source_text"]),
     }
 
@@ -270,52 +235,27 @@ def core_identity(reference: dict[str, str]) -> tuple[str, str, str, str]:
     )
 
 
-def full_identity(reference: dict[str, str]) -> tuple[str, str, str, str, str, str]:
-    return (*core_identity(reference), reference["fikra"], reference["bent"])
-
-
 def compact_references(references: Iterable[dict[str, Any]]) -> list[dict[str, str]]:
-    """Drop rows that another row in the same set already accounts for.
+    """One row per provision: drop rows another row in the same set accounts for.
 
-    Two levels of the same rule. A row naming only a law goes when any article
-    of that law is named; a row naming only an article goes when any paragraph
-    or subparagraph of that article is named. `193/51` beside `193/51/1-8` is
-    not a second claim about the ruling -- it is the same claim, written twice
-    at two depths.
+    A row naming only a law goes when any article of that law is named, and a
+    second row naming the same law and article goes ("Geçici 21" beside
+    "geçici 21"; before 1 Oct 2026, "193/51" beside "193/51/1-8").
 
-    Only the law-level half existed before, so a model that named both depths
-    disagreed with an annotator who named one, and the document was routed
-    YELLOW: a judge call and expert attention spent on a row that adds nothing.
-    The measurement engine had already settled the question the other way --
-    `benchmark.reference.matching.prepare_reference_set` collapses rows sharing
-    (kanun_no, kanun_ad, madde), so on d000017 it reduced the model's seven rows
-    to the annotator's exact six and scored a perfect match while the router
-    called the same document a mismatch.
-
-    Both decisions are computed against the whole input set rather than a
-    running survivor, so the result cannot depend on row order -- a bucket
-    depends on this, and a bucket that moved when its input was shuffled would
-    not be a measurement.
+    The law-level decision is computed against the whole input set rather than
+    a running survivor, and the survivor of a repeated provision is its first
+    row, so the identities kept cannot depend on row order -- a bucket depends
+    on this, and a bucket that moved when its input was shuffled would not be a
+    measurement.
     """
     normalized = [normalize_reference(reference) for reference in references]
     specific_laws = {law_identity(reference) for reference in normalized if reference["madde"]}
-    specific_articles = {
-        core_identity(reference)
-        for reference in normalized
-        if reference["fikra"] or reference["bent"]
-    }
     compacted: list[dict[str, str]] = []
-    seen: set[tuple[str, str, str, str, str, str]] = set()
+    seen: set[tuple[str, str, str, str]] = set()
     for reference in normalized:
         if not reference["madde"] and law_identity(reference) in specific_laws:
             continue
-        if (
-            not reference["fikra"]
-            and not reference["bent"]
-            and core_identity(reference) in specific_articles
-        ):
-            continue
-        identity = full_identity(reference)
+        identity = core_identity(reference)
         if identity in seen:
             continue
         seen.add(identity)

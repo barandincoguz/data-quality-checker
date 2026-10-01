@@ -30,9 +30,16 @@ from .errors import ContractError, GateBlocked, IntegrityError
 from .fake_training import FakeStatefulTrainer
 from .fingerprints import fingerprint_json, sha256_bytes, sha256_file, sha256_text
 
-PROMPT_VARIANT = "few-shot-cot-v3-en-compact-recall-v2"
+# A reference is a law and an article of it, nothing below the article (user
+# decision, 1 Oct 2026). The prompt therefore asks for three fields and never
+# names a unit below the article -- not even to rule it out -- and the targets
+# carry those three fields only. The earlier variant
+# ("few-shot-cot-v3-en-compact-recall-v2", five fields) trained and predicted
+# the archived first GT750 loop (git tag archive/gt750-v1-fikra-bent).
+PROMPT_VARIANT = "few-shot-cot-v3-en-compact-recall-law-article-v1"
 TRAINING_VIEW_POLICY = (
-    "adaptive-context-fallback128-positive-only-dense-max10-tokenmean-looprepair-realtext-v11"
+    "adaptive-context-fallback128-positive-only-dense-max10-tokenmean-looprepair-realtext-"
+    "lawarticle-v12"
 )
 REFIT_SPLIT_POLICY = "refit-all-494-nominal-valid-and-test"
 
@@ -40,28 +47,27 @@ SYSTEM_PROMPT = (
     "You extract every statutory law reference from Turkish tax rulings "
     "(ozelgeler).\n\n"
     "Return one flat JSON array and include ALL references in the document. "
-    "Each item has exactly these string fields: kanun_no, kanun_ad, madde, "
-    "fikra, bent. Use an empty string when a field is absent. "
-    "Resolve locally supported anaphora; retain table/cetvel/list references "
-    "in the same contract; never invent a law identity or evidence. Deduplicate "
-    "the same legal tuple and suppress a generic law-only row when that law has "
-    "a specific article row. Output only the JSON array; if no references exist, "
-    "output [].\n\n"
+    "Each item has exactly these string fields: kanun_no, kanun_ad, madde. "
+    "A reference is a law and one article of that law; madde is the article's "
+    'own designation, such as "94", "32/A", "geçici 25", "mükerrer 298" or '
+    '"ek 1". Use an empty string when a field is absent. List each law and '
+    "article pair once. Resolve locally supported anaphora; retain "
+    "table/cetvel/list references in the same contract; never invent a law "
+    "identity or evidence. Suppress a generic law-only row when that law has "
+    "a specific article row. Output only the JSON array; if no references "
+    "exist, output [].\n\n"
     "Recall rules adapted from the official few-shot-cot-v3-en prompt:\n"
-    "- Do not become overly conservative. Extract every explicit article, "
-    "paragraph, and subparagraph reference, even when secondary regulations "
-    "appear nearby.\n"
-    "- Preserve every distinct explicit legal tuple. Never replace a specific "
-    "tuple with a generic law-only row, and never return [] when an explicit "
-    "statutory reference exists.\n"
-    "- Scan the entire document once more for dropped madde, fikra, and bent "
-    "details before returning JSON.\n\n"
+    "- Do not become overly conservative. Extract every explicitly cited "
+    "article, even when secondary regulations appear nearby.\n"
+    "- Never replace a specific article row with a generic law-only row, and "
+    "never return [] when an explicit statutory reference exists.\n"
+    "- Scan the entire document once more for dropped articles before "
+    "returning JSON.\n\n"
     "Compact demonstration:\n"
     "Input: 488 sayılı Damga Vergisi Kanununun 3 üncü ve 9 uncu maddeleri\n"
     'Output: [{"kanun_no":"488","kanun_ad":"Damga Vergisi Kanunu",'
-    '"madde":"3","fikra":"","bent":""},{"kanun_no":"488",'
-    '"kanun_ad":"Damga Vergisi Kanunu","madde":"9","fikra":"",'
-    '"bent":""}]'
+    '"madde":"3"},{"kanun_no":"488","kanun_ad":"Damga Vergisi Kanunu",'
+    '"madde":"9"}]'
 )
 
 SEQUENCE_LENGTH_CANDIDATES = (8192, 10240, 12288, 16384, 32768)
@@ -240,10 +246,11 @@ def validate_canonical_sources(config: AppConfig) -> dict[str, Any]:
 
 
 def _training_example(document: dict[str, Any]) -> dict[str, Any]:
-    # Keep source_text in this flat per-document row: context_windows.py reads
-    # it back from this same JSON to locate each reference inside the ruling
-    # when it decides which passage goes in a training window. It strips
-    # source_text from the assistant target it actually serves to the model.
+    # Keep source_text (and a GT v7 row's source_texts) in this flat
+    # per-document row: context_windows.py reads them back from this same JSON
+    # to locate each reference inside the ruling when it decides which passage
+    # goes in a training window. It strips both from the assistant target it
+    # actually serves to the model.
     target = json.dumps(document["references"], ensure_ascii=False, separators=(",", ":"))
     return {
         "messages": [

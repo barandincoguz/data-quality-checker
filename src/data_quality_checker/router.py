@@ -1,4 +1,11 @@
-"""Deterministic semantic router; similarity never changes the bucket."""
+"""Deterministic semantic router; similarity never changes the bucket.
+
+A reference is a law and an article of it (user decision, 1 Oct 2026), so a
+document is GREEN when both sides name the same provisions and RED when they do
+not. There is no YELLOW any more: it meant "same provisions, different
+paragraph or sub-item", a difference that no longer exists -- no flag is
+raised for it.
+"""
 
 from __future__ import annotations
 
@@ -9,7 +16,6 @@ from .normalization import (
     compact_references,
     conflicting_law_identity,
     core_identity,
-    full_identity,
 )
 from .reference_policy import (
     DEFAULT_REFERENCE_POLICY_ID,
@@ -53,9 +59,9 @@ def route_document(
     policy_model, _ = apply_reference_policy(model_references, policy_id=reference_policy_id)
     human = compact_references(policy_human)
     model = compact_references(policy_model)
-    full_human = {full_identity(reference) for reference in human}
-    full_model = {full_identity(reference) for reference in model}
-    similarity = _similarity(full_human, full_model)
+    core_human = {core_identity(reference) for reference in human}
+    core_model = {core_identity(reference) for reference in model}
+    similarity = _similarity(core_human, core_model)
 
     if (
         preparation_status != "ready"
@@ -83,8 +89,6 @@ def route_document(
             tuple(model),
         )
 
-    core_human = {core_identity(reference) for reference in human}
-    core_model = {core_identity(reference) for reference in model}
     if core_human != core_model:
         reasons = []
         if core_human - core_model:
@@ -93,18 +97,9 @@ def route_document(
             reasons.append("extra_or_different_core_reference")
         return RouteDecision("RED", tuple(reasons), similarity, tuple(human), tuple(model))
 
-    if full_human != full_model:
-        return RouteDecision(
-            "YELLOW",
-            ("extension_mismatch",),
-            similarity,
-            tuple(human),
-            tuple(model),
-        )
-
     return RouteDecision(
         "GREEN",
-        ("normalized_five_field_set_equal",),
+        ("normalized_law_article_set_equal",),
         similarity,
         tuple(human),
         tuple(model),

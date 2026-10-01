@@ -117,8 +117,10 @@ def test_bootstrap_run_id_is_unchanged_for_development(tmp_path: Path) -> None:
     # deliberate changes to the sealed fingerprint, which is exactly why a
     # new run id is right: the sealed loop run dqcheck_loop_fd1abc3af6b7 and
     # its update-325 checkpoint keep their own directory untouched.
+    # 1 Oct 2026: the prompt asks for the law and the article only and the
+    # view policy is lawarticle-v12 -- a new run id again, deliberately.
     result = train_bootstrap(config=isolated_config(tmp_path), generation="G0")
-    assert result["run_id"] == "dqcheck_g0_qwen3_5_9b_e613d3647c11"
+    assert result["run_id"] == "dqcheck_g0_qwen3_5_9b_47fbaa5692ce"
 
 
 def test_refit_bootstrap_trains_on_all_494_with_its_own_run_id(tmp_path: Path) -> None:

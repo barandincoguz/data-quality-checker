@@ -407,7 +407,6 @@ def _line_summary(metrics: dict[str, Any]) -> dict[str, Any]:
     docwise = metrics["docwise_f1_distribution"]
     return {
         "core": {key: metrics["core"][key] for key in _METRIC_KEYS},
-        "full": {key: metrics["full"][key] for key in _METRIC_KEYS},
         "perfect_documents": docwise["perfect_f1_count"],
         "documents": docwise["total_docs"],
     }
@@ -575,7 +574,7 @@ def batch_trend(config: Any) -> dict[str, Any]:
                 "sources": {
                     name: {
                         level: {key: source[level].get(key) for key in _TREND_KEYS}
-                        for level in ("core", "full")
+                        for level in ("core",)
                     }
                     for name, source in table["sources"].items()
                 },
@@ -585,7 +584,7 @@ def batch_trend(config: Any) -> dict[str, Any]:
                 after = table["per_document"]
                 change: dict[str, Any] = {}
                 for name in table["sources"]:
-                    for level in ("core", "full"):
+                    for level in ("core",):
                         a = {d: dict(zip(("tp", "fp", "fn"), v[name][level])) for d, v in after.items() if name in v}
                         b = {d: dict(zip(("tp", "fp", "fn"), v[name][level])) for d, v in before.items() if name in v}
                         if a and b:

@@ -26,17 +26,10 @@ from benchmark.reference.matching import (
 from data_quality_checker.normalization import compact_references, core_identity
 
 
-def _row(
-    kanun_no: str, kanun_ad: str, madde: str, fikra: str = "", bent: str = ""
-) -> dict[str, str]:
-    return {
-        "kanun_no": kanun_no,
-        "kanun_ad": kanun_ad,
-        "madde": madde,
-        "fikra": fikra,
-        "bent": bent,
-        "source_text": "s",
-    }
+def _row(kanun_no: str, kanun_ad: str, madde: str, **legacy: str) -> dict[str, str]:
+    """A reference; `legacy` adds the paragraph fields a list stored before
+    1 Oct 2026 still carries, which both engines must read past."""
+    return {"kanun_no": kanun_no, "kanun_ad": kanun_ad, "madde": madde, "source_text": "s", **legacy}
 
 
 def _loop_engine_says_same(left: dict[str, str], right: dict[str, str]) -> bool:
@@ -135,6 +128,14 @@ CASES = [
     ("değişik N is article N", _row("3065", "", "Değişik 3"), _row("3065", "", "3"), True),
     ("dash range", _row("6098", "", "466-469"), _row("6098", "", "466 ila 469"), True),
     ("ilâ range", _row("6098", "", "473 ilâ 475"), _row("6098", "", "473 ila 475"), True),
+    # -- a reference is a law and an article (1 Oct 2026): parts are cut off --
+    ("paragraph number in madde", _row("213", "", "17/4"), _row("213", "", "17"), True),
+    ("paragraph and item in madde", _row("213", "", "17/4-a"), _row("213", "", "17"), True),
+    ("parenthesised paragraph", _row("213", "", "10 (2)"), _row("213", "", "10"), True),
+    ("dashed item", _row("5510", "", "4-a"), _row("5510", "", "4"), True),
+    ("item of an inserted article", _row("5520", "", "5/A-1"), _row("5520", "", "5/A"), True),
+    ("stored paragraph fields", _row("193", "", "94", fikra="1", bent="a"), _row("193", "", "94"), True),
+    ("inserted pair stays", _row("193", "", "mükerrer 20/A-B"), _row("193", "", "mükerrer 20"), False),
     # -- and the provisions that must stay apart --
     ("geçici N is not article N", _row("193", "", "geçici 3"), _row("193", "", "3"), False),
     ("ek N is not article N", _row("213", "", "ek 3"), _row("213", "", "3"), False),
@@ -147,7 +148,7 @@ CASES = [
         False,
     ),
     (
-        "ek madde A is not bent a",
+        "inserted 32/A is not a part of article 32",
         _row("5520", "Kurumlar Vergisi Kanunu", "32/A"),
         _row("5520", "Kurumlar Vergisi Kanunu", "32/a"),
         False,
@@ -181,13 +182,17 @@ def test_both_engines_agree(label: str, left: dict, right: dict, same: bool) -> 
     assert evaluator == same, f"{label}: evaluator engine"
 
 
-def test_turkish_bent_letters_are_never_folded() -> None:
-    """(c) and (ç) are different subparagraphs: Turkish legislation letters its
-    bents in the Turkish alphabet. 320 "c" and 24 "ç" rows in our data are not
-    one letter typed two ways, and neither are g/ğ, ı/i, o/ö, s/ş, u/ü."""
-    from data_quality_checker.normalization import full_identity, normalize_reference
+def test_both_engines_keep_an_inserted_article_through_a_second_pass() -> None:
+    """A normalized "32/A" must still be article 32/A when normalized again --
+    the case-folded "32/a" the loop engine once returned read as a part of
+    article 32 on the second pass."""
+    from data_quality_checker.normalization import normalize_reference
 
-    for plain, dotted in (("c", "ç"), ("g", "ğ"), ("i", "ı"), ("o", "ö"), ("s", "ş"), ("u", "ü")):
-        left = normalize_reference(_row("193", "", "94", bent=plain))
-        right = normalize_reference(_row("193", "", "94", bent=dotted))
-        assert full_identity(left) != full_identity(right), (plain, dotted)
+    for madde in ("32/A", "mükerrer 20/A-B", "geçici 1/A"):
+        once = normalize_reference(_row("5520", "", madde))
+        assert normalize_reference(once) == once, madde
+        prepared = canonicalize_reference(annotator_normalize(dict(_row("5520", "", madde), type="kanun_madde_referansi")))
+        assert canonicalize_reference(prepared) == prepared, madde
+        assert canonical_article_key(prepared) != canonical_article_key(
+            canonicalize_reference(annotator_normalize(dict(_row("5520", "", "32"), type="kanun_madde_referansi")))
+        )

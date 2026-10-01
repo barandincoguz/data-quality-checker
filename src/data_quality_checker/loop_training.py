@@ -193,8 +193,7 @@ def round_training_documents(config: Any, *, batch_ids: Sequence[str]) -> dict[s
     if refusals:
         worklist = "\n".join(
             f"  {refusal['doc_id']}: kanun_no={refusal['kanun_no']!r} "
-            f"kanun_ad={refusal['kanun_ad']!r} madde={refusal['madde']!r} "
-            f"fikra={refusal['fikra']!r} bent={refusal['bent']!r}"
+            f"kanun_ad={refusal['kanun_ad']!r} madde={refusal['madde']!r}"
             for refusal in refusals
         )
         raise ContractError(

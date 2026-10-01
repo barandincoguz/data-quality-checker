@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "canonical_gt_dir": "../../data/ground_truth/gt_v7_gt750_law_article_2026-10-01/validated",
+  "example_bank_path": "../../benchmark/reference/example_sets/few_shot_cot_v3_en_examples.json",
+  "reference_split_manifest_path": "../../Fine-Tuning/data/v2/split_manifest.json",
+  "sensitive_root": "../../data/sensitive/data_quality_checker_gt750_law_article",
+  "public_root": "../../artifacts/data_quality_checker_gt750_law_article",
+  "training_runs_root": "../../Fine-Tuning/runs",
+  "model": {
+    "id": "mlx-community/Qwen3.5-9B-MLX-4bit",
+    "revision": "938d8919941c6e7efd3c7150eff7fe9d12afa631",
+    "minimum_mlx_lm": "0.31.0",
+    "enable_thinking": false,
+    "prompt_suffix": ""
+  },
+  "security": {
+    "max_zip_entries": 10000,
+    "max_zip_entry_bytes": 1073741824,
+    "max_zip_total_bytes": 2147483648,
+    "max_zip_compression_ratio": 200.0
+  },
+  "runtime": {
+    "busy_timeout_ms": 5000,
+    "heartbeat_stale_seconds": 300,
+    "prediction_flush_every": 1
+  },
+  "loop": {
+    "split_path": "../../data/ground_truth/gt_v7_gt750_law_article_2026-10-01/SPLIT.json",
+    "expected_documents": 750,
+    "sizes": {"train": 500, "valid": 50, "test": 200},
+    "gt_manifest_sha256": "b0a779271072ef18d8e7928e83e2f154c56c9109357b59988037bfd175a10227",
+    "split_sha256": "51d85483e8bcd4634a2474d8ee6a5747daccff3c68e97850867f96df811c42aa"
+  }
+}

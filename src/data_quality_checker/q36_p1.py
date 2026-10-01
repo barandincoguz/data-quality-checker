@@ -35,7 +35,7 @@ from .g0 import (
 )
 from .mlx_compute import build_snapshot_manifest
 from .mlx_stateful import StatefulTrainingConfig
-from .normalization import full_identity, normalize_reference
+from .normalization import core_identity, normalize_reference
 from .reference_policy import (
     DEFAULT_REFERENCE_POLICY_ID,
     apply_reference_policy,
@@ -296,7 +296,7 @@ def _membership(references: list[dict[str, Any]]) -> set[tuple[str, ...]]:
     filtered, _ = apply_reference_policy(
         validate_reference_list(references), policy_id=DEFAULT_REFERENCE_POLICY_ID
     )
-    return {full_identity(normalize_reference(reference)) for reference in filtered}
+    return {core_identity(normalize_reference(reference)) for reference in filtered}
 
 
 def inspect_green_audit(
@@ -394,8 +394,6 @@ def reconstruct_vuk_213_article_413(
         "kanun_no": "213",
         "kanun_ad": "Vergi Usul Kanunu",
         "madde": "413",
-        "fikra": "",
-        "bent": "",
         "source_text": evidence,
     }
     output = [*validated, derived]

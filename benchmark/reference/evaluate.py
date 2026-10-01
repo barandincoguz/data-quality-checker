@@ -1,4 +1,11 @@
-"""Benchmark evaluator for Gemini-style reference annotations."""
+"""Benchmark evaluator for legal-reference annotations: law and article only.
+
+A reference is a law and an article of it (user decision, 1 Oct 2026). Nothing
+below the article -- no paragraph or sub-item field -- is read, matched,
+scored or reported here; the five-field `overall` score, its per-field scores,
+its error buckets and the sub-article diagnostics were removed with it. The
+archived evaluator is at git tag archive/gt750-v1-fikra-bent.
+"""
 
 from __future__ import annotations
 
@@ -8,22 +15,23 @@ import hashlib
 import json
 import statistics
 from collections import Counter, defaultdict
-from dataclasses import dataclass, field as dc_field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from annotator.reference.common import (
     CANONICAL_LAW_BY_NO,
-    CORE_FIELDS,
-    compact_law_references,
     canonical_law_name_by_no,
+    compact_law_references,
     normalize_kanun_adi,
     normalize_kanun_no,
     normalize_reference,
 )
 from benchmark.reference.matching import (
     empty_optimal_diagnostics as _empty_optimal_diagnostics,
+)
+from benchmark.reference.matching import (
     evaluate_doc_optimal,
     optimal_diagnostics_payload,
 )
@@ -96,17 +104,6 @@ class GroundTruthLoadResult:
 
 
 @dataclass
-class ErrorBucket:
-    """Grouped mismatch bucket for diagnostic reporting."""
-
-    bucket_type: str
-    entity_type: str
-    count: int
-    sample_doc_ids: list[int]
-    wrong_fields: list[str] = dc_field(default_factory=list)
-
-
-@dataclass
 class DocLevelMetrics:
     """Document-level metric distribution summary."""
 
@@ -133,16 +130,6 @@ class DocwiseCoreAccuracy:
     failed_doc_count: int
     total_docs: int
     per_doc: list[dict] | None = None
-
-
-@dataclass
-class PartialMatchStats:
-    """Statistics about near-miss partial matches."""
-
-    total_unmatched_pairs: int
-    avg_overlap_score: float
-    overlap_distribution: dict[int, int]
-    near_miss_count: int
 
 
 @dataclass(frozen=True)
@@ -469,14 +456,13 @@ def _core_reference_view_key(ref: dict[str, str]) -> tuple[str, str, str] | None
     return (kanun_no, kanun_ad, madde)
 
 
-def _core_reference_survivor_rank(row: dict[str, str], order: int) -> tuple[int, int, int, int]:
+def _core_reference_survivor_rank(row: dict[str, str], order: int) -> tuple[int, int, int]:
     """Rank duplicate same-core rows for the row kept in core-set view."""
     status = str(row.get("status", "")).strip().lower()
     status_score = 2 if status == "approved" else 1 if status else 0
-    detail_score = sum(1 for field in ("fikra", "bent") if row.get(field))
     source_score = 1 if row.get("source_text") else 0
     order_score = -order
-    return (status_score, detail_score, source_score, order_score)
+    return (status_score, source_score, order_score)
 
 
 def apply_core_reference_view_maps(
@@ -499,7 +485,7 @@ def apply_core_reference_view_maps(
         else:
             output_refs = []
             core_positions: dict[tuple[str, str, str], int] = {}
-            core_ranks: dict[tuple[str, str, str], tuple[int, int, int, int]] = {}
+            core_ranks: dict[tuple[str, str, str], tuple[int, int, int]] = {}
             removed_count = 0
 
             for order, row in enumerate(normalized_refs):
@@ -563,26 +549,6 @@ def _empty_ignored_extra_law_field_diagnostics() -> dict[str, int]:
         "ignored_extra_pred_kanun_no_total": 0,
         "ignored_extra_pred_kanun_no_inconsistent": 0,
         "ignored_extra_pred_kanun_no_unknown_consistency": 0,
-    }
-
-
-def _empty_soft_extension_counts() -> dict[str, int]:
-    """Initialize flat count diagnostics for fikra/bent soft evaluation."""
-    return {
-        "core_tp_count": 0,
-        "fikra_gold_present_count": 0,
-        "fikra_exact_when_gold_present_count": 0,
-        "fikra_missing_when_gold_present_count": 0,
-        "fikra_wrong_nonempty_when_gold_present_count": 0,
-        "fikra_gold_empty_count": 0,
-        "fikra_extra_when_gold_empty_count": 0,
-        "bent_gold_present_count": 0,
-        "bent_exact_when_gold_present_count": 0,
-        "bent_missing_when_gold_present_count": 0,
-        "bent_wrong_nonempty_when_gold_present_count": 0,
-        "bent_gold_empty_count": 0,
-        "bent_extra_when_gold_empty_count": 0,
-        "full_extension_exact_count": 0,
     }
 
 
@@ -715,108 +681,13 @@ def _consume_first_available(
     return pred_idx
 
 
-def _accumulate_soft_extension_counts(
-    counts: dict[str, int],
-    gold_ref: dict[str, str],
-    pred_ref: dict[str, str],
-) -> None:
-    """Accumulate fikra/bent diagnostics for one matched core reference pair."""
-    counts["core_tp_count"] += 1
-
-    gold_fikra = gold_ref.get("fikra", "")
-    pred_fikra = pred_ref.get("fikra", "")
-    if gold_fikra:
-        counts["fikra_gold_present_count"] += 1
-        if pred_fikra == gold_fikra:
-            counts["fikra_exact_when_gold_present_count"] += 1
-        elif not pred_fikra:
-            counts["fikra_missing_when_gold_present_count"] += 1
-        else:
-            counts["fikra_wrong_nonempty_when_gold_present_count"] += 1
-    else:
-        counts["fikra_gold_empty_count"] += 1
-        if pred_fikra:
-            counts["fikra_extra_when_gold_empty_count"] += 1
-
-    gold_bent = gold_ref.get("bent", "")
-    pred_bent = pred_ref.get("bent", "")
-    if gold_bent:
-        counts["bent_gold_present_count"] += 1
-        if pred_bent == gold_bent:
-            counts["bent_exact_when_gold_present_count"] += 1
-        elif not pred_bent:
-            counts["bent_missing_when_gold_present_count"] += 1
-        else:
-            counts["bent_wrong_nonempty_when_gold_present_count"] += 1
-    else:
-        counts["bent_gold_empty_count"] += 1
-        if pred_bent:
-            counts["bent_extra_when_gold_empty_count"] += 1
-
-    if gold_fikra == pred_fikra and gold_bent == pred_bent:
-        counts["full_extension_exact_count"] += 1
-
-
-def _finalize_soft_extension_diagnostics(counts: dict[str, int]) -> dict[str, float | int]:
-    """Add rate fields to fikra/bent soft diagnostics."""
-    diagnostics: dict[str, float | int] = dict(counts)
-
-    def rate(numerator_key: str, denominator_key: str, rate_key: str) -> None:
-        denominator = counts.get(denominator_key, 0)
-        diagnostics[rate_key] = counts.get(numerator_key, 0) / denominator if denominator else 0.0
-
-    rate(
-        "fikra_exact_when_gold_present_count",
-        "fikra_gold_present_count",
-        "fikra_exact_when_gold_present_rate",
-    )
-    rate(
-        "fikra_missing_when_gold_present_count",
-        "fikra_gold_present_count",
-        "fikra_missing_when_gold_present_rate",
-    )
-    rate(
-        "fikra_wrong_nonempty_when_gold_present_count",
-        "fikra_gold_present_count",
-        "fikra_wrong_nonempty_when_gold_present_rate",
-    )
-    rate(
-        "fikra_extra_when_gold_empty_count",
-        "fikra_gold_empty_count",
-        "fikra_extra_when_gold_empty_rate",
-    )
-    rate(
-        "bent_exact_when_gold_present_count",
-        "bent_gold_present_count",
-        "bent_exact_when_gold_present_rate",
-    )
-    rate(
-        "bent_missing_when_gold_present_count",
-        "bent_gold_present_count",
-        "bent_missing_when_gold_present_rate",
-    )
-    rate(
-        "bent_wrong_nonempty_when_gold_present_count",
-        "bent_gold_present_count",
-        "bent_wrong_nonempty_when_gold_present_rate",
-    )
-    rate(
-        "bent_extra_when_gold_empty_count",
-        "bent_gold_empty_count",
-        "bent_extra_when_gold_empty_rate",
-    )
-    rate("full_extension_exact_count", "core_tp_count", "full_extension_exact_rate")
-    return diagnostics
-
-
 def _evaluate_doc_core(
     pred_refs: list[dict[str, str]],
     gold_refs: list[dict[str, str]],
-) -> tuple[Metrics, dict[str, int], dict[str, int], dict[str, int]]:
+) -> tuple[Metrics, dict[str, int], dict[str, int]]:
     """Evaluate one document with the primary core law/article metric."""
     exclusion_diagnostics = _empty_core_exclusion_diagnostics()
     ignored_extra_law_diagnostics = _empty_ignored_extra_law_field_diagnostics()
-    soft_extension_counts = _empty_soft_extension_counts()
 
     gold_entries = [
         entry
@@ -897,9 +768,6 @@ def _evaluate_doc_core(
         if pred_idx is not None:
             matched_pairs.append((gold_entry, pred_entries[pred_idx]))
 
-    for gold_entry, pred_entry in matched_pairs:
-        _accumulate_soft_extension_counts(soft_extension_counts, gold_entry.ref, pred_entry.ref)
-
     tp = len(matched_pairs)
     fp = (
         len(pred_entries) - tp
@@ -912,7 +780,6 @@ def _evaluate_doc_core(
         compute_metrics(tp, fp, fn),
         exclusion_diagnostics,
         ignored_extra_law_diagnostics,
-        soft_extension_counts,
     )
 
 
@@ -920,16 +787,15 @@ def evaluate_core_maps(
     predictions: dict[int, list[dict[str, str]]],
     gold: dict[int, list[dict[str, str]]],
     doc_ids: list[int],
-) -> tuple[Metrics, dict[int, Metrics], dict[str, int], dict[str, int], dict[str, float | int]]:
+) -> tuple[Metrics, dict[int, Metrics], dict[str, int], dict[str, int]]:
     """Evaluate primary core law/article metric across documents."""
     overall_tp = overall_fp = overall_fn = 0
     per_doc_metrics: dict[int, Metrics] = {}
     exclusion_diagnostics = _empty_core_exclusion_diagnostics()
     ignored_extra_law_diagnostics = _empty_ignored_extra_law_field_diagnostics()
-    soft_extension_counts = _empty_soft_extension_counts()
 
     for doc_id in doc_ids:
-        doc_metrics, doc_exclusion, doc_ignored_extra, doc_soft_counts = _evaluate_doc_core(
+        doc_metrics, doc_exclusion, doc_ignored_extra = _evaluate_doc_core(
             predictions.get(doc_id, []),
             gold.get(doc_id, []),
         )
@@ -939,14 +805,12 @@ def evaluate_core_maps(
         per_doc_metrics[doc_id] = doc_metrics
         _merge_flat_counts(exclusion_diagnostics, doc_exclusion)
         _merge_flat_counts(ignored_extra_law_diagnostics, doc_ignored_extra)
-        _merge_flat_counts(soft_extension_counts, doc_soft_counts)
 
     return (
         compute_metrics(overall_tp, overall_fp, overall_fn),
         per_doc_metrics,
         exclusion_diagnostics,
         ignored_extra_law_diagnostics,
-        _finalize_soft_extension_diagnostics(soft_extension_counts),
     )
 
 
@@ -954,7 +818,7 @@ def evaluate_optimal_maps(
     predictions: dict[int, list[dict[str, str]]],
     gold: dict[int, list[dict[str, str]]],
     doc_ids: list[int],
-) -> tuple[Metrics, dict[int, Metrics], dict[str, int], dict[str, float | int]]:
+) -> tuple[Metrics, dict[int, Metrics], dict[str, int]]:
     """Evaluate the core metric with the order-independent optimal matcher.
 
     Mirrors :func:`evaluate_core_maps` but replaces staged-greedy pairing with a
@@ -964,10 +828,9 @@ def evaluate_optimal_maps(
     overall_tp = overall_fp = overall_fn = 0
     per_doc_metrics: dict[int, Metrics] = {}
     diagnostics = _empty_optimal_diagnostics()
-    soft_extension_counts = _empty_soft_extension_counts()
 
     for doc_id in doc_ids:
-        tp, fp, fn, doc_diagnostics, matched_pairs = evaluate_doc_optimal(
+        tp, fp, fn, doc_diagnostics, _ = evaluate_doc_optimal(
             predictions.get(doc_id, []),
             gold.get(doc_id, []),
         )
@@ -976,314 +839,12 @@ def evaluate_optimal_maps(
         overall_fn += fn
         per_doc_metrics[doc_id] = compute_metrics(tp, fp, fn)
         _merge_flat_counts(diagnostics, doc_diagnostics)
-        for gold_ref, pred_ref in matched_pairs:
-            _accumulate_soft_extension_counts(soft_extension_counts, gold_ref, pred_ref)
 
     return (
         compute_metrics(overall_tp, overall_fp, overall_fn),
         per_doc_metrics,
         diagnostics,
-        _finalize_soft_extension_diagnostics(soft_extension_counts),
     )
-
-
-def reference_counter(references: list[dict[str, str]]) -> Counter[tuple[str, str, str, str, str]]:
-    """Convert references to a multiset of core tuples."""
-    return Counter(tuple(ref[field] for field in CORE_FIELDS) for ref in references)
-
-
-def ref_to_tuple(ref: dict[str, str]) -> tuple[str, str, str, str, str]:
-    """Convert a reference dict to its core tuple."""
-    return tuple(ref.get(field, "") for field in CORE_FIELDS)
-
-
-def _tuple_overlap_score(
-    pred_tuple: tuple[str, str, str, str, str],
-    gold_tuple: tuple[str, str, str, str, str],
-) -> int:
-    """Count how many CORE_FIELDS match between two tuples (0-5)."""
-    return sum(
-        1 for p, g in zip(pred_tuple, gold_tuple)
-        if p == g and (p != "" or g != "")
-    )
-
-
-def _tuple_wrong_fields(
-    pred_tuple: tuple[str, str, str, str, str],
-    gold_tuple: tuple[str, str, str, str, str],
-) -> list[str]:
-    """Return names of fields that differ between two tuples."""
-    return [
-        CORE_FIELDS[i]
-        for i in range(len(CORE_FIELDS))
-        if pred_tuple[i] != gold_tuple[i]
-    ]
-
-
-def _classify_mismatch(
-    pred_tuple: tuple[str, str, str, str, str] | None,
-    gold_tuple: tuple[str, str, str, str, str] | None,
-) -> tuple[str, list[str]]:
-    """Classify a mismatch pair into a granular bucket type.
-
-    Returns (bucket_type, wrong_fields).
-    """
-    if gold_tuple is None and pred_tuple is not None:
-        return "spurious", []
-    if pred_tuple is None and gold_tuple is not None:
-        return "missed", []
-
-    assert pred_tuple is not None and gold_tuple is not None
-    overlap = _tuple_overlap_score(pred_tuple, gold_tuple)
-    wrong = _tuple_wrong_fields(pred_tuple, gold_tuple)
-
-    law_match = pred_tuple[0] == gold_tuple[0] and pred_tuple[1] == gold_tuple[1]
-
-    if overlap >= 4:
-        return "partial_4of5", wrong
-    if overlap >= 3:
-        return "partial_3of5", wrong
-    if law_match:
-        return "wrong_subfields", wrong
-    return "wrong_law", wrong
-
-
-def _greedy_pair_unmatched(
-    unmatched_pred: list[tuple[str, str, str, str, str]],
-    unmatched_gold: list[tuple[str, str, str, str, str]],
-) -> tuple[
-    list[tuple[tuple[str, str, str, str, str], tuple[str, str, str, str, str], int]],
-    list[tuple[str, str, str, str, str]],
-    list[tuple[str, str, str, str, str]],
-]:
-    """Greedy-pair unmatched predictions to unmatched gold by overlap score.
-
-    Returns (paired, remaining_pred, remaining_gold).
-    """
-    if not unmatched_pred or not unmatched_gold:
-        return [], list(unmatched_pred), list(unmatched_gold)
-
-    candidates: list[tuple[int, int, int]] = []
-    for pi, pt in enumerate(unmatched_pred):
-        for gi, gt in enumerate(unmatched_gold):
-            score = _tuple_overlap_score(pt, gt)
-            if score > 0:
-                candidates.append((score, pi, gi))
-
-    candidates.sort(key=lambda x: x[0], reverse=True)
-
-    used_pred: set[int] = set()
-    used_gold: set[int] = set()
-    paired: list[tuple[tuple[str, str, str, str, str], tuple[str, str, str, str, str], int]] = []
-
-    for score, pi, gi in candidates:
-        if pi in used_pred or gi in used_gold:
-            continue
-        paired.append((unmatched_pred[pi], unmatched_gold[gi], score))
-        used_pred.add(pi)
-        used_gold.add(gi)
-
-    remaining_pred = [t for i, t in enumerate(unmatched_pred) if i not in used_pred]
-    remaining_gold = [t for i, t in enumerate(unmatched_gold) if i not in used_gold]
-    return paired, remaining_pred, remaining_gold
-
-
-def field_counter(references: list[dict[str, str]], field: str) -> Counter[str]:
-    """Convert one field to a multiset while ignoring empty values."""
-    values = [str(ref.get(field, "")).strip() for ref in references]
-    return Counter(value for value in values if value)
-
-
-def _evaluate_doc_aligned(
-    pred_refs: list[dict[str, str]],
-    gold_refs: list[dict[str, str]],
-) -> tuple[int, int, int, dict[str, dict[str, int]]]:
-    """Evaluate one document with reference-aligned per-entity counting.
-
-    Returns (tp, fp, fn, entity_totals_dict).
-    """
-    pred_counter = reference_counter(pred_refs)
-    gold_counter = reference_counter(gold_refs)
-    matched = pred_counter & gold_counter
-
-    tp = sum(matched.values())
-    fp = sum(pred_counter.values()) - tp
-    fn = sum(gold_counter.values()) - tp
-
-    entity_totals = {field: {"tp": 0, "fp": 0, "fn": 0} for field in CORE_FIELDS}
-
-    # Matched tuples: every non-empty field is a TP
-    for ref_tuple, count in matched.items():
-        for idx, field in enumerate(CORE_FIELDS):
-            if ref_tuple[idx]:
-                entity_totals[field]["tp"] += count
-
-    # FP tuples: unmatched predictions — every non-empty field is an FP
-    fp_counter = _count_multiset_difference(pred_counter, matched)
-    for ref_tuple, count in fp_counter.items():
-        for idx, field in enumerate(CORE_FIELDS):
-            if ref_tuple[idx]:
-                entity_totals[field]["fp"] += count
-
-    # FN tuples: unmatched gold — every non-empty field is an FN
-    fn_counter = _count_multiset_difference(gold_counter, matched)
-    for ref_tuple, count in fn_counter.items():
-        for idx, field in enumerate(CORE_FIELDS):
-            if ref_tuple[idx]:
-                entity_totals[field]["fn"] += count
-
-    return tp, fp, fn, entity_totals
-
-
-def evaluate_maps(
-    predictions: dict[int, list[dict[str, str]]],
-    gold: dict[int, list[dict[str, str]]],
-    doc_ids: list[int],
-) -> tuple[Metrics, dict[str, Metrics], dict[int, Metrics]]:
-    """Evaluate reference-level and reference-aligned entity-level metrics.
-
-    Returns (overall, per_entity, per_doc).
-    """
-    overall_tp = overall_fp = overall_fn = 0
-    entity_totals = {field: {"tp": 0, "fp": 0, "fn": 0} for field in CORE_FIELDS}
-    per_doc_metrics: dict[int, Metrics] = {}
-
-    for doc_id in doc_ids:
-        pred_refs = predictions.get(doc_id, [])
-        gold_refs = gold.get(doc_id, [])
-
-        tp, fp, fn, doc_entity_totals = _evaluate_doc_aligned(pred_refs, gold_refs)
-
-        overall_tp += tp
-        overall_fp += fp
-        overall_fn += fn
-
-        per_doc_metrics[doc_id] = compute_metrics(tp, fp, fn)
-
-        for field in CORE_FIELDS:
-            for key in ("tp", "fp", "fn"):
-                entity_totals[field][key] += doc_entity_totals[field][key]
-
-    overall = compute_metrics(overall_tp, overall_fp, overall_fn)
-    per_entity = {
-        field: compute_metrics(values["tp"], values["fp"], values["fn"])
-        for field, values in entity_totals.items()
-    }
-    return overall, per_entity, per_doc_metrics
-
-
-def _count_multiset_difference(
-    first: Counter[tuple[str, str, str, str, str]],
-    second: Counter[tuple[str, str, str, str, str]],
-) -> Counter[tuple[str, str, str, str, str]]:
-    """Return multiset difference `first - second` preserving positive counts only."""
-    out: Counter[tuple[str, str, str, str, str]] = Counter()
-    for key, count in first.items():
-        diff = count - second.get(key, 0)
-        if diff > 0:
-            out[key] = diff
-    return out
-
-
-def build_error_buckets(
-    predictions: dict[int, list[dict[str, str]]],
-    gold: dict[int, list[dict[str, str]]],
-    doc_ids: list[int],
-) -> tuple[list[ErrorBucket], PartialMatchStats]:
-    """Aggregate granular mismatch buckets with sample doc ids.
-
-    Returns (buckets, partial_match_stats).
-    """
-    counts: Counter[tuple[str, str]] = Counter()
-    sample_docs: dict[tuple[str, str], list[int]] = {}
-    wrong_fields_agg: dict[tuple[str, str], Counter[str]] = {}
-
-    total_paired = 0
-    total_overlap = 0
-    overlap_dist: Counter[int] = Counter()
-    near_miss = 0
-
-    for doc_id in doc_ids:
-        pred_counter = reference_counter(predictions.get(doc_id, []))
-        gold_counter = reference_counter(gold.get(doc_id, []))
-        matched = pred_counter & gold_counter
-        unmatched_pred_counter = _count_multiset_difference(pred_counter, matched)
-        unmatched_gold_counter = _count_multiset_difference(gold_counter, matched)
-
-        unmatched_pred_items = list(unmatched_pred_counter.elements())
-        unmatched_gold_items = list(unmatched_gold_counter.elements())
-
-        paired, remaining_pred, remaining_gold = _greedy_pair_unmatched(
-            unmatched_pred_items, unmatched_gold_items
-        )
-
-        # Process paired mismatches
-        for pred_t, gold_t, score in paired:
-            bucket_type, wrong = _classify_mismatch(pred_t, gold_t)
-            total_paired += 1
-            total_overlap += score
-            overlap_dist[score] += 1
-            if score >= 4:
-                near_miss += 1
-
-            # FN side
-            fn_key = ("overall_reference", f"fn_{bucket_type}")
-            counts[fn_key] += 1
-            sample_docs.setdefault(fn_key, [])
-            wrong_fields_agg.setdefault(fn_key, Counter())
-            for wf in wrong:
-                wrong_fields_agg[fn_key][wf] += 1
-            if doc_id not in sample_docs[fn_key] and len(sample_docs[fn_key]) < 10:
-                sample_docs[fn_key].append(doc_id)
-
-            # FP side
-            fp_key = ("overall_reference", f"fp_{bucket_type}")
-            counts[fp_key] += 1
-            sample_docs.setdefault(fp_key, [])
-            wrong_fields_agg.setdefault(fp_key, Counter())
-            for wf in wrong:
-                wrong_fields_agg[fp_key][wf] += 1
-            if doc_id not in sample_docs[fp_key] and len(sample_docs[fp_key]) < 10:
-                sample_docs[fp_key].append(doc_id)
-
-        # Remaining unpaired predictions → spurious
-        for _ in remaining_pred:
-            key = ("overall_reference", "fp_spurious")
-            counts[key] += 1
-            sample_docs.setdefault(key, [])
-            if doc_id not in sample_docs[key] and len(sample_docs[key]) < 10:
-                sample_docs[key].append(doc_id)
-
-        # Remaining unpaired gold → missed
-        for _ in remaining_gold:
-            key = ("overall_reference", "fn_missed")
-            counts[key] += 1
-            sample_docs.setdefault(key, [])
-            if doc_id not in sample_docs[key] and len(sample_docs[key]) < 10:
-                sample_docs[key].append(doc_id)
-
-    buckets = [
-        ErrorBucket(
-            entity_type=entity_type,
-            bucket_type=bucket_type,
-            count=count,
-            sample_doc_ids=sample_docs.get((entity_type, bucket_type), []),
-            wrong_fields=[
-                f"{wf}={wc}"
-                for wf, wc in wrong_fields_agg.get((entity_type, bucket_type), Counter()).most_common(5)
-            ],
-        )
-        for (entity_type, bucket_type), count in counts.items()
-    ]
-    buckets.sort(key=lambda item: item.count, reverse=True)
-
-    partial_stats = PartialMatchStats(
-        total_unmatched_pairs=total_paired,
-        avg_overlap_score=total_overlap / total_paired if total_paired else 0.0,
-        overlap_distribution=dict(sorted(overlap_dist.items())),
-        near_miss_count=near_miss,
-    )
-    return buckets, partial_stats
 
 
 def compute_doc_level_diagnostics(
@@ -1431,25 +992,11 @@ def compute_metric_deltas(
     current: dict[str, Any],
     baseline: dict[str, Any] | None,
 ) -> dict[str, Any] | None:
-    """Compute overall and per-entity metric deltas from baseline."""
+    """Compute core and docwise metric deltas from baseline."""
     if not baseline:
         return None
 
     delta_payload: dict[str, Any] = {}
-    overall_delta = _compute_metric_block_delta(current.get("overall"), baseline.get("overall"))
-    if overall_delta is not None:
-        delta_payload["overall"] = overall_delta
-
-    baseline_per_entity = baseline.get("per_entity", {})
-    current_per_entity = current.get("per_entity", {})
-    delta_per_entity: dict[str, dict[str, float | int]] = {}
-    for field in CORE_FIELDS:
-        delta = _compute_metric_block_delta(current_per_entity.get(field), baseline_per_entity.get(field))
-        if delta is not None:
-            delta_per_entity[field] = delta
-    if delta_per_entity:
-        delta_payload["per_entity"] = delta_per_entity
-
     core_delta = _compute_metric_block_delta(
         current.get(PRIMARY_METRIC_NAME),
         baseline.get(PRIMARY_METRIC_NAME),
@@ -1481,12 +1028,7 @@ def format_docwise_core_accuracy(docwise_accuracy: dict[str, Any]) -> str:
     return f"Docwise core accuracy@{threshold:g}: {accuracy:.4f} ({passed}/{total})"
 
 
-def format_metrics_table(
-    method: str,
-    core_metric: Metrics,
-    overall: Metrics,
-    per_entity: dict[str, Metrics],
-) -> str:
+def format_metrics_table(method: str, core_metric: Metrics) -> str:
     """Create a console-friendly plain text metrics table."""
     headers = ["Metric", "Precision", "Recall", "F1", "TP", "FP", "FN"]
     rows = [
@@ -1499,30 +1041,7 @@ def format_metrics_table(
             str(core_metric.fp),
             str(core_metric.fn),
         ],
-        [
-            "overall_reference",
-            f"{overall.precision:.4f}",
-            f"{overall.recall:.4f}",
-            f"{overall.f1:.4f}",
-            str(overall.tp),
-            str(overall.fp),
-            str(overall.fn),
-        ]
     ]
-
-    for field in CORE_FIELDS:
-        metric = per_entity[field]
-        rows.append(
-            [
-                field,
-                f"{metric.precision:.4f}",
-                f"{metric.recall:.4f}",
-                f"{metric.f1:.4f}",
-                str(metric.tp),
-                str(metric.fp),
-                str(metric.fn),
-            ]
-        )
 
     widths = [max(len(headers[i]), max(len(row[i]) for row in rows)) for i in range(len(headers))]
 
@@ -1580,7 +1099,6 @@ def evaluate_prediction_file(
         mode=core_reference_view,
     )
 
-    overall, per_entity, per_doc_metrics = evaluate_maps(processed_predictions, processed_gold, eval_doc_ids)
     optimal_diagnostics: dict[str, Any] | None = None
     if matching_engine == MATCHING_ENGINE_OPTIMAL:
         # The optimal engine owns its whole preprocessing chain and is fed the
@@ -1590,7 +1108,7 @@ def evaluate_prediction_file(
         # suppression deletes zero gold rows but 385 Regex / 144 spaCy prediction
         # rows while touching none of the seven LLM methods. Consuming them would
         # import both the nondeterminism and that asymmetry into the metric.
-        core_metrics, core_per_doc_metrics, raw_optimal_diagnostics, soft_extension_diagnostics = evaluate_optimal_maps(
+        core_metrics, core_per_doc_metrics, raw_optimal_diagnostics = evaluate_optimal_maps(
             predictions,
             gold,
             eval_doc_ids,
@@ -1599,15 +1117,11 @@ def evaluate_prediction_file(
         core_exclusion_diagnostics = _empty_core_exclusion_diagnostics()
         ignored_extra_law_field_diagnostics = _empty_ignored_extra_law_field_diagnostics()
     else:
-        core_metrics, core_per_doc_metrics, core_exclusion_diagnostics, ignored_extra_law_field_diagnostics, soft_extension_diagnostics = evaluate_core_maps(
+        core_metrics, core_per_doc_metrics, core_exclusion_diagnostics, ignored_extra_law_field_diagnostics = evaluate_core_maps(
             core_predictions,
             core_gold,
             eval_doc_ids,
         )
-    error_buckets, partial_stats = build_error_buckets(processed_predictions, processed_gold, eval_doc_ids)
-    doc_diagnostics = compute_doc_level_diagnostics(
-        per_doc_metrics, include_per_doc=include_per_doc
-    )
     core_doc_diagnostics = compute_doc_level_diagnostics(
         core_per_doc_metrics, include_per_doc=include_per_doc
     )
@@ -1633,17 +1147,10 @@ def evaluate_prediction_file(
         "prediction_error_doc_ids": load_result.error_doc_ids,
         "duplicate_prediction_doc_ids": load_result.duplicate_doc_ids,
         PRIMARY_METRIC_NAME: core_metrics.__dict__,
-        "overall": overall.__dict__,
-        "per_entity": {field: metric.__dict__ for field, metric in per_entity.items()},
-        "error_buckets": [bucket.__dict__ for bucket in error_buckets],
-        "top_error_buckets": [bucket.__dict__ for bucket in error_buckets[:5]],
-        "partial_match_stats": partial_stats.__dict__,
-        "doc_level_diagnostics": _serialize_doc_level_metrics(doc_diagnostics),
         "core_doc_level_diagnostics": _serialize_doc_level_metrics(core_doc_diagnostics),
         DOCWISE_CORE_ACCURACY_NAME: _serialize_docwise_core_accuracy(docwise_core_accuracy),
         "core_exclusion_diagnostics": core_exclusion_diagnostics,
         "ignored_extra_law_field_diagnostics": ignored_extra_law_field_diagnostics,
-        "soft_extension_diagnostics": soft_extension_diagnostics,
         "reference_postprocess": {
             "mode": reference_postprocess,
             "prediction": prediction_postprocess_summary,
@@ -1663,7 +1170,7 @@ def evaluate_prediction_file(
             "consumes_core_reference_view": False,
             "steps": [
                 "normalize_reference",
-                "canonical_article_fields",
+                "canonical_article",
                 "deduplicate_core_identities",
                 "absorb_subsumed_identities",
                 "canonical_sort",
@@ -1676,8 +1183,6 @@ def evaluate_prediction_file(
         }
     if ground_truth_audit is not None:
         result["ground_truth_audit"] = ground_truth_audit
-    if doc_diagnostics.per_doc is not None:
-        result["per_doc_metrics"] = doc_diagnostics.per_doc
     if core_doc_diagnostics.per_doc is not None:
         result["core_per_doc_metrics"] = core_doc_diagnostics.per_doc
     if docwise_core_accuracy.per_doc is not None:
@@ -1790,87 +1295,20 @@ def save_csv_report(results: list[dict[str, Any]], path: Path) -> None:
                         **provenance,
                     }
                 )
-            overall = result["overall"]
-            writer.writerow(
-                {
-                    "method": method,
-                    "metric": "overall_reference",
-                    "precision": f"{overall['precision']:.6f}",
-                    "recall": f"{overall['recall']:.6f}",
-                    "f1": f"{overall['f1']:.6f}",
-                    "tp": overall["tp"],
-                    "fp": overall["fp"],
-                    "fn": overall["fn"],
-                    "accuracy": "",
-                    "threshold": "",
-                    "passed_doc_count": "",
-                    "failed_doc_count": "",
-                    "total_docs": "",
-                    "evaluated_doc_count": doc_count,
-                    "error_doc_count": error_doc_count,
-                    **provenance,
-                }
-            )
-            for field in CORE_FIELDS:
-                metric = result["per_entity"][field]
-                writer.writerow(
-                    {
-                        "method": method,
-                        "metric": field,
-                        "precision": f"{metric['precision']:.6f}",
-                        "recall": f"{metric['recall']:.6f}",
-                        "f1": f"{metric['f1']:.6f}",
-                        "tp": metric["tp"],
-                        "fp": metric["fp"],
-                        "fn": metric["fn"],
-                        "accuracy": "",
-                        "threshold": "",
-                        "passed_doc_count": "",
-                        "failed_doc_count": "",
-                        "total_docs": "",
-                        "evaluated_doc_count": doc_count,
-                        "error_doc_count": error_doc_count,
-                        **provenance,
-                    }
-                )
-
-
-def save_error_bucket_csv(results: list[dict[str, Any]], path: Path) -> None:
-    """Save error bucket aggregation rows as CSV."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8", newline="") as file:
-        writer = csv.DictWriter(
-            file,
-            fieldnames=["method", "entity_type", "bucket_type", "count", "wrong_fields", "sample_doc_ids"],
-        )
-        writer.writeheader()
-        for result in results:
-            for bucket in result.get("error_buckets", []):
-                writer.writerow(
-                    {
-                        "method": result["method"],
-                        "entity_type": bucket.get("entity_type", "overall_reference"),
-                        "bucket_type": bucket.get("bucket_type", ""),
-                        "count": bucket.get("count", 0),
-                        "wrong_fields": ",".join(bucket.get("wrong_fields", [])),
-                        "sample_doc_ids": ",".join(str(doc_id) for doc_id in bucket.get("sample_doc_ids", [])),
-                    }
-                )
 
 
 def print_comparison(results: list[dict[str, Any]]) -> None:
     """Print compact multi-method comparison."""
     print(f"\nSummary ({PRIMARY_METRIC_NAME}):")
-    print("method | precision | recall | f1 | tp | fp | fn | overall_f1")
-    print("-------|-----------|--------|----|----|----|---|-----------")
+    print("method | precision | recall | f1 | tp | fp | fn")
+    print("-------|-----------|--------|----|----|----|---")
     ordered = sorted(results, key=lambda item: item.get(PRIMARY_METRIC_NAME, {}).get("f1", 0.0), reverse=True)
     for item in ordered:
-        primary_metric = item.get(PRIMARY_METRIC_NAME, item["overall"])
-        overall = item["overall"]
+        primary_metric = item[PRIMARY_METRIC_NAME]
         print(
             f"{item['method']} | {primary_metric['precision']:.4f} | {primary_metric['recall']:.4f} | "
             f"{primary_metric['f1']:.4f} | {primary_metric['tp']} | {primary_metric['fp']} | "
-            f"{primary_metric['fn']} | {overall['f1']:.4f}"
+            f"{primary_metric['fn']}"
         )
 
 
@@ -1915,7 +1353,6 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--json-report", type=Path, help="Optional JSON report path")
     parser.add_argument("--csv-report", type=Path, help="Optional CSV report path")
-    parser.add_argument("--error-bucket-csv", type=Path, help="Optional error bucket CSV report path")
     parser.add_argument(
         "--per-doc",
         action="store_true",
@@ -2053,9 +1490,7 @@ def main() -> None:
         results.append(result)
 
         core_metric = Metrics(**result[PRIMARY_METRIC_NAME])
-        overall = Metrics(**result["overall"])
-        per_entity = {field: Metrics(**item) for field, item in result["per_entity"].items()}
-        print(format_metrics_table(result["method"], core_metric, overall, per_entity))
+        print(format_metrics_table(result["method"], core_metric))
         print(
             "Ground-truth mode: "
             f"{result.get('ground_truth_mode', 'approved_only')} | "
@@ -2079,26 +1514,6 @@ def main() -> None:
             print(f"Prediction error docs (first 10): {result['prediction_error_doc_ids'][:10]}")
         if result.get("duplicate_prediction_doc_ids"):
             print(f"Duplicate prediction doc ids: {result['duplicate_prediction_doc_ids'][:10]}")
-        if result.get("top_error_buckets"):
-            top_bucket_text = ", ".join(
-                f"{bucket['bucket_type']}={bucket['count']}" for bucket in result["top_error_buckets"][:3]
-            )
-            print(f"Top error buckets: {top_bucket_text}")
-
-        # Print doc-level diagnostics
-        diag = result.get("doc_level_diagnostics", {})
-        if diag:
-            f1d = diag.get("f1_distribution", {})
-            print(
-                f"Doc-level F1: mean={f1d.get('mean', 0):.4f}  "
-                f"median={f1d.get('median', 0):.4f}  "
-                f"min={f1d.get('min', 0):.4f}  max={f1d.get('max', 0):.4f}  "
-                f"p25={f1d.get('p25', 0):.4f}  p75={f1d.get('p75', 0):.4f}"
-            )
-            print(
-                f"Perfect-F1 docs: {diag.get('perfect_f1_count', 0)}  "
-                f"Zero-F1 docs: {diag.get('zero_f1_count', 0)}"
-            )
         core_diag = result.get("core_doc_level_diagnostics", {})
         if core_diag:
             f1d = core_diag.get("f1_distribution", {})
@@ -2119,15 +1534,6 @@ def main() -> None:
                 f"pred_no_madde={core_exclusions.get('invalid_core_prediction_no_madde_count', 0)}  "
                 f"pred_no_law={core_exclusions.get('invalid_core_prediction_no_law_count', 0)}"
             )
-
-        # Print partial match stats
-        pms = result.get("partial_match_stats", {})
-        if pms and pms.get("total_unmatched_pairs", 0) > 0:
-            print(
-                f"Partial match: {pms['total_unmatched_pairs']} pairs  "
-                f"avg_overlap={pms['avg_overlap_score']:.2f}  "
-                f"near_miss(4+of5)={pms['near_miss_count']}"
-            )
         print()
 
     if len(results) > 1:
@@ -2147,10 +1553,6 @@ def main() -> None:
     if args.csv_report:
         save_csv_report(results, args.csv_report)
         print(f"CSV report saved: {args.csv_report}")
-
-    if args.error_bucket_csv:
-        save_error_bucket_csv(results, args.error_bucket_csv)
-        print(f"Error bucket CSV report saved: {args.error_bucket_csv}")
 
 
 if __name__ == "__main__":

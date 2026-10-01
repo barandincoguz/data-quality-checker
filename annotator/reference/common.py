@@ -249,6 +249,9 @@ def normalize_madde(value: str) -> str:
     if not value:
         return ""
     raw = collapse_ws(value)
+    # A list mark before the article ("-1/1 inci maddesinde") is not part of it;
+    # mirrors data_quality_checker.normalization (1 Oct 2026).
+    raw = re.sub(r"^[-–—•·*]+\s*", "", raw)
     raw = re.sub(r"[\u2018\u2019`´]", "'", raw)
     raw = re.sub(r"^madd\w*\s+", "", raw, flags=re.IGNORECASE)
     # "229 ve müteakip maddelerinde" cites article 229 onwards; the article

@@ -168,8 +168,15 @@ def strip_article_subpart(text: str) -> str:
     return text
 
 
+# A list mark written before the article ("-1/1 inci maddesinde", KDV rulings)
+# is not part of it. No article starts with one; GT750 and the annotators never
+# write one; M000 v2 copied it from the text at update 25 (1 Oct 2026).
+_LEADING_LIST_MARK_RE = re.compile(r"^[-–—•·*]+\s*")
+
+
 def normalize_article(value: Any) -> str:
     text = normalize_text(value).strip(" .,:;\"'")
+    text = _LEADING_LIST_MARK_RE.sub("", text)
     text = _MUTEAKIP_RE.sub("", text).strip()
     text = _ARTICLE_SUFFIX_RE.sub("", text).strip()
     text = strip_article_subpart(text)

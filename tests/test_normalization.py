@@ -116,6 +116,13 @@ def test_a_part_of_the_article_written_into_madde_is_cut_off() -> None:
         assert normalize_article(written) == "6", written
 
 
+def test_a_list_mark_before_the_article_is_not_part_of_it() -> None:
+    """KDV rulings list provisions as "-1/1 inci maddesinde"; M000 v2 copied the
+    mark into `madde` at update 25 (1 Oct 2026). No article starts with one."""
+    for written in ("-1", "-1/1", "– 1", "• 1", "*1"):
+        assert normalize_article(written) == "1", written
+
+
 def test_an_inserted_article_keeps_its_uppercase_letter() -> None:
     # 32/A ("İndirimli kurumlar vergisi") is a distinct article inserted by
     # amendment, not a part of article 32 -- it must never be cut off.

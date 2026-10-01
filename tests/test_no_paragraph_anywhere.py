@@ -40,7 +40,8 @@ def test_no_prompt_a_model_reads_names_a_unit_below_the_article() -> None:
 def test_every_decision_field_tuple_is_the_law_and_the_article() -> None:
     from annotator.reference.common import CORE_FIELDS, REFERENCE_FIELDS
     from benchmark.reference.evaluate import PRIMARY_METRIC_FIELDS
-    from data_quality_checker.constants import REFERENCE_DECISION_FIELDS, REFERENCE_FIELDS as DQ_FIELDS
+    from data_quality_checker.constants import REFERENCE_DECISION_FIELDS
+    from data_quality_checker.constants import REFERENCE_FIELDS as DQ_FIELDS
     from data_quality_checker.processing import LEGAL_TUPLE_FIELDS
 
     assert REFERENCE_DECISION_FIELDS == DECISION_FIELDS == LEGAL_TUPLE_FIELDS == CORE_FIELDS == PRIMARY_METRIC_FIELDS

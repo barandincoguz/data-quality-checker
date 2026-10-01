@@ -136,6 +136,8 @@ CASES = [
     ("item of an inserted article", _row("5520", "", "5/A-1"), _row("5520", "", "5/A"), True),
     ("stored paragraph fields", _row("193", "", "94", fikra="1", bent="a"), _row("193", "", "94"), True),
     ("inserted pair stays", _row("193", "", "mükerrer 20/A-B"), _row("193", "", "mükerrer 20"), False),
+    ("list mark before the article", _row("3065", "", "-1/1"), _row("3065", "", "1"), True),
+    ("en-dash list mark", _row("3065", "", "– 13"), _row("3065", "", "13"), True),
     # -- and the provisions that must stay apart --
     ("geçici N is not article N", _row("193", "", "geçici 3"), _row("193", "", "3"), False),
     ("ek N is not article N", _row("213", "", "ek 3"), _row("213", "", "3"), False),

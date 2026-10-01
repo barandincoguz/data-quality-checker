@@ -180,3 +180,14 @@ def test_every_interval_uses_the_published_quantile_method() -> None:
     from data_quality_checker.loop_metrics import _interval
 
     assert _interval([0.0, 1.0, 2.0, 3.0]) == pytest.approx([0.075, 2.925])
+
+
+def test_rows_written_twice_and_rows_another_row_covers_are_counted_apart() -> None:
+    """R01 d000081: "Geçici 21" and "geçici 21" are one reference written twice;
+    "193/94" beside "193/94/1" is covered by the more specific row."""
+    annotator = [r("4447", "Geçici 21"), r("4447", "geçici 21"), r("193", "94"), r("193", "94", "1")]
+    records = [{"doc_id": "d", "truth": [r("4447", "geçici 21"), r("193", "94", "1")], "truth_source": "expert",
+                "annotator": annotator, "model": [r("4447", "geçici 21")], "judge": None}]
+    human = reference_table(records, samples=50)["sources"]["annotator"]
+    assert (human["written_rows"], human["duplicate_rows"], human["subsumed_rows"]) == (4, 1, 1)
+    assert human["written_references"] == 2 and human["full"]["fp"] == 0

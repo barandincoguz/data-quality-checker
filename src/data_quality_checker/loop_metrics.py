@@ -50,7 +50,7 @@ from typing import Any
 from .constants import EXPERT_ACTIONS, REVIEW_STATUSES
 from .errors import ContractError, IntegrityError
 from .g0_training import canonical_evaluate
-from .normalization import compact_references, core_identity, full_identity
+from .normalization import compact_references, core_identity, full_identity, normalize_reference
 from .performance import _percentile, summarize_operational_records
 from .reference_policy import apply_reference_policy
 
@@ -978,12 +978,15 @@ def paired_delta(
 # --- the journal's per-batch table (user story, 1 Oct 2026) -----------------
 
 
-def _claims(references: Iterable[Mapping[str, Any]]) -> tuple[int, int, set[Any], set[Any]]:
-    """(rows after the policy, rows the policy dropped, reference set, provision set).
+def _claims(references: Iterable[Mapping[str, Any]]) -> tuple[int, int, set[Any], set[Any], int]:
+    """(rows after the policy, rows the policy dropped, reference set, provision set,
+    distinct normalised rows).
 
     A reference is a law + article + fikra + bent claim; a provision is the law
     + article it is about. Rows another row already accounts for are one claim
-    (`compact_references`); 213/413 is dropped (`apply_reference_policy`).
+    (`compact_references`); 213/413 is dropped (`apply_reference_policy`). The
+    distinct normalised rows tell a row written twice ("Geçici 21", "geçici 21")
+    from a row a more specific one covers ("193/94" beside "193/94/1").
     """
     rows = list(references)
     kept, _ = apply_reference_policy(rows)
@@ -993,6 +996,7 @@ def _claims(references: Iterable[Mapping[str, Any]]) -> tuple[int, int, set[Any]
         len(rows) - len(kept),
         {full_identity(reference) for reference in compacted},
         {core_identity(reference) for reference in compacted},
+        len({full_identity(normalize_reference(dict(reference))) for reference in kept}),
     )
 
 
@@ -1036,6 +1040,9 @@ def reference_table(
     has nothing for that document, which then leaves its counts. For each source:
 
     - `written_rows` / `policy_dropped`: rows it wrote after / dropped by 213/413;
+      of the written rows, `duplicate_rows` repeat a reference already written
+      (case/spelling apart) and `subsumed_rows` are covered by a more specific
+      row ("193/94" beside "193/94/1");
     - `written_references` / `written_provisions`: distinct claims it made, as
       references (law + article + fikra + bent) and as provisions (law + article);
     - `truth_references` / `truth_provisions`: the same for the truth, over the
@@ -1059,8 +1066,8 @@ def reference_table(
             if record.get(name) is None:
                 continue
             documents += 1
-            _, _, truth_full, truth_core = _claims(record["truth"])
-            kept, dropped, full, core = _claims(record[name])
+            _, _, truth_full, truth_core, _ = _claims(record["truth"])
+            kept, dropped, full, core, distinct = _claims(record[name])
             detail = sum(
                 1
                 for identity in truth_core & core
@@ -1071,7 +1078,8 @@ def reference_table(
             rows_full.append(counts_full)
             rows_core.append(counts_core)
             totals.update(
-                written_rows=kept, policy_dropped=dropped, written_references=len(full),
+                written_rows=kept, policy_dropped=dropped, duplicate_rows=kept - distinct,
+                subsumed_rows=distinct - len(full), written_references=len(full),
                 written_provisions=len(core), truth_references=len(truth_full),
                 truth_provisions=len(truth_core), detail_errors=detail,
             )
@@ -1088,7 +1096,8 @@ def reference_table(
         sources[name] = {
             "documents": documents,
             **{key: totals.get(key, 0) for key in (
-                "written_rows", "policy_dropped", "written_references", "written_provisions",
+                "written_rows", "policy_dropped", "duplicate_rows", "subsumed_rows",
+                "written_references", "written_provisions",
                 "truth_references", "truth_provisions", "detail_errors")},
             **levels,
             "wrong_references": levels["full"]["fp"],

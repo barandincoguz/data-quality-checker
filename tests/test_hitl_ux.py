@@ -261,3 +261,46 @@ def test_ab_diff_keeps_field_difference_for_a_one_to_one_pair() -> None:
     assert rows[0]["status"] == "differs"
     assert rows[0]["status_label"] == "Alan farkı"
     assert rows[0]["field_diffs"] == ["fikra"]
+
+
+def test_a_reference_written_twice_is_the_same_reference_and_is_flagged() -> None:
+    """R01 d000081 (1 Oct 2026, the expert): the annotator wrote "Geçici 21" and
+    "geçici 21"; the model "geçici 21". The router and the metrics read one
+    reference on each side -- the screen said "same article, different
+    fikra/bent set", sending the expert looking for a difference that is not
+    there. Same, with the duplicate flagged, and both rows still shown."""
+    a1 = _ref(madde="Geçici 21", src="")
+    a2 = _ref(madde="geçici 21", src="")
+    b1 = _ref(madde="geçici 21", src="")
+    row = ab_diff([a1, a2], [b1])[0]
+    assert row["status"] == "same"
+    assert row["duplicates"] == {"a": 1, "b": 0}
+    assert row["status_label"] == "Aynı · insan anotasyonunda aynı referans 2 kez yazılmış"
+    assert len(row["a"]) == 2  # displayed as written
+
+    row = ab_diff([b1], [a1, a2, b1])[0]
+    assert row["status"] == "same" and row["duplicates"] == {"a": 0, "b": 2}
+    assert row["status_label"] == "Aynı · model çıktısında aynı referans 3 kez yazılmış"
+
+
+def test_a_duplicate_does_not_hide_a_real_set_difference() -> None:
+    a = [_ref("193", "", "94", fikra="1", src=""), _ref("193", "", "94", fikra="1", src=""), _ref("193", "", "94", fikra="2", src="")]
+    b = [_ref("193", "", "94", fikra="1", src="")]
+    row = ab_diff(a, b)[0]
+    assert row["status"] == "set_differs" and row["duplicates"] == {"a": 1, "b": 0}
+    assert row["status_label"].startswith("Aynı madde, farklı fıkra/bent kümesi")
+
+
+def test_one_reference_per_side_written_twice_is_still_compared_field_by_field() -> None:
+    a = [_ref("193", "", "94", fikra="1", src=""), _ref("193", "", "94", fikra="(1)", src="")]
+    b = [_ref("193", "", "94", fikra="2", src="")]
+    row = ab_diff(a, b)[0]
+    assert row["status"] == "differs" and row["field_diffs"] == ["fikra"]
+
+
+def test_two_different_references_each_written_twice_are_counted_as_rows() -> None:
+    a = [_ref("193", "", "94", fikra=f, src="") for f in ("1", "1", "2", "2")]
+    b = [_ref("193", "", "94", fikra=f, src="") for f in ("1", "2")]
+    row = ab_diff(a, b)[0]
+    assert row["status"] == "same" and row["duplicates"] == {"a": 2, "b": 0}
+    assert row["status_label"] == "Aynı · insan anotasyonunda 2 yinelenen satır"

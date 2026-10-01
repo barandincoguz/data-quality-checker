@@ -7,6 +7,7 @@ import json
 import os
 import secrets
 import time
+from collections import Counter
 from typing import Any
 
 from flask import (
@@ -375,15 +376,24 @@ def ab_diff(
     for key in order:
         a_refs = groups[key]["a"]
         b_refs = groups[key]["b"]
+        # Compared as sets, as the router and the metrics do: a reference written
+        # twice ("Geçici 21" and "geçici 21", R01 d000081) is one reference. The
+        # repetition is flagged, never hidden -- both rows are still shown.
+        a_ids = Counter(full_identity(normalize_reference(r)) for r in a_refs)
+        b_ids = Counter(full_identity(normalize_reference(r)) for r in b_refs)
+        a_set, b_set = set(a_ids), set(b_ids)
+        duplicates = {"a": len(a_refs) - len(a_set), "b": len(b_refs) - len(b_set)}
+        repeated = {
+            "a": [n for n in a_ids.values() if n > 1],
+            "b": [n for n in b_ids.values() if n > 1],
+        }
         if a_refs and not b_refs:
             status = "only_a"
         elif b_refs and not a_refs:
             status = "only_b"
-        elif sorted(full_identity(normalize_reference(r)) for r in a_refs) == sorted(
-            full_identity(normalize_reference(r)) for r in b_refs
-        ):
+        elif a_set == b_set:
             status = "same"
-        elif len(a_refs) == 1 and len(b_refs) == 1:
+        elif len(a_set) == 1 and len(b_set) == 1:
             status = "differs"
         else:
             # Both sides cite this article but list different provisions under
@@ -411,7 +421,17 @@ def ab_diff(
                     "madde": sample["madde"],
                 },
                 "status": status,
-                "status_label": _DIFF_STATUS_LABELS[status],
+                "status_label": _DIFF_STATUS_LABELS[status]
+                + "".join(
+                    (
+                        f" · {side} aynı referans {repeated[key][0]} kez yazılmış"
+                        if len(repeated[key]) == 1
+                        else f" · {side} {duplicates[key]} yinelenen satır"
+                    )
+                    for key, side in (("a", "insan anotasyonunda"), ("b", "model çıktısında"))
+                    if duplicates[key]
+                ),
+                "duplicates": duplicates,
                 "a": a_refs,
                 "b": b_refs,
                 "field_diffs": field_diffs,

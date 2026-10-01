@@ -809,9 +809,18 @@ def create_hitl_app(
         session_secret or os.environ.get("DQCHECK_SESSION_SECRET"),
         env_name="DQCHECK_SESSION_SECRET",
     )
-    token = validate_runtime_secret(
-        access_token or os.environ.get("DQCHECK_ACCESS_TOKEN"),
-        env_name="DQCHECK_ACCESS_TOKEN",
+    # The GT750 loop's screen opens directly -- no access token, no login page
+    # (user decision, 1 Oct 2026, told that anyone with a session on this shared
+    # machine can reach 127.0.0.1). It still listens on 127.0.0.1 only, and every
+    # decision still carries the page's CSRF token. The old screen keeps its token.
+    open_access = has_loop_settings(config)
+    token = (
+        None
+        if open_access
+        else validate_runtime_secret(
+            access_token or os.environ.get("DQCHECK_ACCESS_TOKEN"),
+            env_name="DQCHECK_ACCESS_TOKEN",
+        )
     )
     with (
         review_backup_lock(config=config, batch_id=batch_id),
@@ -864,12 +873,17 @@ def create_hitl_app(
     def protect() -> Any:
         if request.endpoint in {"healthz", "login"}:
             return None
-        authorization = request.headers.get("Authorization", "")
-        if authorization.startswith("Bearer ") and _secure_equal(authorization[7:], token):
-            session["authenticated"] = True
+        if request.endpoint is None:
+            return None  # no such route: a 404 follows, nothing can change
+        if open_access:
             session.setdefault("csrf_token", secrets.token_urlsafe(32))
-        if not session.get("authenticated"):
-            return jsonify({"error": "authentication_required"}), 401
+        else:
+            authorization = request.headers.get("Authorization", "")
+            if authorization.startswith("Bearer ") and _secure_equal(authorization[7:], token):
+                session["authenticated"] = True
+                session.setdefault("csrf_token", secrets.token_urlsafe(32))
+            if not session.get("authenticated"):
+                return jsonify({"error": "authentication_required"}), 401
         if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
             submitted = request.headers.get("X-CSRF-Token") or request.form.get("csrf_token", "")
             expected = str(session.get("csrf_token") or "")
@@ -877,7 +891,6 @@ def create_hitl_app(
                 return jsonify({"error": "csrf_failed"}), 403
         return None
 
-    @app.route("/login", methods=["GET", "POST"])
     def login() -> Any:
         session.setdefault("login_csrf", secrets.token_urlsafe(32))
         error = None
@@ -893,6 +906,9 @@ def create_hitl_app(
                 session["csrf_token"] = secrets.token_urlsafe(32)
                 return redirect(url_for("next_review"))
         return render_template_string(LOGIN_TEMPLATE, csrf_token=session["login_csrf"], error=error)
+
+    if not open_access:
+        app.add_url_rule("/login", "login", login, methods=["GET", "POST"])
 
     @app.get("/api/session")
     def api_session() -> Any:

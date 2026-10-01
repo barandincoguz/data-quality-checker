@@ -104,6 +104,13 @@
 >   yalnız pencereli görünümü kabul eder. Tam belge M000'ın R01 tahminleri:
 >   `data/sensitive/gt750_whatif_full_root/` (kopya; merak ölçümü, makaleye girmez).
 >   **Önkayıt:** test en sonda açılınca iki son model de puanlanır, yalnız raporlanır (seçim değişmez).
+> - **Dergi tablosu (1 Ekim, dq `850673e` + `4d7c34e`):** `round_NNN_errors.json` → `reference_table`
+>   (kaynak başına bulunan / hatalı / kaçırılan / detay, referans + hüküm düzeyi, %95 aralık; kapsam `reviewed` ve
+>   `batch` = + yeşil uzlaşı, yalnız yeşil denetim geçince); `loop-report` → `loop/rounds/batch_trend.json` (paket başına
+>   F1, önceki pakete fark, turların doğrulama F1'i); `loop-mark --stage adjudicated` ikisini de yazar. Her uzman kararı
+>   olayı tam listeyi + önceki hâli taşır (karar geçmişi eksiksiz). Sıfırdan kanıt (kopya, 172 belge, her eylem türü,
+>   bağımsız yeniden sayım) 20/20: `data/sensitive/e2e_proof_2026-10-01/`. Journal: `metrics/reference_table.csv`,
+>   `metrics/batch_trend.csv`.
 > - **KAYIT (makalenin kaynağı):** her aşamadan sonra
 >   `cd /Users/student2/ner-project && /opt/llm-lab/.venv/bin/python Journal/analysis/scripts/dq_loop_gt750_record.py`
 >   + `Journal/experiments/dq_loop_gt750/LEDGER.md`'ye giriş. Makine yükü örnekleyicisi

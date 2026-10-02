@@ -1,5 +1,31 @@
 # Devir — DQ-Loop
 
+> **2 Ekim 2026 — DÖNGÜ PROMPT P4 + GT v8 İLE SABİTLENDİ. Önce bunu oku** (1 Ekim kutusu aşağıda, hâlâ geçerli).
+>
+> - **Ayar:** `configs/presets/gt750_law_article_loop.json` = prompt **P4** (`loop.prompt_variant =
+>   law-article-p4-combined`), **GT v8** (`data/ground_truth/gt_v8_gt750_law_article_2026-10-02/`, salt okunur),
+>   kökler `data/sensitive/data_quality_checker_gt750_law_article_p4_gtv8`, `artifacts/data_quality_checker_gt750_law_article_p4_gtv8`.
+>   Önceki hâli (P0, GT v7, eski kökler) bayt bayt `gt750_law_article_loop_p0_gtv7.json`; M000 v2
+>   (`dqcheck_loop_5ba971453375`, @571) o kökte, dokunulmadı. M000 v2'ye bir şey koşacaksan **o** ayarla.
+> - **Prompt taraması bitti** (önkayıt `ner-project/Journal/experiments/dq_loop_gt750/prompt_screen_preregistration.json`):
+>   aşama 1 (temel model, 100 eğitim belgesi) P1 0,852 > P4 0,825 > … > P0 0,746 → aşama 2'ye P0, P1, P4; aşama 2
+>   (150. adım, 50 doğrulama) **P4 0,918** > P0 0,903 > P1 0,863 → P4 (fark anlamsız: +0,015 [−0,020, +0,049]).
+>   Kayıt sırasında bulunan karışıklık: 1.536 jetonluk eğitim bağlamı promptu da taşıyor → P4'te 3.657 pencere / 915 adım
+>   (P0 2.284 / 571), pencere başına metin 200 jeton (P0 416). Bu yüzden **doğrulama kuralı önceden yazıldı**
+>   (`prompt_screen_confirmation_preregistration.json`): P4'ün tam epoch M000'ı GT v8'de M000 v2'den (**v8'de @571
+>   0,9424**, `.../law_article_p4_gtv8/loop/rescored/2026-10-02_v2_M000_P0_at_gt_v8`) düşükse prompt P0'a döner ve M000
+>   P0 ile v8'de yeniden eğitilir.
+> - **GT v8** = v7 + denetimin 15 düzeltmesi (ner `fba4ef8`): 7 tablo/tarife bölümü satırı düştü (§3), 3 değiştiren
+>   kanun satırı eklendi (§14; biri doğrulamada, doc 455), 5 tireli aralık "ila" yazımına çekildi (§4, kimlik aynı).
+>   Eğitim 2.412, doğrulama 249 satır; test bayt bayt v7 (okunmadı).
+> - **Yeni komut** `loop-rescore --run-id R --label L --reason …`: koşunun doğrulama noktaları ayarın GT'siyle
+>   yeniden puanlanır (`loop/rescored/L/`), koşunun kendi değerlendirmeleri değişmez.
+> - **Çalışanlar / sıradakiler** (yeni kökte `loop/`): `supervise_m0.sh` (M000, P4, v8; günlük `m0_train.log`),
+>   `r01_chain.sh` (M000 bitince R01 tahmin → 23 kararın taşınması → hakem → sıfırdan kanıt → ekran 5056),
+>   `serve_R01.sh`. Kanıt betiği artık kökleri ayardan okur (P0 kopyası `_p0_gtv7.py`). P4'ün v7 üstündeki devam koşusu
+>   (`dqcheck_loop_911f6e96a80f`) yalnız eşit epoch payı noktası için 250. adıma kadar sürdü, hiçbir karar vermez.
+> - **İkinci hat** (tam belge M000) ve `loop-compare --round 0`: R01 zincirinden sonra, yeni ayarla.
+
 > **1 Ekim 2026 — REFERANS = KANUN NO + MADDE. Önce bunu oku.** Kullanıcı kararı: fıkra ve bent
 > işten tamamen çıktı. Ne modelin ve hakemin promptunda, ne eğitim hedeflerinde, ne değerlendiricide,
 > eşleyicide, yönlendiricide, ekranda ya da ölçülerde geçer; fıkra/bent farkı yüzünden hiçbir bayrak

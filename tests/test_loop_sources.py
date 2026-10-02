@@ -109,15 +109,16 @@ def test_the_preset_carries_the_real_seals():
 LAW_ARTICLE_PRESET = REPO / "configs" / "presets" / "gt750_law_article_loop.json"
 
 
-def test_the_law_article_loop_reads_gt_v7_with_every_quote_and_no_paragraph_field():
-    """The loop since 1 Oct 2026: GT v7, sealed; the same SPLIT.json as v6;
-    every reference a law and an article, each carrying all its quotes."""
+def test_the_law_article_loop_reads_gt_v8_with_every_quote_and_no_paragraph_field():
+    """The loop since 2 Oct 2026: GT v8 (GT v7 with the fixes of its audit), sealed;
+    the same SPLIT.json as v6; every reference a law and an article, each
+    carrying all its quotes."""
     config = load_config(LAW_ARTICLE_PRESET)
     old = json.loads(PRESET.read_text())["loop"]
     assert config.raw["loop"]["split_sha256"] == old["split_sha256"]
     source = loop_sources.validate_loop_sources(config)
     references = [r for doc in source["documents"].values() for r in doc["references"]]
-    assert source["summary"]["canonical_reference_count"] == 3561 == len(references)
+    assert source["summary"]["canonical_reference_count"] == 3557 == len(references)
     assert all(set(r) <= {"kanun_no", "kanun_ad", "madde", "source_text", "source_texts"} for r in references)
     assert all(r["source_texts"][0] == r["source_text"] for r in references if "source_texts" in r)
     assert sum(len(r.get("source_texts", [])) > 1 for r in references) > 0

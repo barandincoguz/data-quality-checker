@@ -301,6 +301,15 @@ def build_parser() -> argparse.ArgumentParser:
     loop_carry.add_argument("--from-config", type=Path, required=True)
     loop_carry.set_defaults(handler=commands.loop_carry_decisions)
 
+    loop_rescore = subparsers.add_parser(
+        "loop-rescore",
+        help="score a run's validation checkpoints again under this config's ground truth (never overwrites the run's own)",
+    )
+    loop_rescore.add_argument("--run-id", required=True)
+    loop_rescore.add_argument("--label", required=True, help="the folder under loop/rescored/")
+    loop_rescore.add_argument("--reason", required=True)
+    loop_rescore.set_defaults(handler=commands.loop_rescore)
+
     prompt_screen = subparsers.add_parser(
         "loop-prompt-screen",
         help="stage 1 of the prompt screen: every registered prompt on 100 training documents, untrained model",

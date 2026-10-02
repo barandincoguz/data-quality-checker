@@ -107,13 +107,13 @@ def test_the_evaluator_reports_no_paragraph_level(tmp_path: Path) -> None:
         assert word not in flat, word
 
 
-GT_V7 = ROOT / "data" / "ground_truth" / "gt_v7_gt750_law_article_2026-10-01" / "validated"
+GT_LOOP = ROOT / "data" / "ground_truth" / "gt_v8_gt750_law_article_2026-10-02" / "validated"
 
 
-@pytest.mark.skipif(not GT_V7.is_dir(), reason="GT v7 is not in this checkout")
+@pytest.mark.skipif(not GT_LOOP.is_dir(), reason="GT v8 is not in this checkout")
 def test_the_ground_truth_the_loop_reads_has_no_paragraph_field() -> None:
     preset = json.loads((ROOT / "configs" / "presets" / "gt750_law_article_loop.json").read_text())
-    assert "gt_v7_gt750_law_article" in preset["canonical_gt_dir"]
-    for path in GT_V7.glob("doc_*.json"):
+    assert "gt_v8_gt750_law_article" in preset["canonical_gt_dir"]
+    for path in GT_LOOP.glob("doc_*.json"):
         for reference in json.loads(path.read_text(encoding="utf-8"))["references"]:
             assert not {"fikra", "bent"} & set(reference), path.name

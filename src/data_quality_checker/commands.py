@@ -331,6 +331,14 @@ def loop_carry_decisions(args: Namespace, config: AppConfig) -> int:
     )
 
 
+def loop_rescore(args: Namespace, config: AppConfig) -> int:
+    from .rescore import rescore_run
+
+    summary = rescore_run(config, run_id=args.run_id, label=args.label, reason=args.reason)
+    return _print_json({k: v for k, v in summary.items() if k != "rows"}
+                       | {"rows": [(r["checkpoint"], round(r["old_f1"], 4), round(r["new_f1"], 4)) for r in summary["rows"]]})
+
+
 def loop_prompt_screen(args: Namespace, config: AppConfig) -> int:
     from .prompt_screen import stage_one, stage_two, write_stage_two_configs
 

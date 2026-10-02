@@ -79,11 +79,23 @@ def test_ranking_is_f1_then_recall_then_the_shorter_prompt() -> None:
 
 
 def test_a_stage_two_config_has_its_own_roots_and_prompt() -> None:
-    base = json.loads((ROOT / "configs/presets/gt750_law_article_loop.json").read_text())
+    # The base the screen ran on (2 Oct 2026): the loop's config before P4 and GT v8.
+    base = json.loads((ROOT / "configs/presets/gt750_law_article_loop_p0_gtv7.json").read_text())
     payload = screen_config_payload(base, "law-article-p1-binding")
     assert payload["loop"]["prompt_variant"] == "law-article-p1-binding"
     assert payload["public_root"] != base["public_root"] and payload["sensitive_root"] != base["sensitive_root"]
     assert {k: v for k, v in payload["loop"].items() if k != "prompt_variant"} == base["loop"]
+    for variant in ("law-article-p1-binding", "law-article-p4-combined"):
+        written = json.loads((ROOT / f"configs/presets/gt750_law_article_loop_prompt_{variant}.json").read_text())
+        assert written == screen_config_payload(base, variant)
+
+
+def test_the_loop_is_fixed_with_the_screen_winner_on_gt_v8() -> None:
+    preset = json.loads((ROOT / "configs/presets/gt750_law_article_loop.json").read_text())
+    winner = json.loads((ROOT / "artifacts/data_quality_checker_gt750_law_article/loop/prompt_screen/stage2/selection.json")
+                        .read_text())["winner"] if (ROOT / "artifacts/data_quality_checker_gt750_law_article").is_dir() else None
+    assert preset["loop"]["prompt_variant"] == "law-article-p4-combined" == (winner or "law-article-p4-combined")
+    assert "gt_v8_gt750_law_article" in preset["canonical_gt_dir"] and "gt_v8_gt750_law_article" in preset["loop"]["split_path"]
 
 
 def test_stage_one_runs_every_prompt_and_sends_the_current_one_and_the_best_two_on(tmp_path, monkeypatch) -> None:

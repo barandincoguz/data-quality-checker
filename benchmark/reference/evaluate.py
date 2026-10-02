@@ -1333,8 +1333,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--docs",
         type=Path,
-        default=DEFAULT_DOCS_PATH,
-        help="Document source JSON used for evaluation universe",
+        default=None,
+        help=(
+            "Document source JSON used for evaluation universe. No default: it was "
+            f"{DEFAULT_DOCS_PATH.name}, the old 500-document universe, so a caller "
+            "that named its documents with --doc-ids-file still lost every id above "
+            "500 without a word (2 Oct 2026: 30 of the prompt screen's 100 training "
+            "documents; the GT750 test split's 100 documents above 500 would have "
+            "been next). Without it the universe is --doc-ids-file, else the ground "
+            "truth directory."
+        ),
     )
     parser.add_argument(
         "--doc-ids-file",

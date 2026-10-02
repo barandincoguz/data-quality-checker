@@ -64,6 +64,7 @@ _LEADING_WORD_RE = re.compile(r"^(?P<word>[^\W\d_]+)\.?\s*(?P<rest>.*)$")
 # slip ("geçiçi", "mükrrer"): the number carries the identity, so folding the
 # qualifier cannot merge two articles. "ek" is too short to allow a slip.
 _QUALIFIERS = {"mukerrer": "mükerrer", "gecici": "geçici"}
+_QUALIFIER_ABBREVIATIONS = {"muk": "mükerrer", "gec": "geçici"}
 # A reference names a law and an article -- nothing below the article (user
 # decision, 1 Oct 2026). A part of the article written into `madde` itself is
 # therefore cut off: "13/a" and "4-a" (a lowercase letter: a sub-part, never an
@@ -80,7 +81,7 @@ _SUBPART_TAILS = (
     re.compile(r"\s*/\s*\d[^/]*$"),
     re.compile(r"\s*/\s*[a-zçğıöşü](?:\s*-\s*\S+)?$"),
     re.compile(r"\s*-\s*[a-zçğıöşü]$"),
-    re.compile(r"(?<=/[A-ZÇĞİÖŞÜ])\s*-\s*\d+$"),
+    re.compile(r"(?<=/[A-ZÇĞİÖŞÜ])\s*-\s*\d+(?:\.\d+)*$"),
 )
 _LAW_NAME_PUNCT = " .,:;-'\""
 _LAW_NUMBER_PREFIX_RE = re.compile(r"^\d+\s*(?:sayılı|sayili)\s*", re.IGNORECASE)
@@ -104,11 +105,31 @@ def _fold(value: str) -> str:
     return _ascii_fold(without_marks).casefold()
 
 
+# A decree, circular, ruling or date number is not a law number: "2007/13033"
+# and "89/14391" (BKK), "2013/6", "2006-32/32", "24/12/2012", "24.12.2012" --
+# any value with "/" or "-" between digit groups, and a dotted date. Reading
+# its first run of digits made two decrees one identity and a year a law
+# (engine audit, 2 Oct 2026); it is kept whole, as the evaluator keeps it
+# (`annotator.reference.common.normalize_kanun_no`, the same rule).
+NON_LAW_NUMBER_RE = re.compile(r"\d\s*[/-]\s*\d|(?<!\d)\d{1,2}\s*\.\s*\d{1,2}\s*\.\s*\d{2,4}(?!\d)")
+_DOTTED_DATE_RE = re.compile(r"(?<!\d)\d{1,2}\s*\.\s*\d{1,2}\s*\.\s*\d{2,4}(?!\d)")
+#: Written for "no number": not a number, and not a name either.
+EMPTY_LAW_NUMBER_WORDS = {"null", "none", "nan", "yok", "-", "—", "–", "n/a"}
+
+
 def normalize_law_number(value: Any) -> str:
     text = normalize_text(value)
+    if text.strip().casefold() in EMPTY_LAW_NUMBER_WORDS:
+        return ""
+    if NON_LAW_NUMBER_RE.search(text):
+        text = _DOTTED_DATE_RE.sub(lambda m: re.sub(r"\s*\.\s*", "/", m.group(0)), text)
+        compact = re.sub(r"[^0-9/-]", "", text).strip("/-")
+        return re.sub(r"(?<!\d)0+(?=\d)", "", compact)
     match = re.search(r"\d+", text.replace(".", ""))
     if not match:
-        return text.casefold()
+        # No digits: not a number. A law *name* written into the number field
+        # is read as the name by `normalize_reference`.
+        return ""
     # Strip leading zeros ("0193" == "193"), but a run of all zeros must
     # collapse to "0", never to the empty string.
     return match.group(0).lstrip("0") or "0"
@@ -123,7 +144,10 @@ def normalize_law_name(value: Any, *, law_number: str = "") -> str:
     text = _LAW_NUMBER_PREFIX_RE.sub("", text).strip(_LAW_NAME_PUNCT)
     folded = _SPACE_RE.sub(" ", text.casefold()).strip(_LAW_NAME_PUNCT)
     folded_ascii = _fold(folded)
-    alias = LAW_NAME_ALIASES.get(folded) or LAW_NAME_ALIASES.get(folded_ascii)
+    # A dotted abbreviation ("G.V.K.", "V.U.K.") is the abbreviation.
+    undotted = folded.replace(".", "") if re.fullmatch(r"(?:[^\W\d_]\.\s*)+[^\W\d_]?", folded) else folded
+    alias = (LAW_NAME_ALIASES.get(folded) or LAW_NAME_ALIASES.get(folded_ascii)
+             or LAW_NAME_ALIASES.get(undotted) or LAW_NAME_ALIASES.get(_fold(undotted)))
     if alias:
         return alias
     if law_number in CANONICAL_LAW_BY_NO and (
@@ -152,6 +176,9 @@ def article_qualifier(word: str) -> str | None:
     folded = _fold(word)
     if folded == "ek":
         return "ek"
+    # The written abbreviations "Mük." and "Geç." (engine audit, 2 Oct 2026).
+    if folded in _QUALIFIER_ABBREVIATIONS:
+        return _QUALIFIER_ABBREVIATIONS[folded]
     for plain, canonical in _QUALIFIERS.items():
         if len(folded) >= 5 and _within_one_edit(folded, plain):
             return canonical
@@ -174,11 +201,37 @@ def strip_article_subpart(text: str) -> str:
 _LEADING_LIST_MARK_RE = re.compile(r"^[-–—•·*]+\s*")
 
 
-def normalize_article(value: Any) -> str:
+# Engine audit (2 Oct 2026): spellings a model or an annotator writes that name
+# the article before them, read the same way by the evaluator
+# (`annotator.reference.common.normalize_madde`), pinned by
+# tests/test_engine_agreement.py.
+#: "94'üncü", "41’inci", "geçici 9'uncu": an apostrophe and the ordinal after a number.
+APOSTROPHE_ORDINAL_RE = re.compile(
+    r"(?<=\d)\s*['’`´]\s*(?:inci|ıncı|uncu|üncü|nci|ncı|ncu|ncü)?", re.IGNORECASE
+)
+#: "madde 94", "md. 94", "m.94" before the number; "94 md." after it.
+_ARTICLE_WORD_BEFORE_RE = re.compile(r"^(?:madde|md\.?|m\.)\s*(?=\d)", re.IGNORECASE)
+_ARTICLE_ABBREVIATION_AFTER_RE = re.compile(r"\s+(?:md|mad)\.?$", re.IGNORECASE)
+#: "(17/4-r)", KDV rulings' way of writing article 17's part: the brackets
+#: enclose the whole value. A bare "(17)" is a paragraph or item number, not an
+#: article, and is left to the unreadable-article rule below.
+ENCLOSED_ARTICLE_RE = re.compile(r"^\(\s*(?P<inner>[^()]*?/[^()]*?|[^\W\d_]+\s+\d[^()]*?)\s*\)$")
+#: "32 / A" is "32/A".
+_SLASH_SPACING_RE = re.compile(r"\s*/\s*")
+
+
+def _normalize_article_once(value: Any) -> str:
     text = normalize_text(value).strip(" .,:;\"'")
     text = _LEADING_LIST_MARK_RE.sub("", text)
+    text = APOSTROPHE_ORDINAL_RE.sub("", text)
+    text = _ARTICLE_WORD_BEFORE_RE.sub("", text)
     text = _MUTEAKIP_RE.sub("", text).strip()
     text = _ARTICLE_SUFFIX_RE.sub("", text).strip()
+    text = _ARTICLE_ABBREVIATION_AFTER_RE.sub("", text).strip(" .")
+    enclosed = ENCLOSED_ARTICLE_RE.match(text)
+    if enclosed:
+        text = enclosed.group("inner").strip()
+    text = _SLASH_SPACING_RE.sub("/", text)
     text = strip_article_subpart(text)
     leading = _LEADING_WORD_RE.match(text)
     if leading and _fold(leading.group("word")) == "degisik":
@@ -196,14 +249,52 @@ def normalize_article(value: Any) -> str:
     text = text.casefold()
     article_range = _ARTICLE_RANGE_RE.match(text)
     if article_range:
-        text = f"{article_range.group(1)} ila {article_range.group(2)}"
+        start, end = article_range.group(1), article_range.group(2)
+        if int(end) > int(start):
+            text = f"{start} ila {end}"
+        elif "ila" not in text and "ilâ" not in text:
+            # "17-4" (from "17-4-r") is article 17 and its part, not a span.
+            text = start
+    return text
+
+
+def normalize_article(value: Any) -> str:
+    """The article a `madde` value names, in one spelling.
+
+    Applying it to its own output changes nothing (a fixed point is taken: a
+    value such as "II/B-5.1" once read "ii/b-5.1" and, normalized again, "ii").
+    A value that names something but no article this can read ("(17)", a
+    paragraph number) is kept as written, folded, so that it can match no
+    article and is never mistaken for a law-level row (engine audit,
+    2 Oct 2026).
+    """
+    text = _normalize_article_once(value)
+    for _ in range(4):
+        again = _normalize_article_once(text)
+        if again == text:
+            break
+        text = again
+    if not text:
+        written = _SPACE_RE.sub(" ", normalize_text(value)).strip()
+        if re.search(r"[^\W_]", written):
+            return written.casefold()
     return text
 
 
 def normalize_reference(raw: dict[str, Any]) -> dict[str, str]:
     validated = validate_reference_list([raw])[0]
     law_number = normalize_law_number(validated["kanun_no"])
-    law_name = normalize_law_name(validated["kanun_ad"], law_number=law_number)
+    raw_name = validated["kanun_ad"]
+    if (not law_number and validated["kanun_no"].strip() and not raw_name.strip()
+            and validated["kanun_no"].strip().casefold() not in EMPTY_LAW_NUMBER_WORDS):
+        # A name written into the number field ("Gelir Vergisi Kanunu") is the name.
+        raw_name = validated["kanun_no"]
+    if not law_number:
+        # "6183 sayılı Kanun" in the name field carries the number.
+        numbered = re.match(r"^\s*(\d{1,4})\s*(?:sayılı|sayili)\b", normalize_text(raw_name), re.IGNORECASE)
+        if numbered:
+            law_number = numbered.group(1).lstrip("0") or "0"
+    law_name = normalize_law_name(raw_name, law_number=law_number)
     if not law_number and law_name in CANONICAL_NO_BY_NAME:
         law_number = CANONICAL_NO_BY_NAME[law_name]
     return {

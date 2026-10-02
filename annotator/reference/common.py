@@ -25,7 +25,7 @@ _SUBPART_TAILS = (
     re.compile(r"\s*/\s*\d[^/]*$"),
     re.compile(r"\s*/\s*[a-zçğıöşü](?:\s*-\s*\S+)?$"),
     re.compile(r"\s*-\s*[a-zçğıöşü]$"),
-    re.compile(r"(?<=/[A-ZÇĞİÖŞÜ])\s*-\s*\d+$"),
+    re.compile(r"(?<=/[A-ZÇĞİÖŞÜ])\s*-\s*\d+(?:\.\d+)*$"),
 )
 
 
@@ -180,14 +180,33 @@ def extract_ozelge_no(text: str) -> str:
     return fallback.group(1).strip() if fallback else ""
 
 
+# A decree, circular, ruling or date number is not a law number ("2007/13033"
+# and "89/14391" BKK, "2013/6", "2006-32/32", "24/12/2012", "24.12.2012"): kept
+# whole. Any other value is the law number it starts with: "193 sayılı",
+# "No:193", "193 Sayılı Kanun" all name law 193 -- before the engine audit
+# (2 Oct 2026) they read "193sayl", "No193", "193SaylKanun" here while the
+# loop's engine read "193", so a model writing the number that way was charged
+# a miss and a wrong row. Mirrors `data_quality_checker.normalization.normalize_law_number`.
+RE_NON_LAW_NUMBER = re.compile(r"\d\s*[/-]\s*\d|(?<!\d)\d{1,2}\s*\.\s*\d{1,2}\s*\.\s*\d{2,4}(?!\d)")
+RE_DOTTED_DATE = re.compile(r"(?<!\d)\d{1,2}\s*\.\s*\d{1,2}\s*\.\s*\d{2,4}(?!\d)")
+EMPTY_LAW_NUMBER_WORDS = {"null", "none", "nan", "yok", "-", "\u2014", "\u2013", "n/a"}
+
+
 def normalize_kanun_no(value: str) -> str:
-    """Normalize law number while keeping `/` and `-` separators."""
+    """The law number a `kanun_no` value names ("" when it names none)."""
     if not value:
         return ""
-    cleaned = RE_NON_NO_CHARS.sub("", collapse_ws(str(value)))
-    cleaned = cleaned.strip("/-")
-    cleaned = re.sub(r"\b0+(\d)", r"\1", cleaned)
-    return collapse_ws(cleaned)
+    text = collapse_ws(str(value))
+    if text.casefold() in EMPTY_LAW_NUMBER_WORDS:
+        return ""
+    if RE_NON_LAW_NUMBER.search(text):
+        text = RE_DOTTED_DATE.sub(lambda m: re.sub(r"\s*\.\s*", "/", m.group(0)), text)
+        compact = re.sub(r"[^0-9/-]", "", text).strip("/-")
+        return re.sub(r"(?<!\d)0+(?=\d)", "", compact)
+    match = re.search(r"\d+", text.replace(".", ""))
+    if not match:
+        return ""
+    return match.group(0).lstrip("0") or "0"
 
 
 def canonical_law_name_by_no(kanun_no: str) -> str:
@@ -244,15 +263,26 @@ def normalize_kanun_adi(text: str, kanun_no: str = "") -> str:
     return value
 
 
-def normalize_madde(value: str) -> str:
-    """Normalize article text to canonical `madde` style."""
-    if not value:
-        return ""
+#: Engine audit (2 Oct 2026): "94'üncü", "geçici 9'uncu" -- an apostrophe and the
+#: ordinal after a number; "md. 94", "m.94", "94 md."; "(17/4-r)" with the whole
+#: value in brackets; "32 / A". Mirrors `data_quality_checker.normalization`.
+RE_APOSTROPHE_ORDINAL = re.compile(
+    r"(?<=\d)\s*['\u2019`\u00b4]\s*(?:inci|\u0131nc\u0131|uncu|\u00fcnc\u00fc|nci|nc\u0131|ncu|nc\u00fc)?",
+    re.IGNORECASE,
+)
+RE_ARTICLE_ABBREVIATION_BEFORE = re.compile(r"^(?:md\.?|m\.)\s*(?=\d)", re.IGNORECASE)
+RE_ARTICLE_ABBREVIATION_AFTER = re.compile(r"\s+(?:md|mad)\.?$", re.IGNORECASE)
+RE_ENCLOSED_ARTICLE = re.compile(r"^\(\s*(?P<inner>[^()]*?/[^()]*?|[^\W\d_]+\s+\d[^()]*?)\s*\)$")
+
+
+def _normalize_madde_once(value: str) -> str:
     raw = collapse_ws(value)
     # A list mark before the article ("-1/1 inci maddesinde") is not part of it;
     # mirrors data_quality_checker.normalization (1 Oct 2026).
     raw = re.sub(r"^[-–—•·*]+\s*", "", raw)
     raw = re.sub(r"[\u2018\u2019`´]", "'", raw)
+    raw = RE_APOSTROPHE_ORDINAL.sub("", raw)
+    raw = RE_ARTICLE_ABBREVIATION_BEFORE.sub("", raw)
     raw = re.sub(r"^madd\w*\s+", "", raw, flags=re.IGNORECASE)
     # "229 ve müteakip maddelerinde" cites article 229 onwards; the article
     # is 229 and the trailing phrase is prose.
@@ -262,6 +292,11 @@ def normalize_madde(value: str) -> str:
     # and what survived was "37 nci" -- an article that matches nothing.
     raw = re.sub(r"\s*madd\w*$", "", raw, flags=re.IGNORECASE)
     raw = re.sub(rf"\s+{ORDINAL_SUFFIX_RE}$", "", raw, flags=re.IGNORECASE)
+    raw = RE_ARTICLE_ABBREVIATION_AFTER.sub("", raw).strip(" .")
+    enclosed = RE_ENCLOSED_ARTICLE.match(raw)
+    if enclosed:
+        raw = enclosed.group("inner").strip()
+    raw = re.sub(r"\s*/\s*", "/", raw)
     raw = strip_article_subpart(raw)
     raw = raw.strip(" .()")
     raw = re.sub(r"\s+", " ", raw)
@@ -271,10 +306,43 @@ def normalize_madde(value: str) -> str:
     return collapse_ws(raw)
 
 
+def normalize_madde(value: str) -> str:
+    """Normalize article text to canonical `madde` style.
+
+    A fixed point: normalizing the output again changes nothing. A value that
+    names something but no article this can read ("(17)", a paragraph number)
+    is kept as written, folded, so it matches no article and is never read as
+    a law-level row (engine audit, 2 Oct 2026; the loop's engine does the same).
+    """
+    if not value:
+        return ""
+    text = _normalize_madde_once(value)
+    for _ in range(4):
+        again = _normalize_madde_once(text) if text else text
+        if again == text:
+            break
+        text = again
+    if not text:
+        written = collapse_ws(str(value))
+        if re.search(r"[^\W_]", written):
+            return written.casefold()
+    return text
+
+
 def normalize_reference(reference: dict) -> dict:
     """Return a safe, schema-compatible reference object."""
-    kanun_no = normalize_kanun_no(str(reference.get("kanun_no", "")))
-    kanun_ad = normalize_kanun_adi(str(reference.get("kanun_ad", "")), kanun_no=kanun_no)
+    raw_no = str(reference.get("kanun_no", "") or "")
+    raw_ad = str(reference.get("kanun_ad", "") or "")
+    kanun_no = normalize_kanun_no(raw_no)
+    if not kanun_no and raw_no.strip() and not raw_ad.strip() and raw_no.strip().casefold() not in EMPTY_LAW_NUMBER_WORDS:
+        # A name written into the number field ("Gelir Vergisi Kanunu") is the name.
+        raw_ad = raw_no
+    if not kanun_no:
+        # "6183 sayılı Kanun" in the name field carries the number.
+        numbered = re.match(r"^\s*(\d{1,4})\s*say[\u0131i]l[\u0131i]\b", raw_ad, flags=re.IGNORECASE)
+        if numbered:
+            kanun_no = numbered.group(1).lstrip("0") or "0"
+    kanun_ad = normalize_kanun_adi(raw_ad, kanun_no=kanun_no)
 
     ref = {
         "type": REFERENCE_TYPE,

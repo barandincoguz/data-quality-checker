@@ -29,11 +29,12 @@ from annotator.reference.common import (
     normalize_reference,
 )
 from benchmark.reference.matching import (
-    empty_optimal_diagnostics as _empty_optimal_diagnostics,
-)
-from benchmark.reference.matching import (
+    canonical_article,
     evaluate_doc_optimal,
     optimal_diagnostics_payload,
+)
+from benchmark.reference.matching import (
+    empty_optimal_diagnostics as _empty_optimal_diagnostics,
 )
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -1054,6 +1055,45 @@ def format_metrics_table(method: str, core_metric: Metrics) -> str:
     return "\n".join(lines)
 
 
+def parse_ignored_law_articles(values: list[str] | tuple[str, ...] | None) -> list[tuple[str, str]]:
+    """`["213:413"]` -> `[("213", "413")]`, both sides in the engine's own canonical form."""
+    parsed = []
+    for value in values or ():
+        number, sep, article = str(value).partition(":")
+        if not sep or not normalize_kanun_no(number) or not article.strip():
+            raise ValueError(f"--ignore-law-article expects LAW:ARTICLE, got {value!r}")
+        parsed.append((normalize_kanun_no(number), canonical_article(normalize_reference({"madde": article}))))
+    return parsed
+
+
+def drop_ignored_law_articles(
+    references_by_doc: dict[int, list[dict[str, str]]],
+    ignored: list[tuple[str, str]],
+) -> tuple[dict[int, list[dict[str, str]]], int]:
+    """Drop rows naming an ignored law+article, the same way on either side.
+
+    The loop's reference policy (VUK 213 article 413, the tax-ruling closing
+    formula) is removed from the gold *and* the predictions or not at all
+    (engine audit, 2 Oct 2026: it used to be applied to the predictions only,
+    which is symmetric only while the ground truth carries no such row). A row
+    with no number is identified by its law's canonical name.
+    """
+    if not ignored:
+        return references_by_doc, 0
+    kept: dict[int, list[dict[str, str]]] = {}
+    removed = 0
+    for doc_id, references in references_by_doc.items():
+        rows = []
+        for ref in references:
+            number = ref.get("kanun_no", "") or _canonical_law_no_by_name(ref.get("kanun_ad", ""))
+            if any(number == law and canonical_article(ref) == article for law, article in ignored):
+                removed += 1
+                continue
+            rows.append(ref)
+        kept[doc_id] = rows
+    return kept, removed
+
+
 def evaluate_prediction_file(
     prediction_path: Path,
     gold: dict[int, list[dict[str, str]]],
@@ -1065,6 +1105,7 @@ def evaluate_prediction_file(
     reference_postprocess: str = REFERENCE_POSTPROCESS_LEGACY,
     core_reference_view: str = CORE_REFERENCE_VIEW_ROW,
     matching_engine: str = MATCHING_ENGINE_OPTIMAL,
+    ignore_law_articles: list[tuple[str, str]] | None = None,
 ) -> dict[str, Any]:
     """Evaluate one prediction file and return a serializable result."""
     docwise_threshold = validate_docwise_threshold(docwise_threshold)
@@ -1073,6 +1114,9 @@ def evaluate_prediction_file(
     matching_engine = normalize_matching_engine(matching_engine)
     load_result = load_predictions(prediction_path)
     predictions = load_result.predictions
+    ignored = list(ignore_law_articles or [])
+    predictions, ignored_prediction_rows = drop_ignored_law_articles(predictions, ignored)
+    gold, ignored_gold_rows = drop_ignored_law_articles(gold, ignored)
 
     if docs_universe is None:
         eval_doc_ids = sorted(gold.keys())
@@ -1162,6 +1206,13 @@ def evaluate_prediction_file(
             "ground_truth": core_gold_view_summary,
         },
     }
+    if ignored:
+        result["ignored_law_articles"] = {
+            "identities": [f"{law}:{article}" for law, article in ignored],
+            "applied_to": "ground truth and predictions alike",
+            "gold_rows_removed": ignored_gold_rows,
+            "prediction_rows_removed": ignored_prediction_rows,
+        }
     if optimal_diagnostics is not None:
         result["optimal_matching_diagnostics"] = optimal_diagnostics
         result["optimal_matching_preprocessing"] = {
@@ -1410,6 +1461,17 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--ignore-law-article",
+        action="append",
+        default=[],
+        metavar="LAW:ARTICLE",
+        help=(
+            "Drop every row naming this law and article from the ground truth and the "
+            "predictions alike before scoring (repeatable), e.g. 213:413 -- the loop's "
+            "reference policy. The counts removed from each side are reported."
+        ),
+    )
+    parser.add_argument(
         "--matching-engine",
         choices=list(SUPPORTED_MATCHING_ENGINES),
         default=MATCHING_ENGINE_OPTIMAL,
@@ -1491,6 +1553,7 @@ def main() -> None:
             reference_postprocess=args.reference_postprocess,
             core_reference_view=args.core_reference_view,
             matching_engine=args.matching_engine,
+            ignore_law_articles=parse_ignored_law_articles(args.ignore_law_article),
         )
         deltas = compute_metric_deltas(result, baseline_by_method.get(result["method"]))
         if deltas is not None:

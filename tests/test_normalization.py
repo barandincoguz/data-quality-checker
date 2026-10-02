@@ -67,7 +67,17 @@ def test_numbered_prefix_does_not_defeat_alias_lookup() -> None:
 def test_returned_law_name_has_stray_punctuation_stripped() -> None:
     # 'Kooperatifler Kanunu' has no alias-table entry, so this also proves the
     # punctuation strip applies to the value actually returned, not a copy.
-    assert _core("1163 sayılı Kooperatifler Kanunu") == _core('Kooperatifler Kanunu"')
+    assert _core("Kooperatifler Kanunu") == _core('Kooperatifler Kanunu"')
+
+
+def test_a_number_written_into_the_name_is_the_law_number() -> None:
+    # Engine audit (2 Oct 2026): "1163 sayılı Kooperatifler Kanunu" with an empty
+    # number field names law 1163 -- the same reference as a row numbered 1163,
+    # as the evaluator already read it.
+    from data_quality_checker.normalization import core_identity, normalize_reference
+
+    numbered = core_identity(normalize_reference({"kanun_no": "1163", "kanun_ad": "Kooperatifler Kanunu", "madde": "1", "source_text": ""}))
+    assert _core("1163 sayılı Kooperatifler Kanunu") == numbered
 
 
 def test_numbered_prefix_negative_distinct_laws_stay_distinct() -> None:

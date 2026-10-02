@@ -536,6 +536,13 @@ def canonical_evaluate(
         MATCHING_ENGINE,
         "--per-doc",
     ]
+    if reference_policy is not None:
+        # The policy is removed from both sides inside the evaluator (engine
+        # audit, 2 Oct 2026), not only from the prediction file above.
+        from .reference_policy import reference_policy_spec
+
+        for identity in reference_policy_spec(reference_policy)["ignored_normalized_core_identities"]:
+            command += ["--ignore-law-article", f"{identity['kanun_no']}:{identity['madde']}"]
     completed = subprocess.run(
         command,
         cwd=repo_root,

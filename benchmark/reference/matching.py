@@ -61,6 +61,8 @@ RE_FOLDED_CONTINUATION = re.compile(
 )
 RE_FOLDED_LEADING_WORD = re.compile(r"^(?P<word>[a-z]+)\.?\s*(?P<rest>.*)$")
 _FOLDED_QUALIFIERS = ("mukerrer", "gecici")
+#: The written abbreviations "Mük." and "Geç." (engine audit, 2 Oct 2026).
+_FOLDED_QUALIFIER_ABBREVIATIONS = {"muk": "mukerrer", "gec": "gecici"}
 
 
 def _within_one_edit(left: str, right: str) -> bool:
@@ -88,7 +90,7 @@ def _canonical_folded_article(folded: str) -> str:
         leading = RE_FOLDED_LEADING_WORD.match(folded)
     if leading:
         word = leading.group("word")
-        qualifier = "ek" if word == "ek" else next(
+        qualifier = "ek" if word == "ek" else _FOLDED_QUALIFIER_ABBREVIATIONS.get(word) or next(
             (q for q in _FOLDED_QUALIFIERS if len(word) >= 5 and _within_one_edit(word, q)), None
         )
         if qualifier:
@@ -111,7 +113,11 @@ def _fold_article_text(text: str) -> str:
     two different articles. data_quality_checker.normalization already folds
     them; this closes the last case where the two engines disagreed.
     """
-    canonical = RE_NUMERIC_ARTICLE_RANGE.sub(r"\g<start> ila \g<end>", text)
+    # A span runs forwards: "17-4" (from "17-4-r") is article 17 and its part
+    # (engine audit, 2 Oct 2026; the loop's engine reads it the same way).
+    canonical = RE_NUMERIC_ARTICLE_RANGE.sub(
+        lambda m: f"{m['start']} ila {m['end']}" if int(m["end"]) > int(m["start"]) else m["start"], text
+    )
     decomposed = unicodedata.normalize("NFKD", canonical)
     without_marks = "".join(ch for ch in decomposed if not unicodedata.combining(ch))
     return _canonical_folded_article(without_marks.translate(_TURKISH_FOLD).casefold())
@@ -150,6 +156,14 @@ def canonicalize_reference(reference: dict[str, str]) -> dict[str, str]:
     """
     normalized = normalize_reference(reference)
     normalized["madde"] = canonical_article(normalized)
+    # A fixed point, so that canonicalizing a canonical row changes nothing
+    # (engine audit, 2 Oct 2026: "II/B-5.1" read "ii/b-5.1", then "ii").
+    for _ in range(4):
+        again = normalize_reference(normalized)
+        again["madde"] = canonical_article(again)
+        if again == normalized:
+            break
+        normalized = again
     return normalized
 
 #: Cardinality must dominate every quality bonus so the assignment stays maximum.

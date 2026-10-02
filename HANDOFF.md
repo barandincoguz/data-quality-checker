@@ -1,5 +1,19 @@
 # Devir — DQ-Loop
 
+> **2 Ekim 2026, 12:42 — TEK KARŞILAŞTIRMA MOTORU. Referans listelerini karşılaştıran her şey
+> `src/data_quality_checker/reference_matching.py`** (kullanıcı: "döngü motoru ve değerlendiriciyi farklı iki şey gibi
+> görmeyelim"). Kullanıcılar: doğrulama F1'i (`benchmark/reference/matching.py` yalnız yeniden dışa aktarır), yönlendirme,
+> uzman ekranı, dergi tablosu, hata atfı/kappalar, referans denetimi, hakem ölçüleri. Kurallar:
+> - ad yedeği (numarasız satır, adın belgede/kanonda tek numarası varsa onu alır; ad iki numaraya karşılık geliyorsa
+>   adla eşleşir);
+> - aynı listede maddesi de olan kanunun yalnız kanun satırı fazladır: gerçekte iddia değil, adayda mazur (kullanıcı
+>   "yalnız aynı listede" seçti);
+> - 213/413 iki taraftan; tp+fn = gerçeğin referans sayısı.
+>
+> Yeni bir karşılaştırma yazma; `compare_with_policy` / `compare_reference_lists` kullan. Gardiyan
+> `tests/test_one_reference_comparison.py`. M000 (P4, GT v8) `dqcheck_loop_88cf7872b3ed` 12:42'de başladı (tmux
+> `gt750v8-train`); R01 zinciri `gt750v8-chain`. P0'ın doğrulama değeri (tek motor, v8) 0,9443.
+
 > **2 Ekim 2026 — DÖNGÜ PROMPT P4 + GT v8 İLE SABİTLENDİ. Önce bunu oku** (1 Ekim kutusu aşağıda, hâlâ geçerli).
 >
 > - **Ayar:** `configs/presets/gt750_law_article_loop.json` = prompt **P4** (`loop.prompt_variant =

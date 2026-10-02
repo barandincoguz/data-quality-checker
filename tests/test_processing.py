@@ -470,6 +470,7 @@ def test_mlx_backend_preserves_generation_limit_as_primary_parse_error(monkeypat
     backend = object.__new__(MlxG0Backend)
     backend.model = object()
     backend.tokenizer = Tokenizer()
+    backend.system_prompt = "system"
     backend.max_input_tokens = 100
     backend.max_generation_tokens = 8
 

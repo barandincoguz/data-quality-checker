@@ -43,11 +43,10 @@ from .errors import ContractError, GateBlocked
 from .fingerprints import fingerprint_json, sha256_text
 from .g0 import (
     EXAMPLE_BANK_SHA256,
-    PROMPT_VARIANT,
-    SYSTEM_PROMPT,
     TRAINING_VIEW_POLICY,
     TrainingContract,
     environment_preflight,
+    loop_prompt,
     validate_canonical_sources,
     write_training_data,
 )
@@ -262,9 +261,10 @@ def train_round(
 
     composed = compose_round_training_ids(split, cleaned_batches)
 
+    prompt_variant, system_prompt = loop_prompt(config)
     prompt = {
-        "variant": PROMPT_VARIANT,
-        "sha256": sha256_text(SYSTEM_PROMPT),
+        "variant": prompt_variant,
+        "sha256": sha256_text(system_prompt),
         "example_bank_sha256": EXAMPLE_BANK_SHA256,
     }
     fingerprint_payload: dict[str, Any] = {
@@ -298,6 +298,7 @@ def train_round(
         output_dir=data_dir,
         documents=documents,
         split=composed,
+        system_prompt=system_prompt,
     )
 
     run_dir, preflight_path = _write_round_scaffolding(

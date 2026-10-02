@@ -43,7 +43,7 @@ TRAINING_VIEW_POLICY = (
 )
 REFIT_SPLIT_POLICY = "refit-all-494-nominal-valid-and-test"
 
-SYSTEM_PROMPT = (
+_LAW_ARTICLE_V1 = (
     "You extract every statutory law reference from Turkish tax rulings "
     "(ozelgeler).\n\n"
     "Return one flat JSON array and include ALL references in the document. "
@@ -69,6 +69,119 @@ SYSTEM_PROMPT = (
     '"madde":"3"},{"kanun_no":"488","kanun_ad":"Damga Vergisi Kanunu",'
     '"madde":"9"}]'
 )
+
+# The prompt screen (user decision, 1 Oct 2026: "küçük subsetlerde prompt
+# değiştirme denemesi ... en iyi performansı vereni seçip bundan sonra onunla
+# devam edeceğiz"). Each candidate changes one thing against an error M000 v2
+# made on validation, so a win can be attributed; the plan and the selection
+# rule were written down before any of them was run
+# (ner-project docs/superpowers/plans/2026-10-01-kanun-madde-only.md, §8).
+_BINDING = (
+    "kanun_no is the number of the law the article belongs to. When a ruling "
+    "cites articles of several laws, give each article the number of the law it "
+    "is cited with, never another law's number: for example 213 is the Vergi "
+    "Usul Kanunu, 193 the Gelir Vergisi Kanunu, 5520 the Kurumlar Vergisi "
+    "Kanunu, 3065 the Katma Değer Vergisi Kanunu, 4760 the Özel Tüketim Vergisi "
+    "Kanunu and 488 the Damga Vergisi Kanunu. An article cited as aynı, anılan "
+    "or mezkûr Kanun belongs to the nearest law named before it. "
+)
+_COMPLETE = (
+    "- A ruling often cites many articles one after another, sometimes more "
+    "than twenty; output every one of them, through to the end of the "
+    "document.\n"
+)
+_SCOPE = (
+    "Output only articles of laws: a table, list or tariff attached to a law "
+    "(such as (I) sayılı liste) and the serial number of a communiqué, circular "
+    "or regulation (such as 339 Sıra No.lu Vergi Usul Kanunu Genel Tebliği) are "
+    "not articles. Write madde without list marks or ordinal suffixes. "
+)
+_V1_ANCHOR = "Use an empty string when a field is absent. "
+_TABLES = "retain table/cetvel/list references in the same contract; "
+_RECALL_ANCHOR = "- Never replace a specific article row"
+
+
+def _with(*, binding: bool = False, complete: bool = False, scope: bool = False) -> str:
+    text = _LAW_ARTICLE_V1
+    if binding:
+        text = text.replace(_V1_ANCHOR, _V1_ANCHOR + _BINDING)
+    if scope:
+        text = text.replace(_TABLES, "").replace(_V1_ANCHOR, _V1_ANCHOR + _SCOPE)
+    if complete:
+        text = text.replace(_RECALL_ANCHOR, _COMPLETE + _RECALL_ANCHOR)
+    return text
+
+
+_TURKISH = (
+    "Türkçe vergi özelgelerindeki bütün kanun maddesi atıflarını çıkarırsın.\n\n"
+    "Belgedeki BÜTÜN atıfları içeren tek, düz bir JSON dizisi döndür. Her öğe "
+    "tam olarak şu metin alanlarını taşır: kanun_no, kanun_ad, madde. Bir atıf "
+    "bir kanun ve o kanunun bir maddesidir; madde, maddenin kanundaki kendi "
+    'adıdır, örneğin "94", "32/A", "geçici 25", "mükerrer 298" ya da "ek 1". '
+    "Bir alan yoksa boş metin yaz. kanun_no maddenin ait olduğu kanunun "
+    "numarasıdır: özelge birden çok kanunun maddelerine atıf yapıyorsa her "
+    "maddeye kendi kanununun numarasını yaz, başka bir kanunun numarasını asla "
+    "taşıma; örneğin 213 Vergi Usul Kanunu, 193 Gelir Vergisi Kanunu, 5520 "
+    "Kurumlar Vergisi Kanunu, 3065 Katma Değer Vergisi Kanunu, 4760 Özel "
+    "Tüketim Vergisi Kanunu, 488 Damga Vergisi Kanunudur. Aynı, anılan ya da "
+    "mezkûr Kanun diye anılan madde, ondan önce adı geçen en yakın kanuna "
+    "aittir. Yalnız kanun maddelerini yaz: bir kanuna ekli tablo, liste ya da "
+    "tarife (örneğin (I) sayılı liste) ve bir tebliğin, genelgenin ya da "
+    "yönetmeliğin sıra numarası (örneğin 339 Sıra No.lu Vergi Usul Kanunu Genel "
+    "Tebliği) madde değildir. Maddeyi liste imi ya da sıra eki olmadan yaz. "
+    "Her kanun ve madde çiftini bir kez yaz. Kanun kimliği ya da kanıt uydurma. "
+    "Bir kanunun belirli bir maddesi yazıldıysa o kanun için yalnız kanun "
+    "adından oluşan genel bir satır yazma. Yalnız JSON dizisini çıkar; atıf "
+    "yoksa [] çıkar.\n\n"
+    "Eksiksizlik kuralları:\n"
+    "- Fazla temkinli olma. İkincil düzenlemeler yakında geçse bile açıkça "
+    "atıf yapılan her maddeyi çıkar.\n"
+    "- Özelgeler çoğu zaman birbiri ardına çok sayıda, bazen yirmiden fazla "
+    "maddeye atıf yapar; belgenin sonuna kadar hepsini yaz.\n"
+    "- Belirli bir madde satırını yalnız kanun adından oluşan genel bir satırla "
+    "değiştirme; açık bir kanun atfı varken asla [] döndürme.\n"
+    "- JSON'u döndürmeden önce atlanan madde kalmasın diye bütün belgeyi bir "
+    "kez daha tara.\n\n"
+    "Kısa örnek:\n"
+    "Girdi: 488 sayılı Damga Vergisi Kanununun 3 üncü ve 9 uncu maddeleri\n"
+    'Çıktı: [{"kanun_no":"488","kanun_ad":"Damga Vergisi Kanunu",'
+    '"madde":"3"},{"kanun_no":"488","kanun_ad":"Damga Vergisi Kanunu",'
+    '"madde":"9"}]'
+)
+_MINIMAL = (
+    "List every article of a law cited in this Turkish tax ruling. Output only "
+    "a JSON array of objects with the string fields kanun_no, kanun_ad and "
+    "madde, one per law and article; output [] if there is none."
+)
+
+PROMPTS: dict[str, str] = {
+    PROMPT_VARIANT: _LAW_ARTICLE_V1,
+    "law-article-p1-binding": _with(binding=True),
+    "law-article-p2-complete": _with(complete=True),
+    "law-article-p3-scope": _with(scope=True),
+    "law-article-p4-combined": _with(binding=True, complete=True, scope=True),
+    "law-article-p5-turkish": _TURKISH,
+    "law-article-p6-minimal": _MINIMAL,
+}
+SYSTEM_PROMPT = PROMPTS[PROMPT_VARIANT]
+
+
+def loop_prompt(config: Any) -> tuple[str, str]:
+    """(variant, text) of the system prompt a loop config trains and predicts with.
+
+    The default is `PROMPT_VARIANT`; a config names another registered one under
+    `loop.prompt_variant` (the prompt screen's candidate runs). Training data,
+    the run id, validation and batch prediction all read it from here, so a
+    model is always asked with the prompt it was trained with.
+    """
+
+    raw = getattr(config, "raw", None)
+    loop = raw.get("loop") if isinstance(raw, dict) else None
+    variant = (loop or {}).get("prompt_variant", PROMPT_VARIANT) if isinstance(loop, dict) else PROMPT_VARIANT
+    if variant not in PROMPTS:
+        raise ContractError(f"unknown prompt variant {variant!r}; registered: {sorted(PROMPTS)}")
+    return variant, PROMPTS[variant]
+
 
 SEQUENCE_LENGTH_CANDIDATES = (8192, 10240, 12288, 16384, 32768)
 
@@ -245,7 +358,7 @@ def validate_canonical_sources(config: AppConfig) -> dict[str, Any]:
     }
 
 
-def _training_example(document: dict[str, Any]) -> dict[str, Any]:
+def _training_example(document: dict[str, Any], system_prompt: str = SYSTEM_PROMPT) -> dict[str, Any]:
     # Keep source_text (and a GT v7 row's source_texts) in this flat
     # per-document row: context_windows.py reads them back from this same JSON
     # to locate each reference inside the ruling when it decides which passage
@@ -254,7 +367,7 @@ def _training_example(document: dict[str, Any]) -> dict[str, Any]:
     target = json.dumps(document["references"], ensure_ascii=False, separators=(",", ":"))
     return {
         "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": document["text"]},
             {"role": "assistant", "content": target},
         ]
@@ -266,12 +379,13 @@ def write_training_data(
     output_dir: Path,
     documents: Mapping[Any, dict[str, Any]],
     split: dict[str, list[Any]],
+    system_prompt: str = SYSTEM_PROMPT,
 ) -> dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
     files: dict[str, Any] = {}
     for split_name in ("train", "valid", "test"):
         ids = split[split_name]
-        examples = [_training_example(documents[doc_id]) for doc_id in ids]
+        examples = [_training_example(documents[doc_id], system_prompt) for doc_id in ids]
         data_path = output_dir / f"{split_name}.jsonl"
         ids_path = output_dir / f"{split_name}_doc_ids.json"
         write_jsonl_atomic(data_path, examples)

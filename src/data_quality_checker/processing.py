@@ -14,7 +14,7 @@ from .constants import MODEL_ID, MODEL_REVISION, REFERENCE_DECISION_FIELDS
 from .contracts import validate_reference_list
 from .errors import ContractError, FingerprintMismatch, GateBlocked, IntegrityError
 from .fingerprints import fingerprint_json, sha256_file, sha256_text
-from .g0 import SYSTEM_PROMPT
+from .g0 import loop_prompt
 from .g0_finalize import ROUND_LABEL_PATTERN, round_registry_path
 from .heartbeat import RunLease
 from .performance import optional_float, peak_memory_bytes_from_gb
@@ -270,6 +270,8 @@ class MlxG0Backend:
             "adapter_sha256"
         ):
             raise IntegrityError("sealed G0 adapter checksum mismatch")
+        # Asked with the prompt it was trained with: the config's (`g0.loop_prompt`).
+        self.prompt_variant, self.system_prompt = loop_prompt(config)
         self.max_input_tokens = int(registry["max_sequence_length"])
         self.max_generation_tokens = int(registry.get("max_generation_tokens", 4096))
         self._model_fingerprint = fingerprint_json(
@@ -292,7 +294,7 @@ class MlxG0Backend:
         from mlx_lm import stream_generate
 
         messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": self.system_prompt},
             {"role": "user", "content": document["text"]},
         ]
         prompt = self.tokenizer.apply_chat_template(

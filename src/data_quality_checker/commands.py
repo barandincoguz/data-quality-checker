@@ -278,9 +278,11 @@ def loop_train(args: Namespace, config: AppConfig) -> int:
     view = getattr(args, "view", None)
     # The whole-document line is never sealed: `--view full_documents` always
     # trains a candidate, whatever else is passed.
-    if getattr(args, "no_seal", False) or view == "full_documents":
+    stop_at = getattr(args, "stop_at", None)
+    if getattr(args, "no_seal", False) or view == "full_documents" or stop_at is not None:
+        # A run stopped short is a candidate too: it is never sealed.
         return _print_json(
-            train_loop_candidate(config, round_index=args.round, resume=args.resume, view=view)
+            train_loop_candidate(config, round_index=args.round, resume=args.resume, view=view, stop_at=stop_at)
         )
     return _print_json(train_loop_round(config, round_index=args.round, resume=args.resume))
 
@@ -327,6 +329,33 @@ def loop_carry_decisions(args: Namespace, config: AppConfig) -> int:
             source_label=args.from_config.stem,
         )
     )
+
+
+def loop_prompt_screen(args: Namespace, config: AppConfig) -> int:
+    from .prompt_screen import stage_one, stage_two, write_stage_two_configs
+
+    if args.stage == 2:
+        import json as _json
+        from pathlib import Path as _Path
+
+        from .config import load_config
+        from .g0 import PROMPT_VARIANT, loop_prompt
+        from .loop_ops import LOOP_CANDIDATE
+
+        runs = {PROMPT_VARIANT: _Path(config.training_runs_root) / args.base_run_id / "development" / LOOP_CANDIDATE}
+        for path in args.candidate_config or []:
+            candidate = load_config(path)
+            record = _json.loads((_Path(candidate.public_root) / "loop" / "candidates" / "round_000_windows.json").read_text())
+            runs[loop_prompt(candidate)[0]] = _Path(candidate.training_runs_root) / record["run_id"] / "development" / LOOP_CANDIDATE
+        output = _Path(config.public_root) / "loop" / "prompt_screen" / "stage2" / "selection.json"
+        result = stage_two(runs, output=output)
+        return _print_json({"winner": result["winner"],
+                            "ranking": [(r["variant"], round(r["f1"], 4), round(r["best_f1_up_to"], 4)) for r in result["ranking"]],
+                            "output": str(output)})
+    selection = stage_one(config, base_run_id=args.base_run_id)
+    configs = write_stage_two_configs(args.config, selection)
+    return _print_json({"ranking": [(r["variant"], round(r["f1"], 4)) for r in selection["ranking"]],
+                        "to_stage_two": selection["to_stage_two"], "configs": [str(p) for p in configs]})
 
 
 def loop_report(args: Namespace, config: AppConfig) -> int:

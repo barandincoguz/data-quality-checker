@@ -911,13 +911,19 @@ def paired_delta(
         verdict = "inconclusive"
 
     win_tie_loss = {"challenger_win": 0, "tie": 0, "incumbent_win": 0}
+
+    def document_score(counts: Mapping[str, int]) -> float:
+        # A document with no gold reference that is left empty is right (1.0),
+        # as the evaluator's document accuracy counts it; under the bootstrap's
+        # 0.0 convention it tied with a document given a spurious row (engine
+        # audit, 2 Oct 2026; validation doc 262). Only this count uses it.
+        if not (counts["tp"] or counts["fp"] or counts["fn"]):
+            return 1.0
+        return _bootstrap_f1(counts["tp"], counts["fp"], counts["fn"])
+
     for doc_id in doc_ids:
-        current_doc_f1 = _bootstrap_f1(
-            current[doc_id]["tp"], current[doc_id]["fp"], current[doc_id]["fn"]
-        )
-        previous_doc_f1 = _bootstrap_f1(
-            previous[doc_id]["tp"], previous[doc_id]["fp"], previous[doc_id]["fn"]
-        )
+        current_doc_f1 = document_score(current[doc_id])
+        previous_doc_f1 = document_score(previous[doc_id])
         if current_doc_f1 > previous_doc_f1:
             win_tie_loss["challenger_win"] += 1
         elif current_doc_f1 < previous_doc_f1:

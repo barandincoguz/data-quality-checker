@@ -857,3 +857,15 @@ def test_paired_delta_a_small_noisy_difference_is_inconclusive_not_improved() ->
     assert result["lower_2_5"] < 0 < result["upper_97_5"]
     assert result["verdict"] == "inconclusive"
     assert result["verdict"] != "improved"
+
+
+
+def test_an_empty_document_left_empty_beats_a_spurious_row_in_the_document_count() -> None:
+    """Validation doc 262 has no gold reference: leaving it empty is a win over
+    writing a row there, not a tie (engine audit, 2 Oct 2026)."""
+    from data_quality_checker.loop_metrics import paired_delta
+
+    previous = {1: {"tp": 0, "fp": 1, "fn": 0}, 2: {"tp": 3, "fp": 0, "fn": 0}}
+    current = {1: {"tp": 0, "fp": 0, "fn": 0}, 2: {"tp": 3, "fp": 0, "fn": 0}}
+    result = paired_delta(previous, current, samples=50)
+    assert result["per_document"] == {"challenger_win": 1, "tie": 1, "incumbent_win": 0}

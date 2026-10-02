@@ -1,16 +1,15 @@
-"""The two comparison engines must answer the identity question the same way.
+"""Spellings that name one reference, and those that name different ones.
 
-The project runs two of them. `data_quality_checker.normalization` decides the
-router's buckets, the judge's output contract and every round metric;
-`benchmark.reference.matching` scores the model and produced the published
-benchmarks. Having two *matching policies* is defensible -- set identity is
-cheap and symmetric, optimal bipartite assignment maximises cardinality and
-understands law-level subsumption. Having two answers to "are these the same
-provision?" is not.
-
-They drifted: a defect fixed in one was still live in the other, in a different
-form, and each had gaps the other did not. This file pins the agreement so the
-next drift fails a test instead of quietly moving a number.
+Until 2 Oct 2026 the project ran two engines -- `data_quality_checker.normalization`
+(router, judge, round metrics) and `benchmark.reference.matching` (the evaluator)
+-- and this file pinned that they agreed. They are one now (user decision:
+"döngü motoru ve değerlendiriciyi artık farklı iki şey gibi görmeyelim"):
+`data_quality_checker.reference_matching` is the comparison and
+`benchmark.reference.matching` re-exports it. The pairs below are still read
+both ways -- through the identity the loop's display and kappas use, and
+through the comparison the evaluator scores with -- so the two views of the one
+engine cannot drift. `tests/test_one_reference_comparison.py` pins that every
+module counts alike.
 """
 
 from __future__ import annotations

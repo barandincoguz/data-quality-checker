@@ -28,9 +28,9 @@ from .errors import ContractError, DQCheckError, GateBlocked, IntegrityError
 from .fingerprints import fingerprint_json, sha256_file
 from .heartbeat import RunLease
 from .judge_model import assert_gemma_thinking_is_disabled, resolve_judge_snapshot
-from .normalization import compact_references, core_identity
 from .performance import _percentile
 from .preparation import validate_ready
+from .reference_matching import compare_with_policy
 from .reference_policy import apply_reference_policy
 from .storage import Store
 from .text import evidence_match_mode
@@ -1144,8 +1144,6 @@ def run_judge_pilot(
         raise
 
 
-def _set_metric(references: list[dict[str, Any]]) -> set[Any]:
-    return {core_identity(reference) for reference in compact_references(references)}
 
 
 def _resolve_verdict(verdict: str | None, blind_mapping: str) -> str:
@@ -1233,11 +1231,12 @@ def judge_expert_metrics(
         unverified_spans = result_data.get("unverified_evidence") or []
         unverified_evidence_spans += len(unverified_spans)
         evidence_spans_seen += len(verified_spans) + len(unverified_spans)
-        expert_core, judge_core = _set_metric(expert), _set_metric(judge)
-        exact += expert_core == judge_core
-        tp += len(expert_core & judge_core)
-        fp += len(judge_core - expert_core)
-        fn += len(expert_core - judge_core)
+        # The project's one comparison (2 Oct 2026), 213/413 removed from both lists.
+        comparison = compare_with_policy(expert, judge)
+        exact += comparison.agree
+        tp += comparison.tp
+        fp += comparison.fp
+        fn += comparison.fn
         if result["retry_count"]:
             documents_needing_retry += 1
         verdict_distribution[_resolve_verdict(result["verdict"], result["blind_mapping"])] += 1

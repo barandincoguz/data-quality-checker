@@ -548,8 +548,9 @@ def canonical_evaluate(
         cwd=repo_root,
         env={
             **os.environ,
+            # The evaluator's matcher is the package's own (`reference_matching`).
             "PYTHONPATH": os.pathsep.join(
-                part for part in (str(repo_root), os.environ.get("PYTHONPATH", "")) if part
+                part for part in (str(repo_root), str(repo_root / "src"), os.environ.get("PYTHONPATH", "")) if part
             ),
         },
         text=True,

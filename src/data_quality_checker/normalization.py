@@ -281,7 +281,15 @@ def normalize_article(value: Any) -> str:
     return text
 
 
-def normalize_reference(raw: dict[str, Any]) -> dict[str, str]:
+def normalize_reference(raw: dict[str, Any], *, resolve_number_from_name: bool = True) -> dict[str, str]:
+    """One reference in one spelling.
+
+    `resolve_number_from_name=False` keeps the number as written (a number the
+    name itself states, "6183 sayılı Kanun", counts as written): the matcher
+    (`reference_matching`) compares written numbers, so that a name shared by a
+    repealed law and its successor ("Kurumlar Vergisi Kanunu": 5422 and 5520)
+    is matched by name and never resolved to the wrong one.
+    """
     validated = validate_reference_list([raw])[0]
     law_number = normalize_law_number(validated["kanun_no"])
     raw_name = validated["kanun_ad"]
@@ -295,7 +303,7 @@ def normalize_reference(raw: dict[str, Any]) -> dict[str, str]:
         if numbered:
             law_number = numbered.group(1).lstrip("0") or "0"
     law_name = normalize_law_name(raw_name, law_number=law_number)
-    if not law_number and law_name in CANONICAL_NO_BY_NAME:
+    if resolve_number_from_name and not law_number and law_name in CANONICAL_NO_BY_NAME:
         law_number = CANONICAL_NO_BY_NAME[law_name]
     return {
         "kanun_no": law_number,

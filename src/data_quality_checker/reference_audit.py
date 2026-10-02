@@ -62,6 +62,7 @@ from .normalization import (
     core_identity,
     normalize_reference,
 )
+from .reference_matching import compare_with_policy
 from .reference_policy import apply_reference_policy
 from .text import folded_text, normalize_text
 
@@ -307,37 +308,30 @@ def triage_disagreement(
     sorted core identities the expert has that the candidate lacks), so a
     caller can compute recall without a second pass over the same data.
     """
-    expert_kept, _ = apply_reference_policy(list(expert))
-    candidate_kept, _ = apply_reference_policy(list(candidate))
-    expert_compacted = compact_references(expert_kept)
-    candidate_compacted = compact_references(candidate_kept)
+    # The project's one comparison (`reference_matching`, 2 Oct 2026).
+    comparison = compare_with_policy(list(expert), list(candidate))
     normalized_document_text = normalize_text(document_text)
-
-    expert_core: set[Identity] = {core_identity(reference) for reference in expert_compacted}
-    candidate_core: set[Identity] = {core_identity(reference) for reference in candidate_compacted}
 
     findings: dict[str, list[dict[str, Any]]] = {
         "ungrounded": [],
         "label_inconsistent_with_span": [],
         "candidate_addition": [],
     }
-    matched_count = 0
-    for reference in candidate_compacted:
-        if core_identity(reference) in expert_core:
-            matched_count += 1
-            continue
+    matched_count = comparison.tp
+    for row in comparison.extra:
+        reference = normalize_reference(row)
         classification, evidence = _classify_candidate_only(
             reference, normalized_document_text=normalized_document_text
         )
         findings[classification].append({"reference": reference, **evidence})
 
-    expert_only = sorted(expert_core - candidate_core)
+    expert_only = sorted(comparison.missed_identities)
 
     return {
-        "candidate_reference_count": len(candidate_compacted),
-        "expert_reference_count": len(expert_compacted),
+        "candidate_reference_count": comparison.tp + len(comparison.extra),
+        "expert_reference_count": comparison.tp + len(comparison.missed),
         "candidate_matched_count": matched_count,
-        "candidate_only_count": len(candidate_compacted) - matched_count,
+        "candidate_only_count": len(comparison.extra),
         "ungrounded_count": len(findings["ungrounded"]),
         "label_inconsistent_with_span_count": len(findings["label_inconsistent_with_span"]),
         "candidate_addition_count": len(findings["candidate_addition"]),

@@ -2,7 +2,9 @@
 
 A reference is a law and an article of it (user decision, 1 Oct 2026), so a
 document is GREEN when both sides name the same provisions and RED when they do
-not. There is no YELLOW any more: it meant "same provisions, different
+not -- "the same" as `reference_matching.compare_reference_lists` decides it for
+every module (2 Oct 2026): a law named without its number matches it by name,
+and a law-only row beside an article of its law is extra, not a difference. There is no YELLOW any more: it meant "same provisions, different
 paragraph or sub-item", a difference that no longer exists -- no flag is
 raised for it.
 """
@@ -12,11 +14,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-from .normalization import (
-    compact_references,
-    conflicting_law_identity,
-    core_identity,
-)
+from .normalization import compact_references, conflicting_law_identity
+from .reference_matching import compare_reference_lists
 from .reference_policy import (
     DEFAULT_REFERENCE_POLICY_ID,
     apply_reference_policy,
@@ -39,12 +38,6 @@ class RouteDecision:
         return payload
 
 
-def _similarity(human: set[Any], model: set[Any]) -> float:
-    if not human and not model:
-        return 1.0
-    return len(human & model) / len(human | model)
-
-
 def route_document(
     *,
     human_references: list[dict[str, Any]],
@@ -59,9 +52,10 @@ def route_document(
     policy_model, _ = apply_reference_policy(model_references, policy_id=reference_policy_id)
     human = compact_references(policy_human)
     model = compact_references(policy_model)
-    core_human = {core_identity(reference) for reference in human}
-    core_model = {core_identity(reference) for reference in model}
-    similarity = _similarity(core_human, core_model)
+    # The project's one comparison (`reference_matching`, 2 Oct 2026): the same
+    # answer the validation F1, the journal table and the screen give.
+    comparison = compare_reference_lists(policy_human, policy_model)
+    similarity = comparison.similarity
 
     if (
         preparation_status != "ready"
@@ -89,11 +83,11 @@ def route_document(
             tuple(model),
         )
 
-    if core_human != core_model:
+    if not comparison.agree:
         reasons = []
-        if core_human - core_model:
+        if comparison.fn:
             reasons.append("missing_core_reference")
-        if core_model - core_human:
+        if comparison.fp:
             reasons.append("extra_or_different_core_reference")
         return RouteDecision("RED", tuple(reasons), similarity, tuple(human), tuple(model))
 

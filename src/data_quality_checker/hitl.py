@@ -26,12 +26,8 @@ from .contracts import REFERENCE_FIELDS, validate_reference_list
 from .errors import ConfigurationError, ContractError, GateBlocked, IntegrityError, VersionConflict
 from .judges import ensure_green_audit_plan, judge_lock_payload, judge_visible_to_expert
 from .loop_sources import has_loop_settings
-from .normalization import (
-    compact_references,
-    core_identity,
-    normalize_reference,
-)
 from .preparation import annotation_attribution_path
+from .reference_matching import DocumentContext, canonical_reference, compare_reference_lists
 from .reference_policy import (
     DEFAULT_REFERENCE_POLICY_ID,
     apply_reference_policy,
@@ -357,13 +353,22 @@ def ab_diff(
     visible and flagged, so the expert can audit what was written.
     """
 
+    # The status of a row is the project's one comparison's answer (2 Oct 2026,
+    # `reference_matching`): matched, missed, extra -- or a law-only row beside an
+    # article of its law in its own list, which is extra, not a difference.
+    canonical_a = [canonical_reference(reference) for reference in candidate_a]
+    canonical_b = [canonical_reference(reference) for reference in candidate_b]
+    context = DocumentContext(canonical_a, canonical_b)
+    comparison = compare_reference_lists(candidate_a, candidate_b)
+    only_in_a = set(comparison.missed_identities)
+    only_in_b = set(comparison.extra_identities)
+    excused = {context.identity(row) for row in (*comparison.excused_reference, *comparison.excused_candidate)}
+
     order: list[tuple[str, str, str, str]] = []
     groups: dict[tuple[str, str, str, str], dict[str, list[dict[str, Any]]]] = {}
-    claimed: dict[str, set[tuple[str, str, str, str]]] = {}
-    for label, references in (("a", candidate_a), ("b", candidate_b)):
-        claimed[label] = {core_identity(reference) for reference in compact_references(references)}
-        for reference in references:
-            key = core_identity(normalize_reference(reference))
+    for label, references, canonical in (("a", candidate_a, canonical_a), ("b", candidate_b, canonical_b)):
+        for reference, row in zip(references, canonical, strict=True):
+            key = context.identity(row)
             if key not in groups:
                 groups[key] = {"a": [], "b": []}
                 order.append(key)
@@ -373,15 +378,17 @@ def ab_diff(
     for key in order:
         a_refs = groups[key]["a"]
         b_refs = groups[key]["b"]
-        in_a, in_b = key in claimed["a"], key in claimed["b"]
         duplicates = {"a": max(0, len(a_refs) - 1), "b": max(0, len(b_refs) - 1)}
         subsumed = {
-            "a": len(a_refs) if a_refs and not in_a else 0,
-            "b": len(b_refs) if b_refs and not in_b else 0,
+            "a": len(a_refs) if a_refs and key in excused else 0,
+            "b": len(b_refs) if b_refs and key in excused else 0,
         }
-        if in_a and not in_b:
+        if key[0] == "unknown":
+            # A row naming no law: no reference on the human side, a wrong row on the model's.
+            status = "same" if a_refs and b_refs else ("only_a" if a_refs else "only_b")
+        elif key in only_in_a:
             status = "only_a"
-        elif in_b and not in_a:
+        elif key in only_in_b:
             status = "only_b"
         else:
             status = "same"
@@ -749,9 +756,8 @@ def _trigger_green_escalation(
     if document["internal_doc_id"] not in set(audit["sample_internal_doc_ids"]):
         return False
     original, _ = apply_reference_policy(json.loads(document["human_references_json"]))
-    original_set = {core_identity(row) for row in compact_references(original)}
-    final_set = {core_identity(row) for row in compact_references(final)}
-    if original_set == final_set:
+    final_kept, _ = apply_reference_policy(list(final))
+    if compare_reference_lists(original, final_kept).agree:
         return False
     path = config.public_root / "batches" / batch_id / "green_escalation.json"
     payload = {

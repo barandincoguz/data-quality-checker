@@ -330,28 +330,22 @@ def normalize_madde(value: str) -> str:
 
 
 def normalize_reference(reference: dict) -> dict:
-    """Return a safe, schema-compatible reference object."""
-    raw_no = str(reference.get("kanun_no", "") or "")
-    raw_ad = str(reference.get("kanun_ad", "") or "")
-    kanun_no = normalize_kanun_no(raw_no)
-    if not kanun_no and raw_no.strip() and not raw_ad.strip() and raw_no.strip().casefold() not in EMPTY_LAW_NUMBER_WORDS:
-        # A name written into the number field ("Gelir Vergisi Kanunu") is the name.
-        raw_ad = raw_no
-    if not kanun_no:
-        # "6183 sayılı Kanun" in the name field carries the number.
-        numbered = re.match(r"^\s*(\d{1,4})\s*say[\u0131i]l[\u0131i]\b", raw_ad, flags=re.IGNORECASE)
-        if numbered:
-            kanun_no = numbered.group(1).lstrip("0") or "0"
-    kanun_ad = normalize_kanun_adi(raw_ad, kanun_no=kanun_no)
+    """Return a safe, schema-compatible reference object.
 
-    ref = {
+    One normalizer for the project (user decision, 2 Oct 2026): the fields are
+    `data_quality_checker.normalization`'s, with the number as written, exactly
+    as the matcher (`data_quality_checker.reference_matching`) reads them.
+    """
+    from data_quality_checker.reference_matching import canonical_reference
+
+    canonical = canonical_reference(reference)
+    return {
         "type": REFERENCE_TYPE,
-        "kanun_no": kanun_no,
-        "kanun_ad": kanun_ad,
-        "madde": normalize_madde(str(reference.get("madde", ""))),
+        "kanun_no": canonical["kanun_no"],
+        "kanun_ad": canonical["kanun_ad"],
+        "madde": canonical["madde"],
         "source_text": collapse_ws(str(reference.get("source_text", ""))),
     }
-    return ref
 
 
 def deduplicate_references(references: Iterable[dict]) -> list[dict]:

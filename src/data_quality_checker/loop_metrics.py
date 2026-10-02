@@ -50,8 +50,8 @@ from typing import Any
 from .constants import EXPERT_ACTIONS, REVIEW_STATUSES
 from .errors import ContractError, IntegrityError
 from .g0_training import canonical_evaluate
-from .normalization import compact_references, core_identity, normalize_reference
 from .performance import _percentile, summarize_operational_records
+from .reference_matching import compare_with_policy, reference_identities
 from .reference_policy import apply_reference_policy
 
 Identity = tuple[str, str, str, str]
@@ -60,7 +60,11 @@ _RATER_NAMES: tuple[str, str, str] = ("annotator", "model", "judge")
 _FINALIZING_ACTIONS = frozenset(EXPERT_ACTIONS - {"defer"})
 
 
-def _core_identity_set(references: Iterable[Mapping[str, Any]] | None) -> set[Identity] | None:
+def _core_identity_set(
+    references: Iterable[Mapping[str, Any]] | None,
+    *,
+    context_lists: Sequence[Iterable[Mapping[str, Any]]] = (),
+) -> set[Identity] | None:
     """Return the core-identity set a rater's raw reference list resolves to.
 
     `None` means the rater has no usable output for this document at all
@@ -73,8 +77,7 @@ def _core_identity_set(references: Iterable[Mapping[str, Any]] | None) -> set[Id
     if references is None:
         return None
     kept, _ = apply_reference_policy(list(references))
-    compacted = compact_references(kept)
-    return {core_identity(reference) for reference in compacted}
+    return reference_identities(kept, context_lists=[apply_reference_policy(list(rows))[0] for rows in context_lists])
 
 
 def attribute_errors(
@@ -106,14 +109,14 @@ def attribute_errors(
     """
     if expert is None:
         raise ContractError("attribute_errors requires the expert's finalized references")
-    expert_set = _core_identity_set(expert)
-    assert expert_set is not None  # narrows for mypy; expert is never None here
-
     raw_by_rater = {"annotator": annotator, "model": model, "judge": judge}
+    # Every list of the document aligns the same way (a law named without its
+    # number takes it from wherever the document states it), so an identity
+    # here is the identity the kappas and the journal table use.
+    available = [list(rows) for rows in raw_by_rater.values() if rows is not None]
     result: dict[str, Any] = {}
     for name in _RATER_NAMES:
-        rater_set = _core_identity_set(raw_by_rater[name])
-        if rater_set is None:
+        if raw_by_rater[name] is None:
             result[name] = {
                 "available": False,
                 "correct": None,
@@ -121,11 +124,12 @@ def attribute_errors(
                 "spurious": None,
             }
             continue
+        comparison = compare_with_policy(list(expert), list(raw_by_rater[name]), context_lists=available)
         result[name] = {
             "available": True,
-            "correct": sorted(expert_set & rater_set),
-            "missed": sorted(expert_set - rater_set),
-            "spurious": sorted(rater_set - expert_set),
+            "correct": sorted(comparison.matched_identities),
+            "missed": sorted(comparison.missed_identities),
+            "spurious": sorted(comparison.extra_identities),
         }
     return result
 
@@ -260,9 +264,11 @@ def rater_agreement(records: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         if "expert" not in record or record["expert"] is None:
             raise ContractError("rater_agreement requires an 'expert' entry for every record")
 
+        document_lists = [record["expert"], *(record.get(name) for name in _RATER_NAMES)]
+        document_lists = [list(rows) for rows in document_lists if rows is not None]
         identity_sets = {
-            "expert": _core_identity_set(record["expert"]),
-            **{name: _core_identity_set(record.get(name)) for name in _RATER_NAMES},
+            "expert": _core_identity_set(record["expert"], context_lists=document_lists),
+            **{name: _core_identity_set(record.get(name), context_lists=document_lists) for name in _RATER_NAMES},
         }
         universe: set[Identity] = set()
         for identity_set in identity_sets.values():
@@ -951,7 +957,11 @@ def paired_delta(
 # --- the journal's per-batch table (user story, 1 Oct 2026) -----------------
 
 
-def _claims(references: Iterable[Mapping[str, Any]]) -> tuple[int, int, set[Any], int]:
+def _claims(
+    references: Iterable[Mapping[str, Any]],
+    *,
+    context: Iterable[Mapping[str, Any]] | None = None,
+) -> tuple[int, int, set[Any], int]:
     """(rows after the policy, rows the policy dropped, reference set, distinct
     references among the rows).
 
@@ -963,13 +973,17 @@ def _claims(references: Iterable[Mapping[str, Any]]) -> tuple[int, int, set[Any]
     """
     rows = list(references)
     kept, _ = apply_reference_policy(rows)
-    compacted = compact_references(kept)
-    return (
-        len(kept),
-        len(rows) - len(kept),
-        {core_identity(reference) for reference in compacted},
-        len({core_identity(normalize_reference(dict(reference))) for reference in kept}),
-    )
+    other = [apply_reference_policy(list(context))[0]] if context is not None else []
+    claims = reference_identities(kept, context_lists=other)
+    # Distinct references among the rows, a law-only row beside an article of
+    # its law included (written, but extra): the difference to `claims` is the
+    # table's `subsumed_rows`.
+    from .reference_matching import DocumentContext, canonical_reference
+
+    canonical = [canonical_reference(reference) for reference in kept]
+    aligned = DocumentContext(canonical, *([canonical_reference(r) for r in rows_] for rows_ in other))
+    distinct = {aligned.identity(row) for row in canonical}
+    return (len(kept), len(rows) - len(kept), claims, len(distinct))
 
 
 def _table_prf(tp: int, fp: int, fn: int) -> tuple[float, float, float]:
@@ -1036,14 +1050,18 @@ def reference_table(
             if record.get(name) is None:
                 continue
             documents += 1
-            _, _, truth_core, _ = _claims(record["truth"])
-            kept, dropped, core, distinct = _claims(record[name])
-            counts_core = (len(core & truth_core), len(core - truth_core), len(truth_core - core))
+            kept, dropped, _, distinct = _claims(record[name], context=record["truth"])
+            comparison = compare_with_policy(list(record["truth"]), list(record[name]))
+            counts_core = (comparison.tp, comparison.fp, comparison.fn)
             rows_core.append(counts_core)
+            # Every count from the one comparison: what it wrote that counts
+            # (found + wrong), the truth's references (found + missed), and the
+            # law-only rows beside an article of their law that were not scored.
             totals.update(
                 written_rows=kept, policy_dropped=dropped, duplicate_rows=kept - distinct,
-                subsumed_rows=distinct - len(core), written_references=len(core),
-                truth_references=len(truth_core),
+                subsumed_rows=len(comparison.excused_candidate),
+                written_references=comparison.tp + comparison.fp,
+                truth_references=comparison.tp + comparison.fn,
             )
             per_document.setdefault(str(record["doc_id"]), {})[name] = {"core": list(counts_core)}
         tp, fp, fn = (sum(row[i] for row in rows_core) for i in range(3))

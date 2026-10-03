@@ -51,6 +51,7 @@ from typing import Any
 
 from .normalization import (
     CANONICAL_NO_BY_NAME,
+    VALID_LAW_NUMBERS_BY_NAME,
     _fold,
     names_a_particular_law,
     normalize_law_name,
@@ -86,6 +87,9 @@ def law_name_key(ref: Mapping[str, str]) -> str:
 _CANONICAL_NUMBER_BY_NAME_KEY = {
     re.sub(r"[^0-9a-z]+", "", _fold(name)): number for name, number in CANONICAL_NO_BY_NAME.items()
 }
+_VALID_NUMBERS_BY_NAME_KEY = {
+    re.sub(r"[^0-9a-z]+", "", _fold(name)): numbers for name, numbers in VALID_LAW_NUMBERS_BY_NAME.items()
+}
 
 
 class DocumentContext:
@@ -106,8 +110,15 @@ class DocumentContext:
         if not key:
             return ""
         candidates = set(self._numbers.get(key, set()))
-        if key in _CANONICAL_NUMBER_BY_NAME_KEY:
-            candidates.add(_CANONICAL_NUMBER_BY_NAME_KEY[key])
+        valid = _VALID_NUMBERS_BY_NAME_KEY.get(key)
+        default = _CANONICAL_NUMBER_BY_NAME_KEY.get(key)
+        if valid is None:
+            if default:
+                candidates.add(default)
+        else:
+            candidates &= valid
+            if not candidates and default:
+                candidates = {default}
         return next(iter(candidates)) if len(candidates) == 1 else ""
 
     def identity(self, row: Mapping[str, str]) -> Identity:

@@ -1,10 +1,11 @@
 # Devir — DQ-Loop
 
-> **3 Ekim 2026, 07:01 — GECE BİTTİ; SIRADA UZMAN.**
+> **3 Ekim 2026, 11:07 — GECE BİTTİ; SIRADA UZMAN.**
 > - M000 (P4, GT v8) `dqcheck_loop_88cf7872b3ed` mühürlü: @550, F1 0,9469; temel model kapısı 0,7742. Önkayıtlı
 >   doğrulama: P4 ≥ P0 (0,9443) → **P4 kaldı**.
 > - R01 bitti:
->   - tahmin 149/100/1 (karantina d000112: kaçak çıktı);
+>   - tahmin 149/100/1 (karantina d000112: kaçak çıktı; pencere geri düşmesi denendi, kurtarılamadı,
+>     karantinada kalır);
 >   - uzmanın 23 kararı taşındı;
 >   - hakem 131/131;
 >   - sıfırdan kanıt tuttu;
@@ -12,10 +13,12 @@
 > - Gece düzeltilen döngü açıkları:
 >   - karantina belgesi uzmana ve hakeme gider (`e40bdc1` + judges);
 >   - boş cevap kapısı tek kaçırmayı değil çöküşü durdurur (`d115e17`).
+> - Toplu tahmine pencere geri düşmesi eklendi (`7126ba4`): yalnız hata veren belge pencerelerle yeniden denenir;
+>   d000112'de ilk pencere de sınıra koştu.
 > - İkinci hat: tam belge `dqcheck_loop_1090f276e398` @125 0,9296 vs pencereli 0,9469; fark anlamsız; ana hat
 >   pencereli kalır. Durdurulan eski koşu `Fine-Tuning/runs/_archive/` altında.
-> - Açık kararlar (kullanıcı): test bölmesi denetimi; yabancı dal `wip/foreign-deep-audit-2026-10-02`; toplu tahminde
->   kaçak çıktı için pencere geri düşmesi.
+> - Açık kararlar (kullanıcı): test bölmesi denetimi; yabancı dal `wip/foreign-deep-audit-2026-10-02` (açık uçlu aralık
+>   yazımı olduğu gibi kalır).
 > - Belge işleri agy (gemini-3.8-flash-high) ile; Claude doğrular. Canlı belge `ner-project/Journal/experiments/dq_loop_gt750/CANLI_DURUM.md`
 >   (`Journal/analysis/scripts/dq_loop_gt750_live_status.py [--check]`).
 

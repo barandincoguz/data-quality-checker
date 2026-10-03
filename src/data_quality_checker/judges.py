@@ -938,7 +938,9 @@ def _run_locked_judge_coverage(
         targets = [
             document
             for document in documents
-            if document["router_bucket"] in {"RED", "YELLOW"}
+            # QUARANTINE too: the expert reviews it (hitl._review_requirements), and
+            # the judge judges every document the expert reviews.
+            if document["router_bucket"] in {"RED", "YELLOW", "QUARANTINE"}
             or (escalation and document["router_bucket"] == "GREEN")
             or document["internal_doc_id"] in audit
         ]

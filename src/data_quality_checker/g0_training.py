@@ -598,6 +598,30 @@ def _parsed_zero_reference_output_count(payload: dict[str, Any]) -> int:
     )
 
 
+#: A model collapsing to empty answers -- not one document it missed. Before
+#: 3 Oct 2026 a single parsed empty list anywhere stopped the run and made the
+#: checkpoint ineligible: the full-document M000 (P4, GT v8) stopped at update 50
+#: because it answered [] on one of 50 validation documents (doc 444, F1 0.92
+#: overall), and a correct [] on validation doc 262 (no gold reference) would
+#: have stopped any run. A missed document already costs its false negatives.
+COLLAPSE_EMPTY_ANSWERS = 3
+
+
+def empty_answers_on_referenced_documents(evaluation: dict[str, Any]) -> int:
+    """Documents with a gold reference for which the model claimed nothing."""
+    per_document = evaluation["results"][0].get("core_per_doc_metrics") or []
+    return sum(1 for d in per_document if not d["tp"] and not d["fp"] and d["fn"])
+
+
+def _collapsed(summary: dict[str, Any]) -> bool:
+    if int(summary.get("predicted_reference_count", 0)) <= 0:
+        return True
+    empty = summary.get("empty_answers_on_referenced_documents")
+    if empty is None:  # a summary written before 3 Oct 2026: the old rule
+        return _parsed_zero_reference_output_count(summary) > 0
+    return int(empty) >= COLLAPSE_EMPTY_ANSWERS
+
+
 def _validation_summary(
     *,
     update: int,
@@ -627,6 +651,7 @@ def _validation_summary(
         "zero_reference_output_count": int(validation["zero_reference_output_count"]),
         "parsed_zero_reference_output_count": (parsed_zero_reference_output_count),
         "predicted_reference_count": int(validation["predicted_reference_count"]),
+        "empty_answers_on_referenced_documents": empty_answers_on_referenced_documents(evaluation),
         "runaway_output_count": int(validation["runaway_output_count"]),
         "fallback_attempt_count": int(validation.get("fallback_attempt_count", 0)),
         "fallback_recovery_count": int(validation.get("fallback_recovery_count", 0)),
@@ -647,8 +672,7 @@ def _validation_summary(
         summary["coverage_count"] == 50
         and summary["parse_count"] >= 49
         and summary["empty_output_count"] == 0
-        and summary["parsed_zero_reference_output_count"] == 0
-        and summary["predicted_reference_count"] > 0
+        and not _collapsed(summary)
         and summary["runaway_output_count"] == 0
     )
     return summary
@@ -899,12 +923,9 @@ def run_development(
         for unit_number, update in enumerate(milestones, 1):
             if update in summary_by_update:
                 existing_summary = summary_by_update[update]
-                if (
-                    int(existing_summary.get("predicted_reference_count", 0)) <= 0
-                    or _parsed_zero_reference_output_count(existing_summary) > 0
-                ):
+                if _collapsed(existing_summary):
                     raise GateBlocked(
-                        f"validation at update={update} has parsed zero-reference outputs"
+                        f"validation at update={update} collapsed to empty answers"
                     )
                 summary_checkpoint = Path(existing_summary["checkpoint"])
                 verify_checkpoint(summary_checkpoint)
@@ -988,12 +1009,9 @@ def run_development(
                 evaluation_sha256=sha256_file(evaluation_path),
             )
             write_json_atomic(validation_dir / "summary.json", summary)
-            if (
-                summary["predicted_reference_count"] <= 0
-                or summary["parsed_zero_reference_output_count"] > 0
-            ):
+            if _collapsed(summary):
                 raise GateBlocked(
-                    f"validation at update={update} has parsed zero-reference outputs"
+                    f"validation at update={update} collapsed to empty answers"
                 )
             summary_by_update[update] = summary
             summaries = [summary_by_update[key] for key in sorted(summary_by_update)]

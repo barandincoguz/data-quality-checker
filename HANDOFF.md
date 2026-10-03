@@ -1,6 +1,6 @@
 # Devir — DQ-Loop
 
-> **3 Ekim 2026, 12:13 — SIRADA UZMAN.**
+> **3 Ekim 2026, 12:41 — SIRADA UZMAN.**
 > - M000 (P4, GT v8) `dqcheck_loop_88cf7872b3ed` mühürlü: @550, F1 0,9469; temel model kapısı 0,7742. Önkayıtlı
 >   doğrulama: P4 ≥ P0 (0,9443) → **P4 kaldı**.
 > - R01 bitti:
@@ -20,9 +20,13 @@
 > - GT v9 (test bölmesi denetimi bitti): 200 belge tarandı, 191 şüpheli, iki bağımsız okuyucu (Claude, kör agy)
 >   191/191 tam uyum; 1 belgede (doc 230) 2 tarife satırı (492/13, 492/20) düşürüldü; test satırı 896 → 894; döngü
 >   v8'de kalır; v9 testi test açılırken kullanılacak (ayrı ve kayıtlı bir adımla yazılacak).
-> - Açık kararlar (kullanıcı): yalnız yabancı dal `wip/foreign-deep-audit-2026-10-02` (açık uçlu aralık
->   yazımı olduğu gibi kalır).
-> - Belge işleri agy (gemini-3.8-flash-high) ile; Claude doğrular. Canlı belge `ner-project/Journal/experiments/dq_loop_gt750/CANLI_DURUM.md`
+> - Yabancı dal (`wip/foreign-deep-audit-2026-10-02`) değerlendirildi: Yürürlükteki motorda adayın yanlış numarasını
+>   doğru sayan sızıntı bulundu; sızıntıyı düzelten `proposal/engine-valid-numbers` (`0ac39e6`) öneri paketi hazırlandı;
+>   R01 sonrasında, M001 öncesinde testler uyarlanarak uygulanacak ve önceki turlar yeniden puanlanacak (P4 M000
+>   0,9429 olur; kullanıcı kararıyla P4 kaldı).
+> - Açık kararlar (kullanıcı): yok (açık uçlu aralık yazımı olduğu gibi kalır).
+> - Belge işleri agy (gemini-3.8-flash-high) ile; Claude doğrular. Canlı belge
+>   `ner-project/Journal/experiments/dq_loop_gt750/CANLI_DURUM.md`
 >   (`Journal/analysis/scripts/dq_loop_gt750_live_status.py [--check]`).
 
 > **2 Ekim 2026, 12:42 — TEK KARŞILAŞTIRMA MOTORU. Referans listelerini karşılaştıran her şey

@@ -1,5 +1,24 @@
 # Devir — DQ-Loop
 
+> **3 Ekim 2026, 07:01 — GECE BİTTİ; SIRADA UZMAN.**
+> - M000 (P4, GT v8) `dqcheck_loop_88cf7872b3ed` mühürlü: @550, F1 0,9469; temel model kapısı 0,7742. Önkayıtlı
+>   doğrulama: P4 ≥ P0 (0,9443) → **P4 kaldı**.
+> - R01 bitti:
+>   - tahmin 149/100/1 (karantina d000112: kaçak çıktı);
+>   - uzmanın 23 kararı taşındı;
+>   - hakem 131/131;
+>   - sıfırdan kanıt tuttu;
+>   - **ekran 5056 açık (tmux `gt750la-serve`), uzman kuyruğu 111**.
+> - Gece düzeltilen döngü açıkları:
+>   - karantina belgesi uzmana ve hakeme gider (`e40bdc1` + judges);
+>   - boş cevap kapısı tek kaçırmayı değil çöküşü durdurur (`d115e17`).
+> - İkinci hat: tam belge `dqcheck_loop_1090f276e398` @125 0,9296 vs pencereli 0,9469; fark anlamsız; ana hat
+>   pencereli kalır. Durdurulan eski koşu `Fine-Tuning/runs/_archive/` altında.
+> - Açık kararlar (kullanıcı): test bölmesi denetimi; yabancı dal `wip/foreign-deep-audit-2026-10-02`; toplu tahminde
+>   kaçak çıktı için pencere geri düşmesi.
+> - Belge işleri agy (gemini-3.8-flash-high) ile; Claude doğrular. Canlı belge `ner-project/Journal/experiments/dq_loop_gt750/CANLI_DURUM.md`
+>   (`Journal/analysis/scripts/dq_loop_gt750_live_status.py [--check]`).
+
 > **2 Ekim 2026, 12:42 — TEK KARŞILAŞTIRMA MOTORU. Referans listelerini karşılaştıran her şey
 > `src/data_quality_checker/reference_matching.py`** (kullanıcı: "döngü motoru ve değerlendiriciyi farklı iki şey gibi
 > görmeyelim"). Kullanıcılar: doğrulama F1'i (`benchmark/reference/matching.py` yalnız yeniden dışa aktarır), yönlendirme,

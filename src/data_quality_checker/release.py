@@ -246,7 +246,9 @@ def release_batch(*, config: AppConfig, batch_id: str, generation: str = "G0") -
                     "prediction_sha256": prediction["response_sha256"],
                     "reference_policy_id": DEFAULT_REFERENCE_POLICY_ID,
                 }
-                if document["router_bucket"] == "QUARANTINE":
+                # Quarantined and never decided: released without references. Once
+                # the expert has decided it, it is released like any reviewed document.
+                if document["router_bucket"] == "QUARANTINE" and review["status"] != "finalized":
                     row = {
                         **common,
                         "release_trust": "quarantine",

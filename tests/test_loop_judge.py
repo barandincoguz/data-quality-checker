@@ -224,3 +224,15 @@ def test_loop_judge_fixes_runs_and_marks_the_round_judged(tmp_path, monkeypatch)
     assert summary["coverage_complete"] and summary["required_document_count"] == 3
     assert resume_round(state_dir, 1).stage == "judged"
     assert json.loads((config.public_root / "batches" / "batch" / "judge_lock.json").read_text())["model"] == JUDGE_MODEL_KEY
+
+
+def test_a_quarantined_document_is_reviewed_by_the_expert(tmp_path) -> None:
+    """R01 d000112 (3 Oct 2026): the model failed, only the annotator's list was left
+    -- nothing agreed with it, so the expert reviews it; left out, the batch never
+    had a truth for it."""
+    config, routed = _loop_batch(tmp_path, buckets={"RED": 1, "QUARANTINE": 1, "GREEN": 2})
+    quarantined = next(d for d, b in routed.items() if b == "QUARANTINE")
+    red = next(d for d, b in routed.items() if b == "RED")
+    queue = _queue(config)
+    assert quarantined in queue and red in queue
+    assert queue.index(red) < len(queue) and set(queue) >= {quarantined, red} | _audit_ids(config)

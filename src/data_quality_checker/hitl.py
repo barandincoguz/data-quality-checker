@@ -531,7 +531,11 @@ def _review_requirements(
     )
     required: set[str] = set(audit_ids) | pilot_ids
     for document in documents:
-        if document["router_bucket"] in {"RED", "YELLOW"}:
+        # A QUARANTINE document (the model failed on it, e.g. R01 d000112 on
+        # 3 Oct 2026) has only the annotator's list: nothing agreed with it, so the
+        # expert reviews it like a RED one -- the screen already explains it as
+        # "Teknik inceleme gerekiyor". Left out, the batch never had a truth for it.
+        if document["router_bucket"] in {"RED", "YELLOW", "QUARANTINE"}:
             required.add(document["internal_doc_id"])
         elif escalated and document["router_bucket"] == "GREEN":
             required.add(document["internal_doc_id"])
@@ -540,7 +544,7 @@ def _review_requirements(
         doc_id = document["internal_doc_id"]
         if doc_id in pilot_ids:
             priority[doc_id] = 0
-        elif document["router_bucket"] == "RED":
+        elif document["router_bucket"] in {"RED", "QUARANTINE"}:
             priority[doc_id] = 1
         elif document["router_bucket"] == "YELLOW":
             priority[doc_id] = 2

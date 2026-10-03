@@ -1,6 +1,6 @@
 # Devir — DQ-Loop
 
-> **3 Ekim 2026, 11:07 — GECE BİTTİ; SIRADA UZMAN.**
+> **3 Ekim 2026, 12:13 — SIRADA UZMAN.**
 > - M000 (P4, GT v8) `dqcheck_loop_88cf7872b3ed` mühürlü: @550, F1 0,9469; temel model kapısı 0,7742. Önkayıtlı
 >   doğrulama: P4 ≥ P0 (0,9443) → **P4 kaldı**.
 > - R01 bitti:
@@ -17,7 +17,10 @@
 >   d000112'de ilk pencere de sınıra koştu.
 > - İkinci hat: tam belge `dqcheck_loop_1090f276e398` @125 0,9296 vs pencereli 0,9469; fark anlamsız; ana hat
 >   pencereli kalır. Durdurulan eski koşu `Fine-Tuning/runs/_archive/` altında.
-> - Açık kararlar (kullanıcı): test bölmesi denetimi; yabancı dal `wip/foreign-deep-audit-2026-10-02` (açık uçlu aralık
+> - GT v9 (test bölmesi denetimi bitti): 200 belge tarandı, 191 şüpheli, iki bağımsız okuyucu (Claude, kör agy)
+>   191/191 tam uyum; 1 belgede (doc 230) 2 tarife satırı (492/13, 492/20) düşürüldü; test satırı 896 → 894; döngü
+>   v8'de kalır; v9 testi test açılırken kullanılacak (ayrı ve kayıtlı bir adımla yazılacak).
+> - Açık kararlar (kullanıcı): yalnız yabancı dal `wip/foreign-deep-audit-2026-10-02` (açık uçlu aralık
 >   yazımı olduğu gibi kalır).
 > - Belge işleri agy (gemini-3.8-flash-high) ile; Claude doğrular. Canlı belge `ner-project/Journal/experiments/dq_loop_gt750/CANLI_DURUM.md`
 >   (`Journal/analysis/scripts/dq_loop_gt750_live_status.py [--check]`).

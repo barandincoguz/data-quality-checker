@@ -307,6 +307,14 @@ class MlxG0Backend:
             raise ContractError("tokenizer chat template did not return a string")
         input_tokens = len(self.tokenizer.encode(prompt))
         if input_tokens > self.max_input_tokens:
+            recovered, attempt = self._window_fallback(
+                messages,
+                primary={"error": f"input_token_count={input_tokens} exceeds max_sequence_length", "finish_reason": "input_too_long"},
+                input_tokens=input_tokens,
+                started=time.perf_counter(),
+            )
+            if recovered is not None:
+                return recovered
             return PredictionResult(
                 status="error",
                 references=[],
@@ -321,6 +329,7 @@ class MlxG0Backend:
                     "latency_seconds": 0.0,
                     "truncated": False,
                     "generation_attempted": False,
+                    "window_fallback": attempt,
                 },
             )
         started = time.perf_counter()
@@ -390,6 +399,22 @@ class MlxG0Backend:
                 if recovery is not None:
                     references = recovery["references"]
                     status, error = "success", None
+        if status == "error":
+            # The validation worker's lossless token windows, with its settings
+            # (user decision, 3 Oct 2026: R01 d000112 ran to the generation
+            # limit with no JSON and went to quarantine; validation would have
+            # retried it in windows). A document the primary pass answered is
+            # never re-generated, so its output is byte-identical to before.
+            recovered, fallback_attempt = self._window_fallback(
+                messages,
+                primary={"error": error, "finish_reason": finish_reason, "output_tokens": output_tokens},
+                input_tokens=input_tokens,
+                started=started,
+            )
+            if recovered is not None:
+                return recovered
+        else:
+            fallback_attempt = None
         # A recovered document is not truncated: a complete reference set was
         # obtained from it. One that stayed an error is, and routes to
         # quarantine as before.
@@ -418,12 +443,84 @@ class MlxG0Backend:
                     else {key: value for key, value in recovery.items() if key != "references"}
                 ),
                 "generation_attempted": True,
+                "window_fallback": fallback_attempt,
                 "ttft_seconds": ttft_seconds,
                 "prompt_tps": prompt_tps,
                 "generation_tps": generation_tps,
                 "peak_memory_bytes": peak_memory_bytes,
             },
         )
+
+    def _window_fallback(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        primary: dict[str, Any],
+        input_tokens: int,
+        started: float,
+    ) -> tuple[PredictionResult | None, dict[str, Any]]:
+        """Retry a failed document in the validation worker's token windows.
+
+        Returns `(recovered prediction or None, record of the attempt)`. When the
+        windows fail too, the document stays the primary pass's error (and routes
+        to quarantine) with the attempt recorded in `operational["window_fallback"]`.
+        """
+        from .g0_training import (
+            WINDOW_FALLBACK_MAX_GENERATION_TOKENS,
+            WINDOW_FALLBACK_OVERLAP_TOKENS,
+            WINDOW_FALLBACK_TOKENS,
+        )
+        from .mlx_worker import _generate_window_fallback
+
+        try:
+            generated = _generate_window_fallback(
+                model=self.model,
+                tokenizer=self.tokenizer,
+                messages=messages,
+                max_input_tokens=self.max_input_tokens,
+                window_tokens=WINDOW_FALLBACK_TOKENS,
+                overlap_tokens=WINDOW_FALLBACK_OVERLAP_TOKENS,
+                max_generation_tokens=WINDOW_FALLBACK_MAX_GENERATION_TOKENS,
+                recover_repetition=True,
+            )
+        except (IntegrityError, ContractError) as exc:
+            return None, {"attempted": True, "recovered": False, "error": str(exc)}
+        finally:
+            try:
+                import mlx.core as mx
+
+                mx.clear_cache()
+            except Exception:
+                pass
+        fallback = dict(generated.get("fallback") or {})
+        windows = [{k: v for k, v in w.items() if k != "raw_output"} for w in fallback.pop("windows", [])]
+        recovered = bool(generated["parse_ok"]) and generated.get("finish_reason") != "length"
+        if not recovered:
+            return None, {"attempted": True, "recovered": False, "error": generated.get("parse_error"),
+                          **fallback, "windows": windows}
+        return PredictionResult(
+            status="success",
+            references=list(generated["parsed_references"]),
+            raw_output=str(generated["raw_output"]),
+            error=None,
+            operational={
+                "input_tokens": input_tokens,
+                "output_tokens": int(primary.get("output_tokens", 0)) + int(generated["output_tokens"]),
+                "latency_seconds": time.perf_counter() - started,
+                "truncated": False,
+                "finish_reason": "window_fallback_complete",
+                "repetition_stopped": False,
+                "repetition_recovery": None,
+                "generation_attempted": True,
+                "window_fallback": {
+                    "attempted": True,
+                    "recovered": True,
+                    "primary": {"error": primary.get("error"), "finish_reason": primary.get("finish_reason")},
+                    **fallback,
+                    "windows": windows,
+                },
+            },
+        ), {"attempted": True, "recovered": True}
 
 
 def _document_payload(row: dict[str, Any]) -> dict[str, Any]:

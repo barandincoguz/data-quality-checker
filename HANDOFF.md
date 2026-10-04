@@ -30,6 +30,9 @@
 > - 4 Ekim: her tur gürültülü ↔ temiz ablasyonu (`M_k_raw`, ham bursiyer etiketi; karar R05 sonrası testte) — ner
 >   `Journal/experiments/dq_loop_gt750/ablation_noisy_vs_clean/` (önkayıt, kontrol listesi). Ham etiket dışa aktarımı salt
 >   okunur + yedek: `data/sensitive/raw_label_snapshots/`.
+> - 5 Ekim: hedef dergi Expert Systems with Applications (kullanıcı). Taslak ner `Journal/manuscript/latex_eswa/main.tex`
+>   (elsarticle, çift kör; kırmızı = yapılmamış); dergi bilgileri `Journal/manuscript/journal_targets/README.md`; iddia
+>   kaydında `journal_scope` sütunu. R01 → M001 ve her tur sonucu bu taslağın tablolarına kayıttan girer.
 > - Belge işleri `auditing-project-docs` skill'iyle (ner `.claude/skills/`, `~/.claude/skills`'e bağlı): önem 1–3 agy
 >   (gemini-3.8-flash-high) yazar, Claude doğrular; 4–5 (LEDGER, önkayıt, karar, makale; haftalık rapor özeti, genel
 >   defterler, HANDOFF, canlı belge mantığı) Claude yazar; kapanışta `doc_guard.py` kontrolleri. Canlı belge

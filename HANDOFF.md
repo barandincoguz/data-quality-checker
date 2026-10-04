@@ -25,8 +25,9 @@
 >   R01 sonrasında, M001 öncesinde testler uyarlanarak uygulanacak ve önceki turlar yeniden puanlanacak (P4 M000
 >   0,9429 olur; kullanıcı kararıyla P4 kaldı).
 > - Açık kararlar (kullanıcı): yok (açık uçlu aralık yazımı olduğu gibi kalır).
-> - Belge işleri önem sırasına göre (kullanıcı, 3 Ekim): 1–3 agy (gemini-3.8-flash-high) yazar, Claude doğrular; 4–5
->   (LEDGER, önkayıt, karar, makale; haftalık rapor özeti, genel defterler, HANDOFF, canlı belge mantığı) Claude yazar. Canlı belge
+> - Belge işleri `auditing-project-docs` skill'iyle (ner `.claude/skills/`, `~/.claude/skills`'e bağlı): önem 1–3 agy
+>   (gemini-3.8-flash-high) yazar, Claude doğrular; 4–5 (LEDGER, önkayıt, karar, makale; haftalık rapor özeti, genel
+>   defterler, HANDOFF, canlı belge mantığı) Claude yazar; kapanışta `doc_guard.py` kontrolleri. Canlı belge
 >   `ner-project/Journal/experiments/dq_loop_gt750/CANLI_DURUM.md`
 >   (`Journal/analysis/scripts/dq_loop_gt750_live_status.py [--check]`).
 

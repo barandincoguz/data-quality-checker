@@ -63,6 +63,11 @@
 >   `5605ac1`, `feat/raw-label-arm`; önkayıt eki 3 ner `0908cad`). Bu yüzden `M001_raw` yeniden başlatıldı: **güncel koşu
 >   `dqcheck_loop_02d8059bfbad`** (etiket `run/m001-raw-2026-10-05b`, aynı tmux ve gözetmen). Eski koşu
 >   `dqcheck_loop_849cc99d1f69` 725. adımda durduruldu, kullanılmaz. Uzman ekranda tekrarlı satırı elle silmek zorunda değil.
+> - **6 Ekim 00:15 — EĞİTİM VERİSİ DENETİMİ:** tur belgelerinin referansları pencereye bulucunun bütün yazılı/çıkarsanmış
+>   geçişleriyle yerleşir (dq `cb39c18`; kullanıcı "Yalnız tur belgeleri"; önkayıt eki 4 ner `0717c85`; kaynak ner
+>   `sources/training_data_audit_2026-10-06.json`). **Güncel `M001_raw`: `dqcheck_loop_3331f64287a1`** (etiket
+>   `run/m001-raw-2026-10-06c`, 1.362 adım). `dqcheck_loop_02d8059bfbad` 25'te duraklatıldı, kullanılmaz. Denetimde başka
+>   sorun yok (213/413, hedef alanları, sızıntı, satır sınırı, kapsama).
 
 > **2 Ekim 2026, 12:42 — TEK KARŞILAŞTIRMA MOTORU. Referans listelerini karşılaştıran her şey
 > `src/data_quality_checker/reference_matching.py`** (kullanıcı: "döngü motoru ve değerlendiriciyi farklı iki şey gibi

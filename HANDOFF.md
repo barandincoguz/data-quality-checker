@@ -59,6 +59,10 @@
 >   birleştirilir → (5) `loop-rescore` M000 + `loop-select-rescored` (beklenen @550 0,9429) ve R01 hata raporu yeni motorla →
 >   (6) `loop-raw-check --round 1` → (7) `PAUSE_RAW_ARM`, `DURDU` → `M001` → (8) `M001_raw` bitince `loop-rescore` +
 >   `loop-select-rescored`.
+> - **5 Ekim 23:31 — TEKRARLI SATIRLAR:** tur belgelerinin eğitim hedefi iki kolda da her referansı bir kez taşır (dq
+>   `5605ac1`, `feat/raw-label-arm`; önkayıt eki 3 ner `0908cad`). Bu yüzden `M001_raw` yeniden başlatıldı: **güncel koşu
+>   `dqcheck_loop_02d8059bfbad`** (etiket `run/m001-raw-2026-10-05b`, aynı tmux ve gözetmen). Eski koşu
+>   `dqcheck_loop_849cc99d1f69` 725. adımda durduruldu, kullanılmaz. Uzman ekranda tekrarlı satırı elle silmek zorunda değil.
 
 > **2 Ekim 2026, 12:42 — TEK KARŞILAŞTIRMA MOTORU. Referans listelerini karşılaştıran her şey
 > `src/data_quality_checker/reference_matching.py`** (kullanıcı: "döngü motoru ve değerlendiriciyi farklı iki şey gibi

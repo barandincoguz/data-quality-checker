@@ -38,6 +38,12 @@
 >   defterler, HANDOFF, canlı belge mantığı) Claude yazar; kapanışta `doc_guard.py` kontrolleri. Canlı belge
 >   `ner-project/Journal/experiments/dq_loop_gt750/CANLI_DURUM.md`
 >   (`Journal/analysis/scripts/dq_loop_gt750_live_status.py [--check]`).
+> - 5 Ekim 11:50: R01 uzman incelemesi başlamadı (WAL 0 bayt, 3 Ekim 03:55'ten beri). Ablasyonun ham etiket kolu yazıldı:
+>   dal `feat/raw-label-arm` (`cdce2ff`, çalışma ağacı `/Users/student2/dq-raw-arm`), `loop-train --round k --labels raw`,
+>   hiç mühürlenmez; temiz koşu kimlikleri değişmez. Yerleştirme (kullanıcı: "Bursiyer alıntısıyla yerleştir"): önce bulucu,
+>   yerleşmeyen referans bursiyerin metinde birebir geçen alıntısıyla, o da yoksa düşer ve sayılır (önkayıt eki). **Dal R01
+>   incelemesi bitince birleştirilir** (ekran ana ağaçtan çalışıyor), sonra R01 yayın listesiyle gerçek sınama, sonra
+>   `M001` + `M001_raw`.
 
 > **2 Ekim 2026, 12:42 — TEK KARŞILAŞTIRMA MOTORU. Referans listelerini karşılaştıran her şey
 > `src/data_quality_checker/reference_matching.py`** (kullanıcı: "döngü motoru ve değerlendiriciyi farklı iki şey gibi

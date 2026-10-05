@@ -286,6 +286,14 @@ def build_parser() -> argparse.ArgumentParser:
     loop_raw_check.add_argument("--round", type=int, required=True)
     loop_raw_check.set_defaults(handler=commands.loop_raw_check)
 
+    loop_select_rescored = subparsers.add_parser(
+        "loop-select-rescored",
+        help="select a run's checkpoint on its rescored validation curve (the trainer's own rule)",
+    )
+    loop_select_rescored.add_argument("--run-id", required=True)
+    loop_select_rescored.add_argument("--label", required=True, help="the loop-rescore label")
+    loop_select_rescored.set_defaults(handler=commands.loop_select_rescored)
+
     loop_compare = subparsers.add_parser(
         "loop-compare",
         help="compare round N's windowed and whole-document lines on validation (and each with its previous round)",

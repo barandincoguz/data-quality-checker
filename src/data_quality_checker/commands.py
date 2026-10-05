@@ -299,6 +299,13 @@ def loop_raw_check(args: Namespace, config: AppConfig) -> int:
     return 0 if report["same_documents"] else 1
 
 
+def loop_select_rescored(args: Namespace, config: AppConfig) -> int:
+    from . import rescored_selection
+
+    selection = rescored_selection.select_rescored_checkpoint(config, run_id=args.run_id, label=args.label)
+    return _print_json({key: value for key, value in selection.items() if key != "points"})
+
+
 def loop_compare(args: Namespace, config: AppConfig) -> int:
     from .loop_ops import compare_views
 

@@ -44,6 +44,13 @@
 >   yerleşmeyen referans bursiyerin metinde birebir geçen alıntısıyla, o da yoksa düşer ve sayılır (önkayıt eki). **Dal R01
 >   incelemesi bitince birleştirilir** (ekran ana ağaçtan çalışıyor), sonra R01 yayın listesiyle gerçek sınama, sonra
 >   `M001` + `M001_raw`.
+> - **5 Ekim 12:11 — `M001_raw` ARKADA EĞİTİLİYOR** (kullanıcı: "ham kol arkada eğitik halde kalsın"): koşu
+>   `dqcheck_loop_849cc99d1f69`, kod dondurulmuş ağaç `/Users/student2/dq-run-m001-raw` (etiket `run/m001-raw-2026-10-05`,
+>   `615946e`), gözetmen `loop/supervise_m1_raw.sh` (tmux `gt750-m1raw-train`, günlük `loop/m1_raw_train.log`); 750 belge,
+>   1.280 adım. **Ana hattın GPU işini (M001, ikinci hat, R02 tahmini, hakem) başlatmadan önce `touch
+>   artifacts/data_quality_checker_gt750_law_article_p4_gtv8/loop/PAUSE_RAW_ARM`, günlükte `DURDU` bekle; ana hat bitince
+>   dosyayı sil** (koşu kaldığı yerden sürer). `STOP_RAW_ARM` gözetmeni bitirir. Yayından sonra `loop-raw-check --round 1`.
+>   Nokta seçimi motor önerisinden sonra yeniden puanlanmış eğriden (önkayıt eki 2; seçim kodu henüz yok).
 
 > **2 Ekim 2026, 12:42 — TEK KARŞILAŞTIRMA MOTORU. Referans listelerini karşılaştıran her şey
 > `src/data_quality_checker/reference_matching.py`** (kullanıcı: "döngü motoru ve değerlendiriciyi farklı iki şey gibi

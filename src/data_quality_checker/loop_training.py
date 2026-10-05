@@ -18,6 +18,7 @@ from .atomic import write_json_atomic
 from .errors import ContractError
 from .fingerprints import sha256_file
 from .reference_locator import attach_missing_spans
+from .reference_matching import distinct_rows, row_groups
 from .reference_policy import DEFAULT_REFERENCE_POLICY_ID, apply_reference_policy
 
 
@@ -193,17 +194,18 @@ def round_training_documents(config: Any, *, batch_ids: Sequence[str]) -> dict[s
     """
     # The annotator's quote decides nothing, not even placement (user rule,
     # 27 Sep 2026): every released reference is placed by the locator below.
-    # The release on disk keeps what was written.
-    documents: dict[str, dict[str, Any]] = {
-        doc_id: {
+    # Each reference is trained once (5 Oct 2026): a released list may repeat
+    # one -- an annotator's rows that differed only in fıkra or bent. The
+    # release on disk keeps what was written.
+    documents: dict[str, dict[str, Any]] = {}
+    for doc_id, row in _released_rows(config, batch_ids).items():
+        references = row["references"]
+        if not all(isinstance(reference, dict) for reference in references):
+            raise ContractError(f"released document {doc_id!r} has a reference that is not an object")
+        documents[doc_id] = {
             "text": row["text"],
-            "references": [
-                {**reference, "source_text": ""} if isinstance(reference, dict) else reference
-                for reference in row["references"]
-            ],
+            "references": [{**references[index], "source_text": ""} for index in distinct_rows(references)],
         }
-        for doc_id, row in _released_rows(config, batch_ids).items()
-    }
     documents, refusals = attach_missing_spans(documents)
     if refusals:
         worklist = "\n".join(
@@ -315,14 +317,23 @@ def round_raw_training_documents(
                 )
             batch_of[doc_id] = batch_id
             prepared_texts[doc_id] = annotator[doc_id]
-    quotes: dict[str, list[str]] = {}
+    quotes: dict[str, list[list[str]]] = {}
+    written: dict[str, int] = {}
     unplaced: dict[str, dict[str, Any]] = {}
     for doc_id, prepared in prepared_texts.items():
         references, _ = apply_reference_policy(prepared["references"])
-        quotes[doc_id] = [str(reference.get("source_text") or "").strip() for reference in references]
+        # Each reference once (5 Oct 2026), as in the clean arm; the quotes of
+        # every row that writes it may place it, as GT v7 kept every quote of
+        # the rows it merged.
+        groups = row_groups(references)
+        written[doc_id] = len(references)
+        quotes[doc_id] = [
+            [quote for index in group if (quote := str(references[index].get("source_text") or "").strip())]
+            for group in groups
+        ]
         unplaced[doc_id] = {
             "text": prepared["text"],
-            "references": [{**reference, "source_text": ""} for reference in references],
+            "references": [{**references[group[0]], "source_text": ""} for group in groups],
         }
     located, _ = attach_missing_spans(unplaced)
 
@@ -332,6 +343,7 @@ def round_raw_training_documents(
             "documents_from": documents_from[batch_id],
             "documents": 0,
             "references": 0,
+            "repeated_rows": 0,
             "placed_by_locator": 0,
             "placed_by_annotator_quote": 0,
             "dropped_unplaceable": 0,
@@ -343,15 +355,17 @@ def round_raw_training_documents(
         batch_id = batch_of[doc_id]
         counts = batches[batch_id]
         counts["documents"] += 1
+        counts["references"] += written[doc_id]
+        counts["repeated_rows"] += written[doc_id] - len(document["references"])
         kept: list[dict[str, Any]] = []
-        for reference, quote in zip(document["references"], quotes[doc_id], strict=True):
-            counts["references"] += 1
+        for reference, candidates in zip(document["references"], quotes[doc_id], strict=True):
+            verbatim = next((quote for quote in candidates if quote in document["text"]), "")
             if reference["source_text"]:
                 counts["placed_by_locator"] += 1
                 kept.append(reference)
-            elif quote and quote in document["text"]:
+            elif verbatim:
                 counts["placed_by_annotator_quote"] += 1
-                kept.append({**reference, "source_text": quote})
+                kept.append({**reference, "source_text": verbatim})
             else:
                 counts["dropped_unplaceable"] += 1
                 dropped.append(

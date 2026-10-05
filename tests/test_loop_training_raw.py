@@ -151,6 +151,7 @@ def test_a_reference_neither_the_locator_nor_the_quote_can_place_is_dropped_and_
         "documents_from": "release",
         "documents": 1,
         "references": 2,
+        "repeated_rows": 0,
         "placed_by_locator": 1,
         "placed_by_annotator_quote": 0,
         "dropped_unplaceable": 1,
@@ -345,3 +346,26 @@ def test_a_release_with_other_documents_is_another_raw_run(tmp_path: Path) -> No
     after = train_round(config, generation="M001", split=SPLIT, cleaned_batch_ids=["round1"], labels="raw")
     assert before["training_documents"] == 6 and after["training_documents"] == 6
     assert before["run_id"] != after["run_id"]
+
+
+# --- each reference once (5 Oct 2026) ---------------------------------------------------------
+
+
+def test_the_raw_arm_trains_each_reference_once(tmp_path: Path) -> None:
+    _prepare(tmp_path, "R01", {"d1": (LOCATABLE, [_reference("193", "94", ""), _reference("193", "94", ""),
+                                                  _reference("193", "", "")])})
+    documents, audit = round_raw_training_documents(_Cfg(tmp_path), batch_ids=["R01"])
+    assert [(r["kanun_no"], r["madde"]) for r in documents["d1"]["references"]] == [("193", "94")]
+    assert audit["batches"]["R01"]["references"] == 3
+    assert audit["batches"]["R01"]["repeated_rows"] == 2
+    assert audit["batches"]["R01"]["placed_by_locator"] == 1
+
+
+def test_any_quote_of_a_repeated_reference_may_place_it(tmp_path: Path) -> None:
+    text = "Ödeme, ilgili düzenlemenin onuncu hükmü gereğince yapılır."
+    _prepare(tmp_path, "R01", {"d1": (text, [_reference("5520", "10", "metinde yok"),
+                                             _reference("5520", "10", "onuncu hükmü")])})
+    documents, audit = round_raw_training_documents(_Cfg(tmp_path), batch_ids=["R01"])
+    [reference] = documents["d1"]["references"]
+    assert reference["source_text"] == "onuncu hükmü"
+    assert audit["batches"]["R01"]["placed_by_annotator_quote"] == 1

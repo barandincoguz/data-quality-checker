@@ -148,6 +148,7 @@ def test_a_reference_neither_the_locator_nor_the_quote_can_place_is_dropped_and_
     documents, audit = round_raw_training_documents(_Cfg(tmp_path), batch_ids=["R01"])
     assert [r["kanun_no"] for r in documents["d1"]["references"]] == ["193"]
     assert audit["batches"]["R01"] == {
+        "documents_from": "release",
         "documents": 1,
         "references": 2,
         "placed_by_locator": 1,
@@ -269,3 +270,78 @@ def test_an_unknown_label_source_is_refused(tmp_path: Path) -> None:
     config = canonical_fixture(tmp_path)
     with pytest.raises(ContractError):
         train_round(config, generation="M000", split=SPLIT, cleaned_batch_ids=[], labels="noisy")
+
+
+# --- before the release: the raw arm needs no expert decision --------------------------------
+# The loop's release trains on every document of its batch: RED and QUARANTINE documents are
+# required reviews (hitl._review_requirements), a deferred one blocks the release, and GREEN
+# ones are either reviewed or released as consensus. So the raw arm can train before the
+# release on the whole batch; `check_raw_candidate_against_release` compares afterwards.
+
+
+def test_before_the_release_the_raw_arm_reads_every_document_of_the_batch(tmp_path: Path) -> None:
+    _prepare(
+        tmp_path,
+        "R01",
+        {"d2": ("iki", []), "d1": (LOCATABLE, [_reference("193", "94", "")]), "dQ": ("uc", [])},
+    )
+    documents, audit = round_raw_training_documents(_Cfg(tmp_path), batch_ids=["R01"])
+    assert list(documents) == ["d1", "d2", "dQ"]
+    assert audit["batches"]["R01"]["documents_from"] == "batch"
+    assert audit["documents_by_batch"] == {"R01": ["d1", "d2", "dQ"]}
+
+
+def test_with_a_release_the_raw_arm_reads_the_release_set_in_id_order(tmp_path: Path) -> None:
+    _prepare(tmp_path, "R01", {"d1": ("bir", []), "d2": ("iki", [])})
+    write_sealed_release(
+        tmp_path,
+        "R01",
+        expert=[{"internal_doc_id": "d2", "text": "iki", "references": []}],
+        consensus=[{"internal_doc_id": "d1", "text": "bir", "references": []}],
+    )
+    documents, audit = round_raw_training_documents(_Cfg(tmp_path), batch_ids=["R01"])
+    assert list(documents) == ["d1", "d2"]
+    assert audit["batches"]["R01"]["documents_from"] == "release"
+
+
+def test_an_empty_batch_is_refused(tmp_path: Path) -> None:
+    _prepare(tmp_path, "R01", {"d1": ("bir", [])})
+    with pytest.raises(ContractError, match="R02"):
+        round_raw_training_documents(_Cfg(tmp_path), batch_ids=["R02"])
+
+
+def test_a_raw_run_before_the_release_is_the_run_after_it_when_the_documents_agree(tmp_path: Path) -> None:
+    config = canonical_fixture(tmp_path)
+    root = Path(config.sensitive_root)
+    _prepare(root, "round1", {"d1": (LOCATABLE, [_reference("193", "94", "")]), "d2": ("iki", [])})
+    before = train_round(config, generation="M001", split=SPLIT, cleaned_batch_ids=["round1"], labels="raw")
+    write_sealed_release(
+        root,
+        "round1",
+        [{"internal_doc_id": "d2", "text": "iki", "references": []}],
+        [{"internal_doc_id": "d1", "text": LOCATABLE, "references": []}],
+    )
+    after = train_round(config, generation="M001", split=SPLIT, cleaned_batch_ids=["round1"], labels="raw")
+    assert before["run_id"] == after["run_id"]
+    assert before["training_documents"] == 5
+
+
+def test_a_release_with_other_documents_is_another_raw_run(tmp_path: Path) -> None:
+    config = canonical_fixture(tmp_path)
+    root = Path(config.sensitive_root)
+    _prepare(root, "round1", {"d1": (LOCATABLE, []), "d2": ("iki", []), "d3": ("uc", [])})
+    before = train_round(config, generation="M001", split=SPLIT, cleaned_batch_ids=["round1"], labels="raw")
+    write_sealed_release(
+        root,
+        "round1",
+        [{"internal_doc_id": "d2", "text": "iki", "references": []}],
+        [{"internal_doc_id": "d3", "text": "uc", "references": []},
+         {"internal_doc_id": "d4", "text": "dort", "references": []}],
+    )
+    with Store(root / "dqcheck.sqlite3") as store:
+        store.add_document("round1", {"internal_doc_id": "d4", "public_doc_id": "p9", "raw_document_id": "r9",
+                                      "selected_channel": "html", "pdf_coverage": 1.0, "html_coverage": 1.0,
+                                      "text": "dort", "text_sha256": "x", "human_references": []})
+    after = train_round(config, generation="M001", split=SPLIT, cleaned_batch_ids=["round1"], labels="raw")
+    assert before["training_documents"] == 6 and after["training_documents"] == 6
+    assert before["run_id"] != after["run_id"]

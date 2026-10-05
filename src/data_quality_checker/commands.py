@@ -290,6 +290,15 @@ def loop_train(args: Namespace, config: AppConfig) -> int:
     return _print_json(train_loop_round(config, round_index=args.round, resume=args.resume))
 
 
+def loop_raw_check(args: Namespace, config: AppConfig) -> int:
+    from .loop_ops import check_raw_candidate_against_release
+
+    report = check_raw_candidate_against_release(config, round_index=args.round)
+    _print_json(report)
+    # Nonzero when the run is not the release's M_k_raw: it must be trained again.
+    return 0 if report["same_documents"] else 1
+
+
 def loop_compare(args: Namespace, config: AppConfig) -> int:
     from .loop_ops import compare_views
 

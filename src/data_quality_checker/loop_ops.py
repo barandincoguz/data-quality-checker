@@ -38,9 +38,16 @@ from .g0_training import (
 from .heartbeat import RunLease
 from .loop_bindings import write_error_report
 from .loop_metrics import model_round_metrics, paired_delta, unpaired_f1_delta
-from .loop_rounds import advance_round, resume_round, rounds_state_dir, write_round_state
+from .loop_rounds import (
+    ROUND_STAGES,
+    advance_round,
+    resume_round,
+    rounds_state_dir,
+    write_round_state,
+)
 from .loop_sources import has_loop_settings, validate_loop_sources
 from .loop_train import train_round, training_view_mode
+from .loop_training import _released_rows
 
 LOOP_CANDIDATE = "loop-lr2.5e-5-full-epoch"
 # The loop's own, sealed line is windowed; the whole-document model is the kept
@@ -267,7 +274,14 @@ def train_loop_candidate(
     """
     if round_index >= 1:
         stage = resume_round(rounds_state_dir(config), round_index).stage
-        if stage != "adjudicated":
+        if labels == "raw":
+            # The raw arm's labels are the annotator's: no expert decision enters
+            # it, so it trains once the batch is routed (5 Oct 2026); its document
+            # set is checked against the release by
+            # `check_raw_candidate_against_release`.
+            if ROUND_STAGES.index(stage) < ROUND_STAGES.index("routed"):
+                raise GateBlocked(f"round {round_index} is at {stage!r}; the raw arm needs it routed")
+        elif stage != "adjudicated":
             raise GateBlocked(f"round {round_index} is at {stage!r}; run loop-mark --stage adjudicated first")
     mode = training_view_mode(config, view)
     trained = _train_and_select(
@@ -286,6 +300,40 @@ def train_loop_candidate(
     write_json_atomic(path, record)
     write_json_atomic(path.with_name(f"{path.stem}_registry.json"), registry, mode=0o644)
     return record
+
+
+def check_raw_candidate_against_release(config: Any, *, round_index: int) -> dict[str, Any]:
+    """Compare a raw-arm run's round documents with the round's release.
+
+    The raw arm may train before its batch is released (5 Oct 2026) on every
+    document of the batch, because the loop's release trains on all of them.
+    Once the release exists this checks that claim for the run actually
+    trained; a run whose documents differ is not `M_k_raw` and is trained again
+    on the release (pre-registered). Ids and counts only.
+    """
+    record = json.loads(_candidate_path(config, round_index, "windows", "raw").read_text(encoding="utf-8"))
+    run_ids = json.loads(
+        (Path(config.sensitive_root) / "loop" / record["run_id"] / "data" / "train_doc_ids.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    # A canonical document keeps its integer id; a round's documents are strings.
+    in_run = {doc_id for doc_id in run_ids if isinstance(doc_id, str)}
+    released = set(_released_rows(config, [batch_id_for(k) for k in range(1, round_index + 1)]))
+    report = {
+        "schema_version": 1,
+        "round": round_index,
+        "run_id": record["run_id"],
+        "run_documents": len(in_run),
+        "release_documents": len(released),
+        "same_documents": in_run == released,
+        "only_in_run": sorted(in_run - released),
+        "only_in_release": sorted(released - in_run),
+        "checked_at": datetime.now(UTC).isoformat(),
+    }
+    path = _candidate_path(config, round_index, "windows", "raw")
+    write_json_atomic(path.with_name(f"{path.stem}_release_check.json"), report, mode=0o644)
+    return report
 
 
 def train_loop_round(

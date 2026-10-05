@@ -249,6 +249,11 @@ def _annotator_lists(database_path: Path, batch_id: str) -> dict[str, dict[str, 
     }
 
 
+def _has_sealed_release(config: Any, batch_id: str) -> bool:
+    parent = Path(config.sensitive_root) / "releases" / batch_id
+    return parent.is_dir() and any((path / "manifest.json").is_file() for path in parent.glob("release_*"))
+
+
 def round_raw_training_documents(
     config: Any, *, batch_ids: Sequence[str]
 ) -> tuple[dict[str, dict[str, Any]], dict[str, Any]]:
@@ -260,6 +265,15 @@ def round_raw_training_documents(
     list in place of the released one, under the release's reference policy
     (the policy `release_batch` applies to the annotator's list).
 
+    Before a batch is released (5 Oct 2026) its documents are every document of
+    the batch: the loop's release trains on all of them -- RED and QUARANTINE
+    documents are required reviews, a deferred review blocks the release, GREEN
+    ones are reviewed or released as consensus -- so the raw arm needs no expert
+    decision. `check_raw_candidate_against_release` compares the two sets once
+    the release exists. Either way documents are in id order, so a run built
+    before the release and one built after it on the same documents are the
+    same run.
+
     Placement (user decision, 5 Oct 2026): the locator first, exactly as in
     the clean arm. In the clean arm a reference the locator cannot place goes
     to the expert as a worklist; here no one corrects it, so it is placed by
@@ -269,26 +283,45 @@ def round_raw_training_documents(
     only teach a reference it can place. Every count, and every dropped
     reference, is returned in the audit.
     """
-    released = _released_rows(config, batch_ids)
-    annotator: dict[str, dict[str, dict[str, Any]]] = {
-        batch_id: _annotator_lists(Path(config.database_path), batch_id) for batch_id in batch_ids
-    }
+    batch_of: dict[str, str] = {}
+    documents_from: dict[str, str] = {}
+    prepared_texts: dict[str, dict[str, Any]] = {}
+    for batch_id in batch_ids:
+        annotator = _annotator_lists(Path(config.database_path), batch_id)
+        if _has_sealed_release(config, batch_id):
+            for doc_id, row in _released_rows(config, [batch_id]).items():
+                prepared = annotator.get(doc_id)
+                if prepared is None:
+                    raise ContractError(
+                        f"released document {doc_id!r} is not in batch {batch_id!r} of the loop database"
+                    )
+                if prepared["text"] != row["text"]:
+                    raise ContractError(
+                        f"released document {doc_id!r} differs from the text prepared in batch {batch_id!r}"
+                    )
+            ids = sorted(_released_rows(config, [batch_id]))
+            documents_from[batch_id] = "release"
+        else:
+            ids = sorted(annotator)
+            if not ids:
+                raise ContractError(
+                    f"batch {batch_id!r} has no release and no documents in the loop database"
+                )
+            documents_from[batch_id] = "batch"
+        for doc_id in ids:
+            if doc_id in batch_of:
+                raise ContractError(
+                    f"document {doc_id!r} is in batch {batch_of[doc_id]!r} and batch {batch_id!r}"
+                )
+            batch_of[doc_id] = batch_id
+            prepared_texts[doc_id] = annotator[doc_id]
     quotes: dict[str, list[str]] = {}
     unplaced: dict[str, dict[str, Any]] = {}
-    for doc_id, row in released.items():
-        prepared = annotator[row["batch_id"]].get(doc_id)
-        if prepared is None:
-            raise ContractError(
-                f"released document {doc_id!r} is not in batch {row['batch_id']!r} of the loop database"
-            )
-        if prepared["text"] != row["text"]:
-            raise ContractError(
-                f"released document {doc_id!r} differs from the text prepared in batch {row['batch_id']!r}"
-            )
+    for doc_id, prepared in prepared_texts.items():
         references, _ = apply_reference_policy(prepared["references"])
         quotes[doc_id] = [str(reference.get("source_text") or "").strip() for reference in references]
         unplaced[doc_id] = {
-            "text": row["text"],
+            "text": prepared["text"],
             "references": [{**reference, "source_text": ""} for reference in references],
         }
     located, _ = attach_missing_spans(unplaced)
@@ -296,6 +329,7 @@ def round_raw_training_documents(
     documents: dict[str, dict[str, Any]] = {}
     batches = {
         batch_id: {
+            "documents_from": documents_from[batch_id],
             "documents": 0,
             "references": 0,
             "placed_by_locator": 0,
@@ -306,7 +340,7 @@ def round_raw_training_documents(
     }
     dropped: list[dict[str, str]] = []
     for doc_id, document in located.items():
-        batch_id = released[doc_id]["batch_id"]
+        batch_id = batch_of[doc_id]
         counts = batches[batch_id]
         counts["documents"] += 1
         kept: list[dict[str, Any]] = []
@@ -335,6 +369,9 @@ def round_raw_training_documents(
         "reference_policy_id": DEFAULT_REFERENCE_POLICY_ID,
         "placement_rule": RAW_PLACEMENT_RULE,
         "batches": batches,
+        "documents_by_batch": {
+            batch_id: [doc_id for doc_id in documents if batch_of[doc_id] == batch_id] for batch_id in batch_ids
+        },
         "dropped": dropped,
     }
     return documents, audit

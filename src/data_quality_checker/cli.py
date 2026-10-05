@@ -279,6 +279,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     loop_train.set_defaults(handler=commands.loop_train)
 
+    loop_raw_check = subparsers.add_parser(
+        "loop-raw-check",
+        help="compare a raw-arm run trained before its release with the release's documents",
+    )
+    loop_raw_check.add_argument("--round", type=int, required=True)
+    loop_raw_check.set_defaults(handler=commands.loop_raw_check)
+
     loop_compare = subparsers.add_parser(
         "loop-compare",
         help="compare round N's windowed and whole-document lines on validation (and each with its previous round)",

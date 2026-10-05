@@ -277,10 +277,14 @@ def train_round(
             config, batch_ids=list(cleaned_batch_ids)
         )
     for batch_id in cleaned_batch_ids:
-        batch_documents = round_training_documents(config, batch_ids=[batch_id])
         if raw_label_audit is not None:
-            # The same documents, in the same order; only the references differ.
-            batch_documents = {doc_id: raw_documents[doc_id] for doc_id in batch_documents}
+            # The release's documents once it exists, the whole batch before it
+            # (`round_raw_training_documents`); in id order either way.
+            batch_documents = {
+                doc_id: raw_documents[doc_id] for doc_id in raw_label_audit["documents_by_batch"][batch_id]
+            }
+        else:
+            batch_documents = round_training_documents(config, batch_ids=[batch_id])
         cleaned_batches.append(list(batch_documents))
         documents.update(batch_documents)
 
@@ -320,6 +324,14 @@ def train_round(
         # loop's run ids stand), and a different placement rule is another run.
         fingerprint_payload["label_source"] = labels
         fingerprint_payload["raw_placement_rule"] = RAW_PLACEMENT_RULE
+        # Which documents and which raw lists: a run built before the release and
+        # one built after it are one run exactly when these agree.
+        fingerprint_payload["raw_training_sha256"] = fingerprint_json(
+            {
+                "documents_by_batch": raw_label_audit["documents_by_batch"],
+                "references": {doc_id: raw_documents[doc_id]["references"] for doc_id in raw_documents},
+            }
+        )
     run_fingerprint = fingerprint_json(fingerprint_payload)
     run_id = f"dqcheck_loop_{run_fingerprint[:12]}"
     data_dir = config.sensitive_root / "loop" / run_id / "data"

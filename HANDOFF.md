@@ -50,7 +50,15 @@
 >   1.280 adım. **Ana hattın GPU işini (M001, ikinci hat, R02 tahmini, hakem) başlatmadan önce `touch
 >   artifacts/data_quality_checker_gt750_law_article_p4_gtv8/loop/PAUSE_RAW_ARM`, günlükte `DURDU` bekle; ana hat bitince
 >   dosyayı sil** (koşu kaldığı yerden sürer). `STOP_RAW_ARM` gözetmeni bitirir. Yayından sonra `loop-raw-check --round 1`.
->   Nokta seçimi motor önerisinden sonra yeniden puanlanmış eğriden (önkayıt eki 2; seçim kodu henüz yok).
+>   Nokta seçimi motor önerisinden sonra yeniden puanlanmış eğriden (önkayıt eki 2).
+> - **5 Ekim 14:58 — HAZIR, R01 YAYININI BEKLİYOR:** seçim kodu `loop-select-rescored` (dal `feat/raw-label-arm`,
+>   `1d44198`) ve motor önerisi (dal `feat/engine-valid-numbers`, `44ebbfd`, çalışma ağacı `/Users/student2/dq-engine-apply`;
+>   commit edilmiş kodla yeniden ölçüldü: P4 M000 @550 0,9429, P0 @571 0,9443; dalın 30 testi geçiyor; iki dalın deneme
+>   birleştirmesi çakışmasız, süit 1.113). Uzman R01'e başlıyor. **R01'den sonraki sıra:** (1) `loop-errors --round 1` +
+>   kayıt betiği (mevcut motorla) → (2) yayın → (3) ekran kapatılır (kullanıcıya sor) → (4) iki dal `feat/gt750-loop`'a
+>   birleştirilir → (5) `loop-rescore` M000 + `loop-select-rescored` (beklenen @550 0,9429) ve R01 hata raporu yeni motorla →
+>   (6) `loop-raw-check --round 1` → (7) `PAUSE_RAW_ARM`, `DURDU` → `M001` → (8) `M001_raw` bitince `loop-rescore` +
+>   `loop-select-rescored`.
 
 > **2 Ekim 2026, 12:42 — TEK KARŞILAŞTIRMA MOTORU. Referans listelerini karşılaştıran her şey
 > `src/data_quality_checker/reference_matching.py`** (kullanıcı: "döngü motoru ve değerlendiriciyi farklı iki şey gibi

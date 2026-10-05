@@ -319,6 +319,11 @@ def train_round(
         recurrence = RECURRENCE_ID
         fingerprint_payload["training_view_mode"] = view_mode
         fingerprint_payload["recurrence"] = recurrence
+    if cleaned_batch_ids:
+        # How round documents' references are placed in training windows: every
+        # located mention since 6 Oct 2026 (the best span alone before). Absent
+        # for round 0, which has no round documents, so M000's run id stands.
+        fingerprint_payload["round_reference_placement"] = "located_mentions_v1"
     if labels != "clean":
         # A raw-label run is never the clean run (absent for "clean", so the
         # loop's run ids stand), and a different placement rule is another run.

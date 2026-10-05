@@ -17,7 +17,7 @@ from typing import Any
 from .atomic import write_json_atomic
 from .errors import ContractError
 from .fingerprints import sha256_file
-from .reference_locator import attach_missing_spans
+from .reference_locator import attach_mention_spans
 from .reference_matching import distinct_rows, row_groups
 from .reference_policy import DEFAULT_REFERENCE_POLICY_ID, apply_reference_policy
 
@@ -185,7 +185,9 @@ def round_training_documents(config: Any, *, batch_ids: Sequence[str]) -> dict[s
     a training window. The annotator's `source_text` is not used for that (it
     decides nothing, user rule 27 Sep 2026) and a reference taken from the model
     or the judge has none, so every released reference is placed by the
-    build-time locator, `attach_missing_spans` -- without
+    build-time locator, `attach_mention_spans`, at every mention whose law is
+    written or inferred (6 Oct 2026: a window citing it again lists it, as a
+    gold document's every-quote placement does) -- without
     ever writing the located span back into the release or the database, which
     stay the faithful record of what the expert decided. Every reference the
     locator could not place is collected into one `ContractError` naming all
@@ -206,7 +208,7 @@ def round_training_documents(config: Any, *, batch_ids: Sequence[str]) -> dict[s
             "text": row["text"],
             "references": [{**references[index], "source_text": ""} for index in distinct_rows(references)],
         }
-    documents, refusals = attach_missing_spans(documents)
+    documents, refusals = attach_mention_spans(documents)
     if refusals:
         worklist = "\n".join(
             f"  {refusal['doc_id']}: kanun_no={refusal['kanun_no']!r} "
@@ -221,9 +223,10 @@ def round_training_documents(config: Any, *, batch_ids: Sequence[str]) -> dict[s
     return documents
 
 
-# The raw arm's placement rule (user decision, 5 Oct 2026). Part of the raw
-# run's fingerprint: a different rule is a different run.
-RAW_PLACEMENT_RULE = "locator_then_annotator_verbatim_quote_v1"
+# The raw arm's placement rule (user decision, 5 Oct 2026; every located mention
+# since 6 Oct 2026). Part of the raw run's fingerprint: a different rule is a
+# different run.
+RAW_PLACEMENT_RULE = "locator_mentions_then_annotator_verbatim_quote_v2"
 
 
 def _annotator_lists(database_path: Path, batch_id: str) -> dict[str, dict[str, Any]]:
@@ -335,7 +338,7 @@ def round_raw_training_documents(
             "text": prepared["text"],
             "references": [{**references[group[0]], "source_text": ""} for group in groups],
         }
-    located, _ = attach_missing_spans(unplaced)
+    located, _ = attach_mention_spans(unplaced)
 
     documents: dict[str, dict[str, Any]] = {}
     batches = {

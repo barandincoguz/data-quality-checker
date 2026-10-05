@@ -369,3 +369,13 @@ def test_any_quote_of_a_repeated_reference_may_place_it(tmp_path: Path) -> None:
     [reference] = documents["d1"]["references"]
     assert reference["source_text"] == "onuncu hükmü"
     assert audit["batches"]["R01"]["placed_by_annotator_quote"] == 1
+
+
+def test_a_raw_reference_carries_every_mention_as_a_quote(tmp_path: Path) -> None:
+    text = ("193 sayılı Gelir Vergisi Kanununun 94 üncü maddesinde tevkifat düzenlenmiştir. "
+            "Ödemeler bakımından aynı Kanunun 94 üncü maddesi uygulanır.")
+    _prepare(tmp_path, "R01", {"d1": (text, [_reference("193", "94", "")])})
+    documents, audit = round_raw_training_documents(_Cfg(tmp_path), batch_ids=["R01"])
+    [reference] = documents["d1"]["references"]
+    assert len(reference["source_texts"]) == 2
+    assert audit["placement_rule"] == "locator_mentions_then_annotator_verbatim_quote_v2"

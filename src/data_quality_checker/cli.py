@@ -270,6 +270,13 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["windows", "full_documents"],
         help="full_documents trains the kept whole-document line on the same data; it is never sealed",
     )
+    loop_train.add_argument(
+        "--labels",
+        choices=["clean", "raw"],
+        default="clean",
+        help="raw trains the noisy-vs-clean ablation's M_k_raw: the same documents with the "
+        "annotators' raw lists; it is never sealed",
+    )
     loop_train.set_defaults(handler=commands.loop_train)
 
     loop_compare = subparsers.add_parser(

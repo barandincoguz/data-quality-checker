@@ -199,7 +199,13 @@ def _base_validation_f1(config: Any, run_id: str, *, worker=None, evaluator=None
 
 
 def _train_and_select(
-    config: Any, *, round_index: int, resume: bool, view: str | None = None, stop_at: int | None = None
+    config: Any,
+    *,
+    round_index: int,
+    resume: bool,
+    view: str | None = None,
+    stop_at: int | None = None,
+    labels: str = "clean",
 ) -> dict[str, Any]:
     source = validate_loop_sources(config)
     cleaned = [batch_id_for(k) for k in range(1, round_index + 1)]
@@ -216,6 +222,7 @@ def _train_and_select(
         target_updates=stop_at,
         resume=resume,
         view=view,
+        labels=labels,
     )
     candidate_root = (
         Path(config.training_runs_root) / result["run_id"] / "development" / LOOP_CANDIDATE
@@ -228,12 +235,19 @@ def _train_and_select(
     }
 
 
-def _candidate_path(config: Any, round_index: int, view: str) -> Path:
-    return _loop_dir(config) / "candidates" / f"round_{round_index:03d}_{view}.json"
+def _candidate_path(config: Any, round_index: int, view: str, labels: str = "clean") -> Path:
+    suffix = "" if labels == "clean" else f"_{labels}"
+    return _loop_dir(config) / "candidates" / f"round_{round_index:03d}_{view}{suffix}.json"
 
 
 def train_loop_candidate(
-    config: Any, *, round_index: int, resume: bool, view: str | None = None, stop_at: int | None = None
+    config: Any,
+    *,
+    round_index: int,
+    resume: bool,
+    view: str | None = None,
+    stop_at: int | None = None,
+    labels: str = "clean",
 ) -> dict[str, Any]:
     """Train and select round N's model on validation, never sealing it.
 
@@ -245,13 +259,20 @@ def train_loop_candidate(
     Its own inference registry (adapter checksum included) sits in the record,
     and beside it as `*_registry.json`, so it can be run on any batch later
     through `process_batch(registry_path=...)`.
+
+    `labels="raw"` trains the noisy-vs-clean ablation's `M_k_raw` (pre-registered
+    4 Oct 2026): the same documents with the annotator's raw lists. It is a
+    candidate like the whole-document line -- `train_loop_round`, the only path
+    that seals, takes no label source -- and its record is `*_raw.json`.
     """
     if round_index >= 1:
         stage = resume_round(rounds_state_dir(config), round_index).stage
         if stage != "adjudicated":
             raise GateBlocked(f"round {round_index} is at {stage!r}; run loop-mark --stage adjudicated first")
     mode = training_view_mode(config, view)
-    trained = _train_and_select(config, round_index=round_index, resume=resume, view=mode, stop_at=stop_at)
+    trained = _train_and_select(
+        config, round_index=round_index, resume=resume, view=mode, stop_at=stop_at, labels=labels
+    )
     context = _base_run_context(config, trained["run_id"])
     registry = build_g0_registry(
         model_snapshot_path=Path(context["run_config"]["model_snapshot"]["snapshot_path"]),
@@ -259,9 +280,9 @@ def train_loop_candidate(
         max_sequence_length=int(context["run_config"]["selected_sequence_length"]),
     )
     record = {"schema_version": 1, "round": round_index, "generation": round_label(round_index),
-              "training_view_mode": mode, "sealed": False, "stopped_at_update": stop_at, **trained,
-              "registry": registry}
-    path = _candidate_path(config, round_index, mode)
+              "training_view_mode": mode, "label_source": labels, "sealed": False,
+              "stopped_at_update": stop_at, **trained, "registry": registry}
+    path = _candidate_path(config, round_index, mode, labels)
     write_json_atomic(path, record)
     write_json_atomic(path.with_name(f"{path.stem}_registry.json"), registry, mode=0o644)
     return record

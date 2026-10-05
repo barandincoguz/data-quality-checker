@@ -185,7 +185,7 @@ def test_the_whole_document_line_is_trained_on_the_same_round_and_never_sealed(t
     seen = {}
     _second_line_fakes(monkeypatch, seen=seen)
     record = loop_ops.train_loop_candidate(config, round_index=0, resume=False, view="full_documents")
-    assert seen == {"round_index": 0, "resume": False, "view": "full_documents", "stop_at": None}
+    assert seen == {"round_index": 0, "resume": False, "view": "full_documents", "stop_at": None, "labels": "clean"}
     path = tmp_path / "public" / "loop" / "candidates" / "round_000_full_documents.json"
     assert json.loads(path.read_text()) == record
     assert record["sealed"] is False and record["training_view_mode"] == "full_documents"
@@ -299,3 +299,56 @@ def test_comparing_a_round_needs_both_lines(tmp_path):
     _write_line(tmp_path, round_index=0, view="windows", run_id="w0", selected=25, updates={25: 1})
     with pytest.raises(GateBlocked, match="round_000_full_documents"):
         loop_ops.compare_views(config, round_index=0)
+
+
+def test_the_raw_label_arm_is_a_candidate_and_never_sealed(tmp_path, monkeypatch):
+    """`M_k_raw` (noisy-vs-clean ablation, pre-registered 4 Oct 2026): its own
+    record beside the clean candidates, never round_NNN_model.json or g0/."""
+    config = _config(tmp_path)
+    seen = {}
+    _second_line_fakes(monkeypatch, seen=seen)
+    monkeypatch.setattr(loop_ops, "resume_round", lambda d, k: SimpleNamespace(stage="adjudicated"))
+    record = loop_ops.train_loop_candidate(config, round_index=1, resume=False, labels="raw")
+    assert seen["labels"] == "raw"
+    path = tmp_path / "public" / "loop" / "candidates" / "round_001_windows_raw.json"
+    assert json.loads(path.read_text()) == record
+    assert record["sealed"] is False and record["label_source"] == "raw"
+    assert path.with_name("round_001_windows_raw_registry.json").is_file()
+    assert not (tmp_path / "public" / "loop" / "rounds" / "round_001_model.json").exists()
+    assert not (tmp_path / "public" / "g0").exists()
+
+
+def test_the_label_source_reaches_the_trainer(tmp_path, monkeypatch):
+    seen = {}
+    monkeypatch.setattr(loop_ops, "validate_loop_sources", lambda c: {"split": {"train": [], "valid": [], "test": []}})
+
+    def fake_train_round(config, **kwargs):
+        seen.update(kwargs)
+        raise RuntimeError("stop")
+
+    monkeypatch.setattr(loop_ops, "train_round", fake_train_round)
+    with pytest.raises(RuntimeError):
+        loop_ops._train_and_select(_config(tmp_path), round_index=1, resume=False, labels="raw")
+    assert seen["labels"] == "raw" and seen["cleaned_batch_ids"] == ["R01"]
+
+
+def test_the_labels_flag_never_seals_the_raw_arm(monkeypatch):
+    from data_quality_checker import commands
+
+    calls = []
+    monkeypatch.setattr(loop_ops, "train_loop_candidate", lambda config, **kw: calls.append(("candidate", kw)) or {})
+    monkeypatch.setattr(loop_ops, "train_loop_round", lambda config, **kw: calls.append(("sealed", kw)) or {})
+    commands.loop_train(SimpleNamespace(round=1, resume=False, no_seal=False, view=None, labels="raw"), None)
+    assert calls == [
+        ("candidate", {"round_index": 1, "resume": False, "view": None, "stop_at": None, "labels": "raw"}),
+    ]
+
+
+def test_loop_train_takes_a_labels_flag():
+    from data_quality_checker.cli import build_parser
+
+    args = build_parser().parse_args(["loop-train", "--round", "1", "--labels", "raw"])
+    assert args.labels == "raw"
+    assert build_parser().parse_args(["loop-train", "--round", "1"]).labels == "clean"
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["loop-train", "--round", "1", "--labels", "noisy"])

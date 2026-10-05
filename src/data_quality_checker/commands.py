@@ -279,11 +279,14 @@ def loop_train(args: Namespace, config: AppConfig) -> int:
     # The whole-document line is never sealed: `--view full_documents` always
     # trains a candidate, whatever else is passed.
     stop_at = getattr(args, "stop_at", None)
-    if getattr(args, "no_seal", False) or view == "full_documents" or stop_at is not None:
+    # The raw-label arm (`M_k_raw`, noisy-vs-clean ablation) is never sealed either.
+    labels = getattr(args, "labels", "clean")
+    if getattr(args, "no_seal", False) or view == "full_documents" or stop_at is not None or labels != "clean":
         # A run stopped short is a candidate too: it is never sealed.
-        return _print_json(
-            train_loop_candidate(config, round_index=args.round, resume=args.resume, view=view, stop_at=stop_at)
-        )
+        kwargs = {"round_index": args.round, "resume": args.resume, "view": view, "stop_at": stop_at}
+        if labels != "clean":
+            kwargs["labels"] = labels
+        return _print_json(train_loop_candidate(config, **kwargs))
     return _print_json(train_loop_round(config, round_index=args.round, resume=args.resume))
 
 

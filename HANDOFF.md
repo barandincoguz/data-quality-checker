@@ -68,6 +68,12 @@
 >   `sources/training_data_audit_2026-10-06.json`). **Güncel `M001_raw`: `dqcheck_loop_3331f64287a1`** (etiket
 >   `run/m001-raw-2026-10-06c`, 1.362 adım). `dqcheck_loop_02d8059bfbad` 25'te duraklatıldı, kullanılmaz. Denetimde başka
 >   sorun yok (213/413, hedef alanları, sızıntı, satır sınırı, kapsama).
+> - **6 Ekim 10:58 — UZMAN EKRANI YENİ ARAYÜZLE YENİDEN BAŞLATILDI** (dq `4f48556`, `feat/review-ui` ana dala ileri alındı; tmux
+>   `gt750la-serve` aynı betikle yeniden kuruldu). Vurgulama düzeltildi (model satırları da, her geçiş, "metinde bulunamadı"),
+>   iki sütunlu düzen. Kararlar korundu: inceleme satırlarının parmak izi önce/sonra aynı (62 bitmiş). Sahte uyuşmazlık
+>   kontrolü: yok (yeniden yönlendirme yapılmadı). Arayüz geliştirmesi için deneme ekranı: `scripts/dev_review_screen.py
+>   --root <boş geçici klasör> --port 5057` (uydurma belgeler). **dq push EDİLMEDİ:** uzak depo herkese açık ve dal GT v6–v9'u
+>   (test cevap anahtarı dahil) ekliyor; karar kullanıcıda. ner `origin`'e push edildi.
 
 > **2 Ekim 2026, 12:42 — TEK KARŞILAŞTIRMA MOTORU. Referans listelerini karşılaştıran her şey
 > `src/data_quality_checker/reference_matching.py`** (kullanıcı: "döngü motoru ve değerlendiriciyi farklı iki şey gibi

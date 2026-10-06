@@ -102,3 +102,16 @@ def test_a_law_only_row_beside_its_article_is_shown_as_no_difference_not_as_same
     assert segment_kind(["excused"]) == "neutral"
     assert segment_kind(["excused", "only_b"]) == "b"
     assert segment_kind(["excused", "same"]) == "both"
+
+
+def test_a_locator_failure_costs_the_highlight_not_the_page(monkeypatch) -> None:
+    import data_quality_checker.hitl as hitl
+
+    def broken(text, reference):
+        raise ValueError("unexpected reference shape")
+
+    monkeypatch.setattr(hitl, "mention_offsets", broken)
+    rows = ab_diff([ref("193", "94", "Ödemeler bakımından")], [ref("193", "61")])
+    spans, counts = row_highlights(TEXT, rows)
+    assert counts == [0, 0]
+    assert any(s["start"] == TEXT.index("Ödemeler bakımından") for s in spans)  # the quote still marks

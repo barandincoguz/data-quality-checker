@@ -161,7 +161,7 @@ REVIEW_TEMPLATE = """
 {% macro refcell(refs) %}
 {%- for r in refs -%}
 <div class="ref"><span class="law">{{ r.kanun_no or "—" }}</span>{% if r.kanun_ad %} <span class="lawname">{{ r.kanun_ad }}</span>{% endif %}
-<span class="art">madde {{ r.madde or "—" }}</span>{% if r.source_text %}
+<span class="art">madde {{ r.madde or "—" }}</span>{% if not r.madde %} <span class="tag" title="Satırda madde yok: kanun düzeyinde bir referans sayılır">maddesiz</span>{% endif %}{% if not r.kanun_no %} <span class="tag" title="Satırda kanun numarası yok: yalnız kanun adıyla eşleştirilebilir">numarasız</span>{% endif %}{% if r.source_text %}
 <div class="quote" title="Bursiyerin metinden aldığı alıntı; karar vermez, yalnız vurgulanır">“{{ r.source_text }}”</div>{% endif %}</div>
 {%- else -%}<span class="muted">—</span>{%- endfor -%}
 {% endmacro %}
@@ -186,13 +186,26 @@ kbd{font:600 .72rem ui-monospace,monospace;background:#f1f3f5;border:1px solid #
 .card{background:var(--panel);border:1px solid var(--line);border-radius:.6rem;padding:1rem 1.1rem;margin:0 0 1rem}
 h2{font-size:1rem;margin:0 0 .6rem}.hint{color:var(--muted);font-size:.83rem;margin:.2rem 0 .6rem}
 .textpane{position:sticky;top:calc(var(--head) + 1rem);max-height:calc(100vh - var(--head) - 2rem);display:flex;flex-direction:column;margin:0}
-.textpane .doctext{flex:1;min-height:0}
+.docwrap{position:relative;flex:1;min-height:0;display:flex}.docwrap .doctext{flex:1;min-height:0;padding-right:1.5rem}
+.minimap{position:absolute;top:.35rem;bottom:.35rem;right:.3rem;width:.5rem;border-radius:.3rem;background:#eef0f3}.minimap i{position:absolute;left:0;right:0;height:4px;margin-top:-2px;border-radius:2px;cursor:pointer}
+.minimap i.k-a{background:var(--a)}.minimap i.k-b{background:var(--b)}.minimap i.k-both{background:var(--both)}.minimap i.k-mixed{background:var(--mix)}.minimap i.k-neutral{background:#9aa1ab}
+.nav{display:flex;align-items:center;gap:.4rem;background:#fffbe6;border:1px solid #f1e3a1;border-radius:.4rem;padding:.3rem .5rem;margin:0 0 .5rem;font-size:.84rem}
+.nav[hidden]{display:none}.nav button{border:1px solid #d8cf9f;background:#fff;border-radius:.3rem;padding:.1rem .45rem;cursor:pointer}.nav button:disabled{opacity:.4;cursor:default}.nav-label{font-weight:650}.nav-count{min-width:4.5rem;text-align:center;font-variant-numeric:tabular-nums}
+.notes-card{border-left:4px solid #d97706}.note{margin:.35rem 0;font-size:.88rem}.note-attention{background:var(--warn-bg);color:#7c2d12;padding:.5rem .7rem;border-radius:.4rem}
+.note-info,.note-why{margin-top:.4rem}.note-info summary,.note-why summary{font-size:.84rem;font-weight:600;color:#4b5563}
+.summary .spacer,.cmp-tools .spacer{flex:1}.summary{align-items:center}.cmp-tools{display:flex;align-items:center;gap:.35rem;flex-wrap:wrap;font-size:.82rem;margin:-.2rem 0 .6rem}
+.tool{border:1px solid #c5ccd4;background:#fff;border-radius:.4rem;padding:.3rem .65rem;font-size:.8rem;cursor:pointer}.tool[aria-pressed=true]{background:#1f2937;color:#fff;border-color:#1f2937}
+.tool.primary{background:var(--brand);color:#fff;border-color:var(--brand);font-weight:650}.tool:disabled{opacity:.45;cursor:default}
+.link{border:0;background:none;color:var(--brand);padding:0;cursor:pointer;font-size:.82rem}.link:hover{text-decoration:underline}
+.tag{display:inline-block;font-size:.68rem;font-weight:650;color:#92400e;background:#fef3c7;border-radius:.25rem;padding:0 .3rem;vertical-align:1px}
+.cmp tbody tr:has(input.pick:checked) td{background:#f0faf3}.pickcell{text-align:center}.pick{width:1rem;height:1rem;cursor:pointer}
+table.cmp.only-diff tr.same,table.cmp.only-diff tr.excused{display:none}
 .guide{border-left:4px solid var(--brand)}.guide h2{margin-bottom:.3rem}.guide p{margin:.2rem 0;font-size:.9rem}
 .guide details summary{font-size:.84rem;color:var(--brand);cursor:pointer;margin-top:.4rem}.steps{margin:.4rem 0 0;padding-left:1.2rem;font-size:.88rem}
 .warnbox{color:var(--warn);background:var(--warn-bg);padding:.6rem .8rem;border-radius:.4rem;font-size:.88rem}
 /* document text and highlights */
 .legend{display:flex;flex-wrap:wrap;gap:.35rem .8rem;font-size:.78rem;color:var(--muted);margin:0 0 .5rem}
-.legend span{display:inline-flex;align-items:center;gap:.3rem}.legend i{display:inline-block;width:.9rem;height:.9rem;border-radius:.2rem}
+.legend>span{display:inline-flex;align-items:center;gap:.3rem}.legend>span.zero{opacity:.45}.legend .count{font-weight:700;color:#374151}.legend i{display:inline-block;width:.9rem;height:.9rem;border-radius:.2rem}
 .doctext{white-space:pre-wrap;overflow:auto;border:1px solid var(--line);background:#fbfcfd;padding:1rem 1.1rem;border-radius:.45rem;font-size:.95rem;line-height:1.7}
 mark.ev{color:inherit;border-radius:.2rem;padding:.05rem .1rem;cursor:pointer;box-decoration-break:clone;-webkit-box-decoration-break:clone}
 mark.ev-a{background:var(--a-bg)}mark.ev-b{background:var(--b-bg)}mark.ev-both{background:var(--both-bg)}mark.ev-mixed{background:var(--mix-bg);box-shadow:inset 0 -2px 0 var(--mix)}mark.ev-neutral{background:#eceef1}
@@ -202,7 +215,7 @@ mark.ev.active{outline:2px solid var(--ink);outline-offset:1px}mark.ev.current{o
 .pill-diff{background:var(--mix-bg);color:var(--mix)}.pill-same{background:var(--ok-bg);color:var(--ok)}
 .pill-same-row{background:var(--both-bg);color:var(--both)}.pill-only_a{background:var(--a-bg);color:var(--a)}.pill-only_b{background:var(--b-bg);color:var(--b)}
 .pill-excused{background:#eef0f3;color:#4b5563}.pill-missing{background:#fff;color:var(--mix);border-color:#f3b4ae}.pill-found{background:#fff;color:var(--muted);border-color:var(--line)}
-table.cmp{border-collapse:separate;border-spacing:0;width:100%;font-size:.86rem;table-layout:fixed}.cmp col.c-a{width:37%}.cmp col.c-b{width:31%}.cmp col.c-s{width:32%}
+table.cmp{border-collapse:separate;border-spacing:0;width:100%;font-size:.86rem;table-layout:fixed}.cmp col.c-p{width:5%}.cmp col.c-a{width:35%}.cmp col.c-b{width:29%}.cmp col.c-s{width:31%}
 .cmp th{position:sticky;top:var(--head);background:#f6f7f9;z-index:1;text-align:left;font-weight:650;font-size:.78rem;color:#3d444d;padding:.5rem .55rem;border-bottom:1px solid var(--line)}
 .cmp td{padding:.5rem .55rem;border-bottom:1px solid #edf0f3;vertical-align:top;overflow-wrap:anywhere}
 .cmp tbody tr{cursor:pointer}.cmp tbody tr:hover td{background:#f8fafc}
@@ -222,15 +235,15 @@ summary{cursor:pointer;font-weight:650}.secondary[open]>summary,.technical[open]
 .defer-row{display:flex;gap:.6rem;align-items:end;flex-wrap:wrap}.defer-row label{flex:1;min-width:220px;font-size:.88rem}.defer-row input{width:100%;padding:.5rem;margin-top:.25rem;border:1px solid #c5ccd4;border-radius:.4rem}
 .defer-row button,.toolbar button{padding:.45rem .75rem;border:1px solid #c5ccd4;background:#fff;border-radius:.4rem;cursor:pointer}.defer-row button:hover,.toolbar button:hover{background:#f3f5f7}
 .editor-wrap{overflow:auto}.editor{border-collapse:collapse;width:100%}.editor th{font-size:.76rem;text-align:left;color:#3d444d;padding:.3rem}.editor td{padding:.2rem}
-.editor input{width:100%;min-width:70px;padding:.35rem;border:1px solid #c5ccd4;border-radius:.3rem}.editor input[data-field=kanun_ad]{min-width:170px}.editor input[data-field=kanun_no]{max-width:90px}.editor td:last-child{width:1%}.editor .source-input{min-width:220px}
+.editor input{width:100%;min-width:70px;padding:.35rem;border:1px solid #c5ccd4;border-radius:.3rem}.editor input[data-field=kanun_ad]{min-width:170px}.editor input[data-field=kanun_no]{max-width:90px}.editor input[data-field=madde]{min-width:120px}.editor td:last-child{width:1%}.editor .source-input{min-width:220px}
 .editor button{border:1px solid #e3b4ae;background:#fff;color:var(--mix);border-radius:.3rem;padding:.3rem .5rem;cursor:pointer}
 .toolbar{display:flex;gap:.4rem;flex-wrap:wrap;margin:.6rem 0}
 .save-revision{background:var(--brand);color:white;border:0;border-radius:.45rem;font-weight:700;padding:.6rem .95rem;cursor:pointer}
 pre{white-space:pre-wrap;border:1px solid var(--line);padding:.8rem;border-radius:.4rem;font-size:.78rem;background:#fbfcfd}
 textarea{width:100%;font:.8rem ui-monospace,monospace}
-@media(max-width:1100px){.layout{grid-template-columns:1fr}.textpane{position:static;height:auto}.textpane .doctext{max-height:60vh}.cmp th{top:0}}
+@media(max-width:1100px){.layout{grid-template-columns:1fr}.textpane{position:static;height:auto}.docwrap .doctext{max-height:60vh}.cmp th{top:0}}
 @media(max-width:640px){:root{--head:auto}.topbar{position:relative;height:auto;padding-bottom:.6rem}.decision-grid{grid-template-columns:1fr}.keys{display:none}
-.layout{padding:.7rem .6rem 2rem}.card{padding:.85rem .8rem}.pill{white-space:normal}.cmp td,.cmp th{padding:.4rem .35rem}.cmp col.c-a{width:36%}.cmp col.c-b{width:32%}.cmp col.c-s{width:32%}}
+.layout{padding:.7rem .6rem 2rem}.card{padding:.85rem .8rem}.pill{white-space:normal}.cmp td,.cmp th{padding:.4rem .35rem}.cmp col.c-p{width:9%}.cmp col.c-a{width:33%}.cmp col.c-b{width:29%}.cmp col.c-s{width:29%}}
 </style>
 <header class="topbar"><div class="topinner">
   <h1>{% if position %}Belge {{ position.index }} / {{ position.total }}{% else %}Belge inceleme{% endif %}</h1>
@@ -244,8 +257,9 @@ textarea{width:100%;font:.8rem ui-monospace,monospace}
 <div class="layout">
 <section class="card textpane" aria-label="Belge metni">
   <h2>1. Belge metnini kontrol et</h2>
-  <div class="legend"><span><i style="background:var(--both-bg)"></i>İki tarafta da</span><span><i style="background:var(--a-bg)"></i>Yalnız insan anotasyonunda</span><span><i style="background:var(--b-bg)"></i>Yalnız modelde</span><span><i style="background:var(--mix-bg)"></i>Aynı yerde farklı referanslar</span><span><i style="background:#eceef1"></i>Fark sayılmaz</span></div>
-  <div class="doctext" id="doctext">{% for seg in segments %}{% if seg.candidates %}<mark class="ev ev-{{ seg.kind }}" data-rows="{{ seg.candidates|join(' ') }}" title="{{ seg.title }}">{{ seg.text }}</mark>{% else %}{{ seg.text }}{% endif %}{% endfor %}</div>
+  <div class="legend"><span data-kind="both" class="{{ 'zero' if not legend_counts.both }}"><i style="background:var(--both-bg)"></i><span>İki tarafta da <b class="count">{{ legend_counts.both }}</b></span></span><span data-kind="a" class="{{ 'zero' if not legend_counts.a }}"><i style="background:var(--a-bg)"></i><span>Yalnız insan anotasyonunda <b class="count">{{ legend_counts.a }}</b></span></span><span data-kind="b" class="{{ 'zero' if not legend_counts.b }}"><i style="background:var(--b-bg)"></i><span>Yalnız modelde <b class="count">{{ legend_counts.b }}</b></span></span><span data-kind="mixed" class="{{ 'zero' if not legend_counts.mixed }}"><i style="background:var(--mix-bg)"></i><span>Aynı yerde farklı referanslar <b class="count">{{ legend_counts.mixed }}</b></span></span><span data-kind="neutral" class="{{ 'zero' if not legend_counts.neutral }}"><i style="background:#eceef1"></i><span>Fark sayılmaz <b class="count">{{ legend_counts.neutral }}</b></span></span></div>
+  <div class="nav" id="nav" hidden><span class="nav-label" id="nav-label"></span><span class="spacer"></span><button type="button" id="nav-prev" title="Önceki geçiş">◀</button><span class="nav-count" id="nav-count"></span><button type="button" id="nav-next" title="Sonraki geçiş">▶</button><button type="button" id="nav-close" title="Vurguyu temizle (Esc)">✕</button></div>
+  <div class="docwrap"><div class="doctext" id="doctext">{% for seg in segments %}{% if seg.candidates %}<mark class="ev ev-{{ seg.kind }}" data-rows="{{ seg.candidates|join(' ') }}" title="{{ seg.title }}">{{ seg.text }}</mark>{% else %}{{ seg.text }}{% endif %}{% endfor %}</div><div class="minimap" id="minimap" aria-hidden="true"></div></div>
   <p class="hint" style="margin:.5rem 0 0">Vurgular, karşılaştırmadaki referansların metinde anıldığı yerlerdir (bulucu); doğruluk anlamına gelmez. Tablodaki bir satıra tıklayınca o referansın geçtiği yerlere gidilir.</p>
 </section>
 
@@ -253,18 +267,25 @@ textarea{width:100%;font:.8rem ui-monospace,monospace}
 <section class="card guide"><h2>{{ doc.guidance.title }}</h2><p>{{ doc.guidance.explanation }}</p>
   <details><summary>Nasıl karar verilir?</summary><ol class="steps"><li>Belge metnindeki kanun ve madde atıflarını kontrol edin.</li><li>İnsan anotasyonu ile model çıktısını metinle karşılaştırın.</li><li>Doğru olanı seçin; ikisi de yanlışsa düzeltin.</li></ol></details>
 </section>
-{% if doc.warnings %}<p class="warnbox">Dikkat: Bu belgede hazırlama uyarısı var: {{ doc.warnings|tojson }}</p>{% endif %}
+{% if notes %}<section class="card notes-card"><h2>Bursiyer listesi notları</h2>
+  {% for n in notes if n.level == 'attention' %}<p class="note note-attention">{{ n.text }}</p>{% endfor %}
+  {% set infos = notes|selectattr('level', 'equalto', 'info')|list %}{% if infos %}<details class="note-info"><summary>{{ infos|length }} bilgi notu — kararınızı etkilemez</summary>{% for n in infos %}<p class="note">{{ n.text }}</p>{% endfor %}</details>{% endif %}
+  <details class="note-why"><summary>Bu notlar neden var?</summary><p class="hint">Bursiyer etiketleri anotasyon platformundan aktarılırken değeri olmayan (boş) alanlar boş metne çevrilir ve kayda geçirilir. Notlar, bu boşlukların kaynaktan geldiğini ve karşılaştırmada ne anlama geldiğini söyler; sizin bir şey düzeltmeniz gerekmez.</p></details>
+</section>{% endif %}
 
 <section class="card"><h2>2. İnsan anotasyonu ile modeli karşılaştır</h2>
 <p class="hint">Sol sütun insan anotasyonudur; sağ sütun modelin ({{ doc.generation }}) çıktısıdır.</p>
-<div class="summary"><span class="pill pill-diff">{{ diff_summary.difference_count }} farklı</span><span class="pill pill-same">{{ diff_summary.same_count }} aynı referans grubu</span></div>
-<table class="cmp"><colgroup><col class="c-a"><col class="c-b"><col class="c-s"></colgroup><thead><tr><th>İnsan anotasyonu<br><small class="muted">Tamamlayan: {{ doc.human_attribution.display_name }}{% if doc.human_attribution.last_editor_name and doc.human_attribution.last_editor_name != doc.human_attribution.display_name %} · Son düzenleyen: {{ doc.human_attribution.last_editor_name }}{% endif %}</small></th><th>Model çıktısı<br><small class="muted">{{ doc.generation }} · {{ doc.model_name }}</small></th><th>Sonuç</th></tr></thead><tbody>
+<div class="summary"><span class="pill pill-diff">{{ diff_summary.difference_count }} farklı</span><span class="pill pill-same">{{ diff_summary.same_count }} aynı referans grubu</span>
+  <span class="spacer"></span><button type="button" class="tool" id="only-diff" aria-pressed="false">Yalnız farkları göster</button></div>
+<div class="cmp-tools"><span class="muted">Seç:</span> <button type="button" class="link" data-pick="a">insanınkiler</button> · <button type="button" class="link" data-pick="b">modelinkiler</button> · <button type="button" class="link" data-pick="none">temizle</button>
+  <span class="spacer"></span><button type="button" class="tool primary" id="compose" disabled>İşaretlenenlerle düzelt</button></div>
+<table class="cmp"><colgroup><col class="c-p"><col class="c-a"><col class="c-b"><col class="c-s"></colgroup><thead><tr><th title="Doğru olan satırları işaretleyip düzeltme başlatabilirsiniz">✓</th><th>İnsan anotasyonu<br><small class="muted">Tamamlayan: {{ doc.human_attribution.display_name }}{% if doc.human_attribution.last_editor_name and doc.human_attribution.last_editor_name != doc.human_attribution.display_name %} · Son düzenleyen: {{ doc.human_attribution.last_editor_name }}{% endif %}</small></th><th>Model çıktısı<br><small class="muted">{{ doc.generation }} · {{ doc.model_name }}</small></th><th>Sonuç</th></tr></thead><tbody>
 {% for row in diff %}<tr class="{{ row.display }}" data-row="{{ row.index }}" tabindex="0" title="{{ row.label }} — metindeki yerlerine gitmek için tıklayın">
-  <td>{{ refcell(row.a) }}</td><td>{{ refcell(row.b) }}</td>
+  <td class="pickcell"><input type="checkbox" class="pick" data-row="{{ row.index }}" data-a="{{ 1 if row.a else 0 }}" data-b="{{ 1 if row.b else 0 }}" data-mentions="{{ row.mentions }}" data-label="{{ row.label }}" aria-label="{{ row.label }} doğru"></td><td>{{ refcell(row.a) }}</td><td>{{ refcell(row.b) }}</td>
   <td class="statuscell">{% if row.display == 'excused' %}<span class="pill pill-excused">Fark sayılmaz</span>{% else %}<span class="pill pill-{{ 'same-row' if row.display == 'same' else row.display }}">{{ row.status_label.split(' · ')[0] }}</span>{% endif %}
     {% if row.mentions %}<span class="pill pill-found">metinde {{ row.mentions }} yerde</span>{% else %}<span class="pill pill-missing">metinde bulunamadı</span>{% endif %}
     {% if row.duplicates.a or row.duplicates.b or row.subsumed.a or row.subsumed.b %}<div class="notes">{{ row.status_label.split(' · ')[1:]|join(' · ') }}</div>{% endif %}</td>
-</tr>{% else %}<tr><td colspan="3" class="muted">İki adayda da referans yok.</td></tr>{% endfor %}
+</tr>{% else %}<tr><td colspan="4" class="muted">İki adayda da referans yok.</td></tr>{% endfor %}
 </tbody></table></section>
 
 {% if doc.judge_suggestion %}<section class="card"><h2>Hakemin önerisi</h2>
@@ -285,6 +306,7 @@ textarea{width:100%;font:.8rem ui-monospace,monospace}
   </details>
   <details class="secondary" id="revision-panel"><summary>İkisi de tam doğru değil — referansları düzelt</summary>
     <p class="hint">Başlangıç olarak insan anotasyonunu veya modeli seçin; yalnız yanlış satırları değiştirin. Aynı referansı iki kez yazmak gerekmez.</p>
+    <p class="note note-attention" id="compose-warn" hidden></p>
     <div class="toolbar"><button type="button" id="fill-a">İnsan anotasyonundan başla</button><button type="button" id="fill-b">Model çıktısından başla</button>
     {% if doc.judge_suggestion %}<button type="button" id="fill-judge">Yardımcı görüşten başla</button>{% endif %}<button type="button" id="add-row">+ Referans ekle</button></div>
     <div class="editor-wrap"><table class="editor"><thead><tr><th>Kanun no</th><th>Kanun adı</th><th>Madde</th><th>Metindeki ifade (isteğe bağlı)</th><th></th></tr></thead><tbody id="ref-rows"></tbody></table></div>
@@ -301,7 +323,7 @@ textarea{width:100%;font:.8rem ui-monospace,monospace}
 </div>
 </div>
 
-<script id="cand" type="application/json">{{ {"a": doc.candidate_a, "b": doc.candidate_b, "judge": doc.judge_suggestion}|tojson }}</script>
+<script id="cand" type="application/json">{{ {"a": doc.candidate_a, "b": doc.candidate_b, "judge": doc.judge_suggestion, "rows": rows_payload}|tojson }}</script>
 <script>
 (function(){
   var DATA = JSON.parse(document.getElementById('cand').textContent);
@@ -325,7 +347,7 @@ textarea{width:100%;font:.8rem ui-monospace,monospace}
     ref = ref||{}; var tr=document.createElement('tr');
     FIELDS.forEach(function(f){
       var td=document.createElement('td'), inp=document.createElement('input');
-      inp.dataset.field=f; inp.value=ref[f]||''; inp.size={kanun_no:7,kanun_ad:24,madde:10,source_text:36}[f];
+      inp.dataset.field=f; inp.value=ref[f]||''; inp.size={kanun_no:7,kanun_ad:24,madde:14,source_text:34}[f];
       if(f==='source_text') inp.className='source-input';
       inp.setAttribute('aria-label', {kanun_no:'Kanun no',kanun_ad:'Kanun adı',madde:'Madde',source_text:'Metindeki ifade'}[f]);
       inp.addEventListener('input', tableEdited); td.appendChild(inp); tr.appendChild(td);
@@ -336,8 +358,9 @@ textarea{width:100%;font:.8rem ui-monospace,monospace}
     td.appendChild(del); tr.appendChild(td); rows.appendChild(tr);
   }
   function fill(list){ rows.innerHTML=''; (list||[]).forEach(addRow); if(!rows.children.length) addRow(); tableEdited(); }
-  document.getElementById('fill-a').addEventListener('click', function(){ fill(DATA.a); });
-  document.getElementById('fill-b').addEventListener('click', function(){ fill(DATA.b); });
+  function clearComposeWarn(){ var w = document.getElementById('compose-warn'); if(w){ w.hidden = true; } }
+  document.getElementById('fill-a').addEventListener('click', function(){ clearComposeWarn(); fill(DATA.a); });
+  document.getElementById('fill-b').addEventListener('click', function(){ clearComposeWarn(); fill(DATA.b); });
   var jb=document.getElementById('fill-judge');
   if(jb && DATA.judge){ jb.addEventListener('click', function(){ fill(DATA.judge.final_references||[]); }); }
   document.getElementById('add-row').addEventListener('click', function(){ addRow(); });
@@ -356,48 +379,124 @@ textarea{width:100%;font:.8rem ui-monospace,monospace}
   fill(DATA.a);
 
   // Linking the comparison and the text: a row shows where its reference is
-  // cited (each click moves to the next place); a highlight shows its rows.
+  // cited, the navigator steps through those places, a highlight shows its rows.
   var doctext = document.getElementById('doctext');
   var marks = Array.prototype.slice.call(doctext.querySelectorAll('mark.ev'));
   var tableRows = Array.prototype.slice.call(document.querySelectorAll('table.cmp tbody tr[data-row]'));
+  var nav = document.getElementById('nav'), navLabel = document.getElementById('nav-label'), navCount = document.getElementById('nav-count');
+  var navPrev = document.getElementById('nav-prev'), navNext = document.getElementById('nav-next');
   var active = null, cursor = -1;
   function marksOf(index){ return marks.filter(function(m){ return (' '+m.dataset.rows+' ').indexOf(' '+index+' ') >= 0; }); }
+  function rowOf(index){ return document.querySelector('table.cmp tr[data-row="'+index+'"]'); }
+  function labelOf(index){ var r = rowOf(index); return r ? (r.getAttribute('title')||'').split(' — ')[0] : ''; }
   function clearActive(){
     marks.forEach(function(m){ m.classList.remove('active','current'); });
     tableRows.forEach(function(r){ r.classList.remove('active'); });
-    active = null; cursor = -1;
+    active = null; cursor = -1; nav.hidden = true;
   }
   function scrollIntoText(mark){
     var top = mark.offsetTop - doctext.offsetTop - doctext.clientHeight/3;
     doctext.scrollTo({top: Math.max(0, top), behavior: 'smooth'});
   }
-  function showRow(index){
+  function showNav(index, own){
+    nav.hidden = false; navLabel.textContent = labelOf(index);
+    navPrev.disabled = navNext.disabled = own.length < 2;
+    navCount.textContent = own.length ? (cursor + 1) + ' / ' + own.length : 'metinde bulunamadı';
+  }
+  function goTo(index, step){
     var own = marksOf(index);
-    if(active !== index){ clearActive(); active = index; own.forEach(function(m){ m.classList.add('active'); }); }
-    tableRows.forEach(function(r){ r.classList.toggle('active', r.dataset.row === String(index)); });
-    if(!own.length) return;
-    own.forEach(function(m){ m.classList.remove('current'); });
-    cursor = (cursor + 1) % own.length;
-    own[cursor].classList.add('current');
-    scrollIntoText(own[cursor]);
+    if(active !== String(index)){
+      clearActive(); active = String(index); cursor = -1;
+      own.forEach(function(m){ m.classList.add('active'); });
+      var row = rowOf(index); if(row){ row.classList.add('active'); }
+    }
+    if(own.length){
+      own.forEach(function(m){ m.classList.remove('current'); });
+      cursor = (cursor + step + own.length) % own.length;
+      own[cursor].classList.add('current');
+      scrollIntoText(own[cursor]);
+    }
+    showNav(index, own);
   }
   tableRows.forEach(function(r){
-    r.addEventListener('click', function(){ showRow(r.dataset.row); });
-    r.addEventListener('keydown', function(e){ if(e.key === 'Enter' || e.key === ' '){ e.preventDefault(); showRow(r.dataset.row); } });
+    r.addEventListener('click', function(e){
+      if(e.target.closest('.pickcell')) return;
+      goTo(r.dataset.row, 1);
+    });
+    r.addEventListener('keydown', function(e){ if(e.key === 'Enter' || e.key === ' '){ e.preventDefault(); goTo(r.dataset.row, 1); } });
   });
+  navNext.addEventListener('click', function(){ if(active !== null) goTo(active, 1); });
+  navPrev.addEventListener('click', function(){ if(active !== null) goTo(active, -1); });
+  document.getElementById('nav-close').addEventListener('click', clearActive);
   marks.forEach(function(m){
     m.addEventListener('click', function(){
-      var first = m.dataset.rows.split(' ')[0];
-      clearActive(); active = first;
-      marksOf(first).forEach(function(x){ x.classList.add('active'); });
+      var cited = m.dataset.rows.split(' '), first = cited[0], own = marksOf(first);
+      clearActive(); active = first; cursor = own.indexOf(m);
+      own.forEach(function(x){ x.classList.add('active'); });
       m.classList.add('current');
-      m.dataset.rows.split(' ').forEach(function(index){
-        var row = document.querySelector('table.cmp tr[data-row="'+index+'"]');
-        if(row){ row.classList.add('active'); }
-      });
-      var row = document.querySelector('table.cmp tr[data-row="'+first+'"]');
-      if(row){ row.scrollIntoView({block: 'nearest', behavior: 'smooth'}); }
+      cited.forEach(function(index){ var row = rowOf(index); if(row){ row.classList.add('active'); } });
+      showNav(first, own);
+      var row = rowOf(first); if(row){ row.scrollIntoView({block: 'nearest', behavior: 'smooth'}); }
     });
+  });
+
+  // The scrollbar shows where the highlights are; a tick takes you there.
+  var minimap = document.getElementById('minimap');
+  function drawMinimap(){
+    minimap.innerHTML = '';
+    var height = doctext.scrollHeight; if(!height) return;
+    marks.forEach(function(m){
+      var tick = document.createElement('i');
+      var kind = (m.className.match(/ev-(both|a|b|mixed|neutral)/)||[])[1] || 'both';
+      tick.className = 'k-' + kind;
+      tick.style.top = (100 * (m.offsetTop - doctext.offsetTop) / height).toFixed(2) + '%';
+      tick.title = m.getAttribute('title') || '';
+      tick.addEventListener('click', function(){ m.click(); scrollIntoText(m); });
+      minimap.appendChild(tick);
+    });
+  }
+  drawMinimap(); window.addEventListener('resize', drawMinimap);
+
+  // Only the differences.
+  var onlyDiff = document.getElementById('only-diff'), cmpTable = document.querySelector('table.cmp');
+  onlyDiff.addEventListener('click', function(){
+    var on = !cmpTable.classList.contains('only-diff');
+    cmpTable.classList.toggle('only-diff', on);
+    onlyDiff.setAttribute('aria-pressed', on ? 'true' : 'false');
+    onlyDiff.textContent = on ? 'Tümünü göster' : 'Yalnız farkları göster';
+  });
+
+  // Compose a revision from the table: tick the rows that are right, then edit
+  // and save them in the revision panel (saving stays an explicit click).
+  var picks = Array.prototype.slice.call(document.querySelectorAll('input.pick'));
+  var compose = document.getElementById('compose');
+  function updateCompose(){
+    var n = picks.filter(function(p){ return p.checked; }).length;
+    compose.disabled = n === 0;
+    compose.textContent = n ? 'İşaretlenenlerle düzelt (' + n + ')' : 'İşaretlenenlerle düzelt';
+  }
+  picks.forEach(function(p){ p.addEventListener('change', updateCompose); p.addEventListener('click', function(e){ e.stopPropagation(); }); });
+  document.querySelectorAll('[data-pick]').forEach(function(b){
+    b.addEventListener('click', function(){
+      var side = b.dataset.pick;
+      picks.forEach(function(p){ p.checked = side === 'none' ? false : p.dataset[side] === '1'; });
+      updateCompose();
+    });
+  });
+  compose.addEventListener('click', function(){
+    var chosen = picks.filter(function(p){ return p.checked; }).map(function(p){
+      var row = DATA.rows[Number(p.dataset.row)];
+      return (row.a && row.a.length ? row.a[0] : row.b[0]);
+    });
+    if(!chosen.length) return;
+    var missing = picks.filter(function(p){ return p.checked && p.dataset.mentions === '0'; }).map(function(p){ return p.dataset.label; });
+    var warn = document.getElementById('compose-warn');
+    warn.hidden = !missing.length;
+    warn.textContent = missing.length ? 'Dikkat: seçtiğiniz ' + (missing.length > 1 ? missing.length + ' referans' : 'referans') +
+      ' metinde bulunamadı (' + missing.join('; ') + '). Belgede gerçekten anıldığından emin olun.' : '';
+    fill(chosen);
+    var panel = document.getElementById('revision-panel');
+    panel.open = true; panel.scrollIntoView({block: 'start', behavior: 'smooth'});
   });
 
   document.addEventListener('keydown', function(e){
@@ -740,6 +839,9 @@ def _document_for_review(
         ],
         "candidate_a": candidate_a,
         "candidate_b": candidate_b,
+        # The annotator's list as prepared (before the 213/413 policy): the list a
+        # preparation warning's `reference_index` counts in.
+        "human_prepared": json.loads(document["human_references_json"]),
         "candidate_mapping": mapping,
         "human_attribution": human_attribution(metadata, imported_attribution),
         "model_name": config.model.model_id.rsplit("/", 1)[-1],
@@ -777,7 +879,10 @@ def row_highlights(text: str, rows: list[dict[str, Any]]) -> tuple[list[dict[str
         placed: set[tuple[int, int]] = set()
         for reference in (*row["a"], *row["b"]):
             bare = {field: str(reference.get(field, "") or "") for field in ("kanun_no", "kanun_ad", "madde")}
-            placed.update(mention_offsets(text, {**bare, "source_text": ""}))
+            try:
+                placed.update(mention_offsets(text, {**bare, "source_text": ""}))
+            except Exception:  # a highlight is a help: a reference the locator chokes on stays unmarked
+                continue
         located = len(placed)
         for reference in row["a"]:
             quote = str(reference.get("source_text") or "").strip()
@@ -788,6 +893,78 @@ def row_highlights(text: str, rows: list[dict[str, Any]]) -> tuple[list[dict[str
         counts.append(located)
         spans.extend({"start": start, "end": end, "candidate": str(index)} for start, end in sorted(placed))
     return sorted(spans, key=lambda item: (item["start"], item["end"], item["candidate"])), counts
+
+
+# What an empty field of the annotator's row means for the comparison (6 Oct 2026:
+# the screen showed preparation warnings as raw JSON). Preparation turns a field
+# the annotation export gave as null, or left out, into "" and records it.
+_EMPTY_FIELD_NOTES = {
+    "kanun_ad": (
+        "info",
+        "kanun adı platformdan boş geldi. Karşılaştırma kanun numarası ve maddeyle yapıldığı için kararınızı etkilemez.",
+    ),
+    "madde": (
+        "attention",
+        "madde platformdan boş geldi: bu satır maddesiz, yalnız kanun düzeyinde bir referans sayılır (aynı kanunun bir "
+        "maddesi de yazılmışsa fark sayılmaz). Bursiyer maddeyi yazmayı unutmuş olabilir; metinle karşılaştırın.",
+    ),
+    "kanun_no": (
+        "attention",
+        "kanun numarası platformdan boş geldi: bu satır yalnız kanun adıyla eşleştirilebilir; adı da yoksa hiçbir "
+        "referansla eşleşmez.",
+    ),
+}
+
+
+def _ordinals(indices: list[int]) -> str:
+    numbers = [f"{index + 1}." for index in indices]
+    if len(numbers) == 1:
+        return f"{numbers[0]} satırında"
+    return f"{', '.join(numbers[:-1])} ve {numbers[-1]} satırlarında"
+
+
+def _reference_label(reference: dict[str, Any]) -> str:
+    law = str(reference.get("kanun_no") or "").strip() or str(reference.get("kanun_ad") or "").strip() or "kanun belirtilmemiş"
+    return f"{law} · madde {str(reference.get('madde') or '').strip() or '—'}"
+
+
+def explain_warnings(warnings: list[dict[str, Any]], human: list[dict[str, Any]]) -> list[dict[str, str]]:
+    """Preparation warnings as sentences the expert can act on, attention first.
+
+    `human` is the annotator's list as prepared (before the 213/413 policy), the
+    list `reference_index` counts in. Warnings about one field are grouped into
+    one sentence naming the rows (1-based) and their references.
+    """
+    grouped: dict[str, list[int]] = {}
+    notes: list[dict[str, str]] = []
+    for warning in warnings:
+        code = str(warning.get("code", ""))
+        if code.startswith("source_text"):
+            continue
+        if code in {"reference_null_field", "reference_missing_field"}:
+            # Only the decision fields are explained; any other field (the quote,
+            # which decides nothing, or one no longer part of a reference) is silent.
+            field = str(warning.get("field", ""))
+            if field in _EMPTY_FIELD_NOTES:
+                grouped.setdefault(field, []).append(int(warning.get("reference_index", 0)))
+            continue
+        if code == "annotation_incomplete":
+            notes.append({"level": "attention", "text": "Bursiyer bu belgeyi platformda “tamamlandı” olarak işaretlememiş; "
+                          "listesi yarım kalmış olabilir."})
+        elif code == "current_references_missing_or_null":
+            notes.append({"level": "attention", "text": "Bursiyer bu belge için referans listesi göndermemiş (platformda "
+                          "liste yok); insan anotasyonu boş görünür."})
+        else:
+            detail = ", ".join(f"{key}: {value}" for key, value in warning.items() if key != "code")
+            notes.append({"level": "info", "text": f"Hazırlama notu ({code}){': ' + detail if detail else ''}."})
+    for field, (level, explanation) in _EMPTY_FIELD_NOTES.items():
+        indices = sorted(set(grouped.get(field, [])))
+        if not indices:
+            continue
+        labels = "; ".join(_reference_label(human[index]) for index in indices if 0 <= index < len(human))
+        notes.append({"level": level, "text": f"Bursiyer listesinin {_ordinals(indices)}"
+                      f"{f' ({labels})' if labels else ''} {explanation}"})
+    return sorted(notes, key=lambda note: note["level"] != "attention")
 
 
 def _row_label(row: dict[str, Any]) -> str:
@@ -1124,10 +1301,21 @@ def create_hitl_app(
             cited = [diff[int(candidate)] for candidate in segment["candidates"]]
             segment["kind"] = segment_kind([row["display"] for row in cited]) if cited else ""
             segment["title"] = " | ".join(f"{row['label']} — {row['status_label'].split(' · ')[0]}" for row in cited)
+        displays = [row["display"] for row in diff]
+        legend_counts = {
+            "both": displays.count("same"),
+            "a": displays.count("only_a"),
+            "b": displays.count("only_b"),
+            "mixed": sum(1 for segment in segments if segment["kind"] == "mixed"),
+            "neutral": displays.count("excused"),
+        }
         return render_template_string(
             REVIEW_TEMPLATE,
             doc=document,
             diff=diff,
+            notes=explain_warnings(document["warnings"], document["human_prepared"]),
+            rows_payload=[{"a": row["a"], "b": row["b"]} for row in diff],
+            legend_counts=legend_counts,
             diff_summary=summarize_diff(diff),
             position=review_position(queue, internal_doc_id),
             durability=durability,

@@ -27,6 +27,7 @@ from .errors import ConfigurationError, ContractError, GateBlocked, IntegrityErr
 from .judges import ensure_green_audit_plan, judge_lock_payload, judge_visible_to_expert
 from .loop_sources import has_loop_settings
 from .preparation import annotation_attribution_path
+from .reference_locator import mention_offsets
 from .reference_matching import DocumentContext, canonical_reference, compare_reference_lists
 from .reference_policy import (
     DEFAULT_REFERENCE_POLICY_ID,
@@ -155,81 +156,138 @@ def _form_error_message(detail: str) -> str:
 
 
 REVIEW_TEMPLATE = """
-<!doctype html><meta charset="utf-8"><title>DQCheck Review</title>
+<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{% if position %}Belge {{ position.index }}/{{ position.total }} · {% endif %}DQCheck inceleme</title>
 {% macro refcell(refs) %}
 {%- for r in refs -%}
-<div class="ref"><strong>{{ r.kanun_no or r.kanun_ad or "Kanun belirtilmemiş" }}</strong>
-· madde {{ r.madde or "—" }}
-<div class="src">{{ r.source_text }}</div></div>
+<div class="ref"><span class="law">{{ r.kanun_no or "—" }}</span>{% if r.kanun_ad %} <span class="lawname">{{ r.kanun_ad }}</span>{% endif %}
+<span class="art">madde {{ r.madde or "—" }}</span>{% if r.source_text %}
+<div class="quote" title="Bursiyerin metinden aldığı alıntı; karar vermez, yalnız vurgulanır">“{{ r.source_text }}”</div>{% endif %}</div>
 {%- else -%}<span class="muted">—</span>{%- endfor -%}
 {% endmacro %}
 <style>
-*{box-sizing:border-box}body{font-family:system-ui;margin:0;background:#f5f6f8;color:#20242a;line-height:1.45}
-main{max-width:1120px;margin:auto;padding:1rem}.topbar{background:white;border-bottom:1px solid #d9dde3;position:sticky;top:0;z-index:10}
-.topinner{max-width:1120px;margin:auto;padding:.75rem 1rem}.topline{display:flex;align-items:center;gap:.7rem;flex-wrap:wrap}.topline h1{font-size:1.15rem;margin:0}
-.docid{color:#6a737d;font-size:.78rem}.durability{color:#146c3a;font-size:.8rem;font-weight:650;margin-top:.45rem}.progress{height:.45rem;background:#e5e8ec;border-radius:1rem;margin-top:.55rem;overflow:hidden}.progress span{display:block;height:100%;background:#155eef}
-.bucket{font-size:.78rem;font-weight:750;padding:.2rem .55rem;border-radius:1rem}.bucket-RED{background:#ffe8e6;color:#9f1d18}.bucket-YELLOW{background:#fff1c2;color:#6b4b00}.bucket-GREEN{background:#dff6e8;color:#146c3a}
-section,details.secondary,details.technical{background:white;border:1px solid #d9dde3;border-radius:.55rem;padding:1rem;margin:1rem 0}h2{font-size:1.05rem;margin:.1rem 0 .7rem}
-.guide{border-left:5px solid #155eef}.guide p{margin:.35rem 0}.steps{margin:.6rem 0 0;padding-left:1.3rem}.steps li{margin:.25rem 0}.hint{color:#59636e;font-size:.86rem}.warn{color:#8a3b00;background:#fff7e6;padding:.65rem}.muted{color:#7a838d}
-.doctext{white-space:pre-wrap;max-height:360px;overflow:auto;border:1px solid #ccd2d9;background:#fbfcfd;padding:1rem;border-radius:.4rem}
-table{border-collapse:collapse;width:100%;margin:.8rem 0}th,td{border:1px solid #d4d8dd;padding:.55rem;vertical-align:top;text-align:left;font-size:.88rem}th{background:#f2f4f7}
-tr.same td{background:#f7faf8}tr.only_a td{background:#eef5ff}tr.only_b td{background:#fff5e9}tr.differs td{background:#fff7d6}.badge{display:inline-block;font-size:.75rem;font-weight:700;padding:.12rem .45rem;border-radius:.6rem;border:1px solid #9aa3ad}
-.diffmark{font-weight:650;color:#8a3b00;margin-top:.3rem}.ref{margin-bottom:.55rem}.src{color:#59636e;font-size:.8rem;margin-top:.15rem}.summary{font-weight:650}
-.decision{border:2px solid #155eef}.decision-grid{display:grid;grid-template-columns:1fr 1fr;gap:.7rem;margin-top:.8rem}.decision button{min-height:68px;border:1px solid #155eef;border-radius:.5rem;background:#edf4ff;color:#123a78;font-size:1rem;font-weight:750;padding:.7rem;cursor:pointer}.decision button:hover{background:#dceaff}.decision button span{display:block;font-size:.78rem;font-weight:450;margin-top:.2rem}
-summary{cursor:pointer;font-weight:700}.secondary[open]>summary,.technical[open]>summary{margin-bottom:.8rem}.defer-row{display:flex;gap:.6rem;align-items:end;flex-wrap:wrap}.defer-row label{flex:1;min-width:260px}.defer-row input{width:100%;padding:.55rem;margin-top:.25rem}.defer-row button{padding:.58rem .8rem}
-.editor-wrap{overflow:auto}.editor input{width:100%;min-width:78px;padding:.35rem}.editor td:last-child{width:1%}.editor .source-input{min-width:260px}.toolbar{display:flex;gap:.4rem;flex-wrap:wrap;margin:.6rem 0}.toolbar button{padding:.4rem .6rem}.save-revision{background:#155eef;color:white;border:0;border-radius:.4rem;font-weight:700;padding:.65rem .9rem}
-pre{white-space:pre-wrap;border:1px solid #bbb;padding:1rem}mark.ev{padding:0 .05rem;border-radius:.15rem;color:inherit}mark.ev-A{background:#cfe4ff}mark.ev-B{background:#ffe0c2}mark.ev-A.ev-B{background:#e2d6f5}.legend{font-size:.8rem;color:#555;margin:.4rem 0}.legend .sw{display:inline-block;padding:0 .4rem;border-radius:.2rem;margin-right:.5rem}
-@media(max-width:720px){.decision-grid{grid-template-columns:1fr}th,td{font-size:.8rem;padding:.35rem}.topbar{position:static}}
+:root{--bg:#f3f4f6;--panel:#fff;--line:#dde1e6;--ink:#1d2127;--muted:#646d78;--brand:#1a56db;--brand-soft:#e8effd;
+--a:#1d4ed8;--a-bg:#d9e6ff;--b:#b45309;--b-bg:#ffe2c6;--both:#6d28d9;--both-bg:#e6dcfb;--mix:#b42318;--mix-bg:#fde0de;
+--ok:#137333;--ok-bg:#dff3e5;--warn:#9a3412;--warn-bg:#fff1e5;--head:64px}
+*{box-sizing:border-box}html,body{margin:0}body{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;background:var(--bg);color:var(--ink);line-height:1.45;font-size:15px}
+button{font:inherit}.muted{color:var(--muted)}small{font-size:.78rem}
+:focus-visible{outline:3px solid #93b4f5;outline-offset:2px}
+/* top bar */
+.topbar{position:sticky;top:0;z-index:20;background:var(--panel);border-bottom:1px solid var(--line);height:var(--head)}
+.topinner{max-width:1600px;margin:auto;padding:.55rem 1.1rem 0;display:flex;align-items:center;gap:.8rem;flex-wrap:wrap}
+.topinner h1{font-size:1.05rem;margin:0;white-space:nowrap}.docid{color:var(--muted);font-size:.78rem}
+.bucket{font-size:.74rem;font-weight:700;padding:.18rem .6rem;border-radius:1rem;letter-spacing:.01em}
+.bucket-RED{background:#ffe4e2;color:#9f1c17}.bucket-YELLOW{background:#fff1c2;color:#6b4b00}.bucket-GREEN{background:var(--ok-bg);color:var(--ok)}.bucket-QUARANTINE{background:#ece6ff;color:#4b2aa8}
+.spacer{flex:1}.durability{color:var(--ok);font-size:.78rem;font-weight:600}.keys{font-size:.76rem;color:var(--muted)}
+kbd{font:600 .72rem ui-monospace,monospace;background:#f1f3f5;border:1px solid #cfd5dc;border-bottom-width:2px;border-radius:.3rem;padding:0 .3rem;color:#333}
+.progress{position:absolute;left:0;right:0;bottom:-1px;height:3px;background:#e5e8ec}.progress span{display:block;height:100%;background:var(--brand)}
+/* layout */
+.layout{max-width:1600px;margin:auto;padding:1rem 1.1rem 3rem;display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1fr);gap:1.1rem;align-items:start}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:.6rem;padding:1rem 1.1rem;margin:0 0 1rem}
+h2{font-size:1rem;margin:0 0 .6rem}.hint{color:var(--muted);font-size:.83rem;margin:.2rem 0 .6rem}
+.textpane{position:sticky;top:calc(var(--head) + 1rem);max-height:calc(100vh - var(--head) - 2rem);display:flex;flex-direction:column;margin:0}
+.textpane .doctext{flex:1;min-height:0}
+.guide{border-left:4px solid var(--brand)}.guide h2{margin-bottom:.3rem}.guide p{margin:.2rem 0;font-size:.9rem}
+.guide details summary{font-size:.84rem;color:var(--brand);cursor:pointer;margin-top:.4rem}.steps{margin:.4rem 0 0;padding-left:1.2rem;font-size:.88rem}
+.warnbox{color:var(--warn);background:var(--warn-bg);padding:.6rem .8rem;border-radius:.4rem;font-size:.88rem}
+/* document text and highlights */
+.legend{display:flex;flex-wrap:wrap;gap:.35rem .8rem;font-size:.78rem;color:var(--muted);margin:0 0 .5rem}
+.legend span{display:inline-flex;align-items:center;gap:.3rem}.legend i{display:inline-block;width:.9rem;height:.9rem;border-radius:.2rem}
+.doctext{white-space:pre-wrap;overflow:auto;border:1px solid var(--line);background:#fbfcfd;padding:1rem 1.1rem;border-radius:.45rem;font-size:.95rem;line-height:1.7}
+mark.ev{color:inherit;border-radius:.2rem;padding:.05rem .1rem;cursor:pointer;box-decoration-break:clone;-webkit-box-decoration-break:clone}
+mark.ev-a{background:var(--a-bg)}mark.ev-b{background:var(--b-bg)}mark.ev-both{background:var(--both-bg)}mark.ev-mixed{background:var(--mix-bg);box-shadow:inset 0 -2px 0 var(--mix)}mark.ev-neutral{background:#eceef1}
+mark.ev.active{outline:2px solid var(--ink);outline-offset:1px}mark.ev.current{outline:3px solid var(--brand);background:#fff3a6}
+/* comparison */
+.summary{display:flex;gap:.5rem;flex-wrap:wrap;margin:.2rem 0 .7rem}.pill{display:inline-block;font-size:.76rem;font-weight:650;padding:.15rem .55rem;border-radius:1rem;border:1px solid transparent;white-space:nowrap}
+.pill-diff{background:var(--mix-bg);color:var(--mix)}.pill-same{background:var(--ok-bg);color:var(--ok)}
+.pill-same-row{background:var(--both-bg);color:var(--both)}.pill-only_a{background:var(--a-bg);color:var(--a)}.pill-only_b{background:var(--b-bg);color:var(--b)}
+.pill-excused{background:#eef0f3;color:#4b5563}.pill-missing{background:#fff;color:var(--mix);border-color:#f3b4ae}.pill-found{background:#fff;color:var(--muted);border-color:var(--line)}
+table.cmp{border-collapse:separate;border-spacing:0;width:100%;font-size:.86rem;table-layout:fixed}.cmp col.c-a{width:37%}.cmp col.c-b{width:31%}.cmp col.c-s{width:32%}
+.cmp th{position:sticky;top:var(--head);background:#f6f7f9;z-index:1;text-align:left;font-weight:650;font-size:.78rem;color:#3d444d;padding:.5rem .55rem;border-bottom:1px solid var(--line)}
+.cmp td{padding:.5rem .55rem;border-bottom:1px solid #edf0f3;vertical-align:top;overflow-wrap:anywhere}
+.cmp tbody tr{cursor:pointer}.cmp tbody tr:hover td{background:#f8fafc}
+.cmp tr.excused td:first-child{box-shadow:inset 4px 0 0 #b8bec7}.cmp tr.only_a td:first-child{box-shadow:inset 4px 0 0 var(--a)}.cmp tr.only_b td:first-child{box-shadow:inset 4px 0 0 var(--b)}.cmp tr.same td:first-child{box-shadow:inset 4px 0 0 var(--both)}
+.cmp tr.active td{background:#fffbe6}
+.ref{margin-bottom:.4rem}.ref:last-child{margin-bottom:0}.law{font-weight:700}.lawname{color:#3d444d}.art{display:inline-block;margin-left:.15rem;font-weight:600}
+.quote{color:var(--muted);font-size:.76rem;margin-top:.1rem;max-height:3.1em;overflow:hidden}
+.notes{font-size:.74rem;color:var(--muted);margin-top:.3rem}.rowlabel{font-weight:650}
+.statuscell .pill{margin:0 .2rem .25rem 0}
+/* decision */
+.decision{border:2px solid var(--brand)}.decision p{margin:.1rem 0 .7rem;font-size:.9rem}
+.decision-grid{display:grid;grid-template-columns:1fr 1fr;gap:.7rem}
+.decision button{min-height:64px;border:1px solid var(--brand);border-radius:.55rem;background:var(--brand-soft);color:#123a78;font-size:1rem;font-weight:700;padding:.6rem;cursor:pointer}
+.decision button:hover{background:#d8e5fc}.decision button span{display:block;font-size:.76rem;font-weight:450;margin-top:.15rem;color:#3b4f73}
+details.secondary,details.technical{background:var(--panel);border:1px solid var(--line);border-radius:.6rem;padding:.75rem 1.1rem;margin:0 0 1rem}
+summary{cursor:pointer;font-weight:650}.secondary[open]>summary,.technical[open]>summary{margin-bottom:.7rem}
+.defer-row{display:flex;gap:.6rem;align-items:end;flex-wrap:wrap}.defer-row label{flex:1;min-width:220px;font-size:.88rem}.defer-row input{width:100%;padding:.5rem;margin-top:.25rem;border:1px solid #c5ccd4;border-radius:.4rem}
+.defer-row button,.toolbar button{padding:.45rem .75rem;border:1px solid #c5ccd4;background:#fff;border-radius:.4rem;cursor:pointer}.defer-row button:hover,.toolbar button:hover{background:#f3f5f7}
+.editor-wrap{overflow:auto}.editor{border-collapse:collapse;width:100%}.editor th{font-size:.76rem;text-align:left;color:#3d444d;padding:.3rem}.editor td{padding:.2rem}
+.editor input{width:100%;min-width:70px;padding:.35rem;border:1px solid #c5ccd4;border-radius:.3rem}.editor input[data-field=kanun_ad]{min-width:170px}.editor input[data-field=kanun_no]{max-width:90px}.editor td:last-child{width:1%}.editor .source-input{min-width:220px}
+.editor button{border:1px solid #e3b4ae;background:#fff;color:var(--mix);border-radius:.3rem;padding:.3rem .5rem;cursor:pointer}
+.toolbar{display:flex;gap:.4rem;flex-wrap:wrap;margin:.6rem 0}
+.save-revision{background:var(--brand);color:white;border:0;border-radius:.45rem;font-weight:700;padding:.6rem .95rem;cursor:pointer}
+pre{white-space:pre-wrap;border:1px solid var(--line);padding:.8rem;border-radius:.4rem;font-size:.78rem;background:#fbfcfd}
+textarea{width:100%;font:.8rem ui-monospace,monospace}
+@media(max-width:1100px){.layout{grid-template-columns:1fr}.textpane{position:static;height:auto}.textpane .doctext{max-height:60vh}.cmp th{top:0}}
+@media(max-width:640px){:root{--head:auto}.topbar{position:relative;height:auto;padding-bottom:.6rem}.decision-grid{grid-template-columns:1fr}.keys{display:none}
+.layout{padding:.7rem .6rem 2rem}.card{padding:.85rem .8rem}.pill{white-space:normal}.cmp td,.cmp th{padding:.4rem .35rem}.cmp col.c-a{width:36%}.cmp col.c-b{width:32%}.cmp col.c-s{width:32%}}
 </style>
 <header class="topbar"><div class="topinner">
-  <div class="topline"><h1>{% if position %}Belge {{ position.index }} / {{ position.total }}{% else %}Belge inceleme{% endif %}</h1>
-    <span class="bucket bucket-{{ doc.router_bucket }}">{{ doc.router_bucket }}</span>
-    <span class="docid">Kayıt: {{ doc.internal_doc_id }}</span></div>
-  {% if position %}<div class="progress" aria-label="İnceleme ilerlemesi"><span style="width:{{ (100 * position.index / position.total)|round(1) }}%"></span></div>{% endif %}
-  <div class="durability">Kayıt koruması: Güncel · {{ durability.review_count }} karar yedeklendi</div>
-</div></header>
-<main>
-<section class="guide"><h2>{{ doc.guidance.title }}</h2><p>{{ doc.guidance.explanation }}</p>
-  <ol class="steps"><li>Belge metnindeki kanun ve madde atıflarını kontrol edin.</li><li>İnsan anotasyonu ile model çıktısını metinle karşılaştırın.</li><li>Doğru olanı seçin; ikisi de yanlışsa düzeltin.</li></ol>
+  <h1>{% if position %}Belge {{ position.index }} / {{ position.total }}{% else %}Belge inceleme{% endif %}</h1>
+  <span class="bucket bucket-{{ doc.router_bucket }}">{{ {"RED": "Uyuşmazlık", "GREEN": "Denetim örneği", "QUARANTINE": "Teknik inceleme", "YELLOW": "Kısmi uyuşma"}.get(doc.router_bucket, doc.router_bucket) }}</span>
+  <span class="docid">Kayıt: {{ doc.internal_doc_id }}</span>
+  <span class="spacer"></span>
+  <span class="keys"><kbd>H</kbd> İnsan doğru · <kbd>M</kbd> Model doğru{% if doc.judge_suggestion %} · <kbd>J</kbd> Hakem{% endif %} · <kbd>D</kbd> Ertele · <kbd>Esc</kbd> vurguyu temizle</span>
+  <span class="durability">Kayıt koruması: Güncel · {{ durability.review_count }} karar yedeklendi</span>
+</div>{% if position %}<div class="progress" aria-label="İnceleme ilerlemesi"><span style="width:{{ (100 * position.index / position.total)|round(1) }}%"></span></div>{% endif %}</header>
+
+<div class="layout">
+<section class="card textpane" aria-label="Belge metni">
+  <h2>1. Belge metnini kontrol et</h2>
+  <div class="legend"><span><i style="background:var(--both-bg)"></i>İki tarafta da</span><span><i style="background:var(--a-bg)"></i>Yalnız insan anotasyonunda</span><span><i style="background:var(--b-bg)"></i>Yalnız modelde</span><span><i style="background:var(--mix-bg)"></i>Aynı yerde farklı referanslar</span><span><i style="background:#eceef1"></i>Fark sayılmaz</span></div>
+  <div class="doctext" id="doctext">{% for seg in segments %}{% if seg.candidates %}<mark class="ev ev-{{ seg.kind }}" data-rows="{{ seg.candidates|join(' ') }}" title="{{ seg.title }}">{{ seg.text }}</mark>{% else %}{{ seg.text }}{% endif %}{% endfor %}</div>
+  <p class="hint" style="margin:.5rem 0 0">Vurgular, karşılaştırmadaki referansların metinde anıldığı yerlerdir (bulucu); doğruluk anlamına gelmez. Tablodaki bir satıra tıklayınca o referansın geçtiği yerlere gidilir.</p>
 </section>
-{% if doc.warnings %}<p class="warn">Dikkat: Bu belgede hazırlama uyarısı var: {{ doc.warnings|tojson }}</p>{% endif %}
 
-<section><h2>1. Belge metnini kontrol et</h2>
-<p class="hint">Renkler yalnız adayların gösterdiği kanıt parçalarını belirtir; doğruluk anlamına gelmez.</p>
-<p class="legend"><span class="sw" style="background:#cfe4ff">İnsan anotasyonu kanıtı</span><span class="sw" style="background:#ffe0c2">Model kanıtı</span><span class="sw" style="background:#e2d6f5">İkisinde de</span></p>
-<div class="doctext">{% for seg in segments %}{% if seg.candidates %}<mark class="ev{% for c in seg.candidates %} ev-{{ c }}{% endfor %}" title="{{ seg.candidates|join('+') }}">{{ seg.text }}</mark>{% else %}{{ seg.text }}{% endif %}{% endfor %}</div></section>
+<div class="side">
+<section class="card guide"><h2>{{ doc.guidance.title }}</h2><p>{{ doc.guidance.explanation }}</p>
+  <details><summary>Nasıl karar verilir?</summary><ol class="steps"><li>Belge metnindeki kanun ve madde atıflarını kontrol edin.</li><li>İnsan anotasyonu ile model çıktısını metinle karşılaştırın.</li><li>Doğru olanı seçin; ikisi de yanlışsa düzeltin.</li></ol></details>
+</section>
+{% if doc.warnings %}<p class="warnbox">Dikkat: Bu belgede hazırlama uyarısı var: {{ doc.warnings|tojson }}</p>{% endif %}
 
-<section><h2>2. İnsan anotasyonu ile modeli karşılaştır</h2>
+<section class="card"><h2>2. İnsan anotasyonu ile modeli karşılaştır</h2>
 <p class="hint">Sol sütun insan anotasyonudur; sağ sütun modelin ({{ doc.generation }}) çıktısıdır.</p>
-<p class="summary">{{ diff_summary.difference_count }} farklı · {{ diff_summary.same_count }} aynı referans grubu</p>
-<table><thead><tr><th>Referans</th><th>İnsan anotasyonu<br><small>Tamamlayan: {{ doc.human_attribution.display_name }}</small>{% if doc.human_attribution.last_editor_name and doc.human_attribution.last_editor_name != doc.human_attribution.display_name %}<br><small>Son düzenleyen: {{ doc.human_attribution.last_editor_name }}</small>{% endif %}</th><th>Model çıktısı<br><small>{{ doc.generation }} · {{ doc.model_name }}</small></th><th>Sonuç</th></tr></thead><tbody>
-{% for row in diff %}<tr class="{{ row.status }}">
-  <td>{{ row.core.kanun_no }} · {{ row.core.kanun_ad }}<br><small>madde {{ row.core.madde or "—" }}</small></td>
+<div class="summary"><span class="pill pill-diff">{{ diff_summary.difference_count }} farklı</span><span class="pill pill-same">{{ diff_summary.same_count }} aynı referans grubu</span></div>
+<table class="cmp"><colgroup><col class="c-a"><col class="c-b"><col class="c-s"></colgroup><thead><tr><th>İnsan anotasyonu<br><small class="muted">Tamamlayan: {{ doc.human_attribution.display_name }}{% if doc.human_attribution.last_editor_name and doc.human_attribution.last_editor_name != doc.human_attribution.display_name %} · Son düzenleyen: {{ doc.human_attribution.last_editor_name }}{% endif %}</small></th><th>Model çıktısı<br><small class="muted">{{ doc.generation }} · {{ doc.model_name }}</small></th><th>Sonuç</th></tr></thead><tbody>
+{% for row in diff %}<tr class="{{ row.display }}" data-row="{{ row.index }}" tabindex="0" title="{{ row.label }} — metindeki yerlerine gitmek için tıklayın">
   <td>{{ refcell(row.a) }}</td><td>{{ refcell(row.b) }}</td>
-  <td><span class="badge">{{ row.status_label }}</span></td>
-</tr>{% else %}<tr><td colspan="4" class="muted">İki adayda da referans yok.</td></tr>{% endfor %}
+  <td class="statuscell">{% if row.display == 'excused' %}<span class="pill pill-excused">Fark sayılmaz</span>{% else %}<span class="pill pill-{{ 'same-row' if row.display == 'same' else row.display }}">{{ row.status_label.split(' · ')[0] }}</span>{% endif %}
+    {% if row.mentions %}<span class="pill pill-found">metinde {{ row.mentions }} yerde</span>{% else %}<span class="pill pill-missing">metinde bulunamadı</span>{% endif %}
+    {% if row.duplicates.a or row.duplicates.b or row.subsumed.a or row.subsumed.b %}<div class="notes">{{ row.status_label.split(' · ')[1:]|join(' · ') }}</div>{% endif %}</td>
+</tr>{% else %}<tr><td colspan="3" class="muted">İki adayda da referans yok.</td></tr>{% endfor %}
 </tbody></table></section>
 
-{% if doc.judge_suggestion %}<section><h2>Hakemin önerisi</h2>
+{% if doc.judge_suggestion %}<section class="card"><h2>Hakemin önerisi</h2>
 <p class="hint">Yerel dil modeli hakemin bu belge için önerdiği referans listesi. Doğruluk kanıtı değildir; belge metnine göre kontrol edin.</p>
 {{ refcell(doc.judge_suggestion.final_references) }}</section>{% endif %}
 
 <form method="post" action="{{ url_for('submit_review', internal_doc_id=doc.internal_doc_id) }}">
   <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="row_version" value="{{ doc.row_version }}"><input type="hidden" name="opened_at" value="{{ opened_at }}">
-  <section class="decision"><h2>3. Karar ver</h2><p>Belgedeki tüm hedef kanun/madde referanslarını doğru veren adayı seçin.</p>
+  <section class="card decision"><h2>3. Karar ver</h2><p>Belgedeki tüm hedef kanun/madde referanslarını doğru veren adayı seçin.</p>
     <div class="decision-grid"><button name="action" value="accept_human" accesskey="h">İnsan anotasyonu doğru<span>{{ doc.human_attribution.display_name }} · Kısayol: H</span></button>
     <button name="action" value="accept_model" accesskey="m">Model çıktısı doğru<span>{{ doc.generation }} · Kısayol: M</span></button>
     {% if doc.judge_suggestion %}<button name="action" value="judge_override" accesskey="j">Hakemin önerisi doğru<span>Yerel hakem · Kısayol: J</span></button>{% endif %}</div>
   </section>
   <details class="secondary"><summary>Karar veremiyorum — bu belgeyi ertele</summary><div class="defer-row">
     <label>Erteleme gerekçesi<input name="reason" placeholder="Örn. metin eksik veya hukuki yorum gerekli"></label><button name="action" value="defer">Gerekçeyle ertele</button></div>
-    <p class="warn" id="defer-msg" hidden>Ertelemek için bir gerekçe yazın.</p>
+    <p class="warnbox" id="defer-msg" hidden>Ertelemek için bir gerekçe yazın.</p>
+    <p class="hint">Ertelenen belge çözülmeden parti yayımlanamaz.</p>
   </details>
   <details class="secondary" id="revision-panel"><summary>İkisi de tam doğru değil — referansları düzelt</summary>
-    <p class="hint">Başlangıç olarak insan anotasyonunu veya modeli seçin; yalnız yanlış alanları değiştirin.</p>
+    <p class="hint">Başlangıç olarak insan anotasyonunu veya modeli seçin; yalnız yanlış satırları değiştirin. Aynı referansı iki kez yazmak gerekmez.</p>
     <div class="toolbar"><button type="button" id="fill-a">İnsan anotasyonundan başla</button><button type="button" id="fill-b">Model çıktısından başla</button>
     {% if doc.judge_suggestion %}<button type="button" id="fill-judge">Yardımcı görüşten başla</button>{% endif %}<button type="button" id="add-row">+ Referans ekle</button></div>
-    <div class="editor-wrap"><table class="editor"><thead><tr><th>Kanun no</th><th>Kanun adı</th><th>Madde</th><th>Metindeki ifade</th><th></th></tr></thead><tbody id="ref-rows"></tbody></table></div>
+    <div class="editor-wrap"><table class="editor"><thead><tr><th>Kanun no</th><th>Kanun adı</th><th>Madde</th><th>Metindeki ifade (isteğe bağlı)</th><th></th></tr></thead><tbody id="ref-rows"></tbody></table></div>
     <details class="technical"><summary>Teknik JSON alanı (yalnız gerekirse)</summary><textarea name="references_json" rows="8" cols="80"></textarea></details>
     <p><button class="save-revision" name="action" value="revise">Düzeltmeyi kaydet ve devam et</button></p>
   </details>
@@ -240,6 +298,8 @@ pre{white-space:pre-wrap;border:1px solid #bbb;padding:1rem}mark.ev{padding:0 .0
   <details><summary>Ham insan/model JSON</summary><div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem"><div><strong>İnsan anotasyonu</strong><pre>{{ doc.candidate_a|tojson(indent=2) }}</pre></div><div><strong>Model çıktısı ({{ doc.generation }})</strong><pre>{{ doc.candidate_b|tojson(indent=2) }}</pre></div></div></details>
   {% if doc.judge_suggestion %}<details><summary>Otomatik yardımcı görüş</summary><pre>{{ doc.judge_suggestion|tojson(indent=2) }}</pre></details>{% endif %}
 </details>
+</div>
+</div>
 
 <script id="cand" type="application/json">{{ {"a": doc.candidate_a, "b": doc.candidate_b, "judge": doc.judge_suggestion}|tojson }}</script>
 <script>
@@ -265,12 +325,13 @@ pre{white-space:pre-wrap;border:1px solid #bbb;padding:1rem}mark.ev{padding:0 .0
     ref = ref||{}; var tr=document.createElement('tr');
     FIELDS.forEach(function(f){
       var td=document.createElement('td'), inp=document.createElement('input');
-      inp.dataset.field=f; inp.value=ref[f]||''; inp.size=(f==='source_text')?40:8;
+      inp.dataset.field=f; inp.value=ref[f]||''; inp.size={kanun_no:7,kanun_ad:24,madde:10,source_text:36}[f];
       if(f==='source_text') inp.className='source-input';
+      inp.setAttribute('aria-label', {kanun_no:'Kanun no',kanun_ad:'Kanun adı',madde:'Madde',source_text:'Metindeki ifade'}[f]);
       inp.addEventListener('input', tableEdited); td.appendChild(inp); tr.appendChild(td);
     });
     var td=document.createElement('td'), del=document.createElement('button');
-    del.type='button'; del.textContent='sil';
+    del.type='button'; del.textContent='sil'; del.title='Bu satırı sil';
     del.addEventListener('click', function(){ tr.remove(); tableEdited(); });
     td.appendChild(del); tr.appendChild(td); rows.appendChild(tr);
   }
@@ -293,8 +354,55 @@ pre{white-space:pre-wrap;border:1px solid #bbb;padding:1rem}mark.ev{padding:0 .0
   form.addEventListener('submit', function(e){ if(sent){ e.preventDefault(); } sent = true; });
   window.addEventListener('pageshow', function(){ sent = false; });
   fill(DATA.a);
+
+  // Linking the comparison and the text: a row shows where its reference is
+  // cited (each click moves to the next place); a highlight shows its rows.
+  var doctext = document.getElementById('doctext');
+  var marks = Array.prototype.slice.call(doctext.querySelectorAll('mark.ev'));
+  var tableRows = Array.prototype.slice.call(document.querySelectorAll('table.cmp tbody tr[data-row]'));
+  var active = null, cursor = -1;
+  function marksOf(index){ return marks.filter(function(m){ return (' '+m.dataset.rows+' ').indexOf(' '+index+' ') >= 0; }); }
+  function clearActive(){
+    marks.forEach(function(m){ m.classList.remove('active','current'); });
+    tableRows.forEach(function(r){ r.classList.remove('active'); });
+    active = null; cursor = -1;
+  }
+  function scrollIntoText(mark){
+    var top = mark.offsetTop - doctext.offsetTop - doctext.clientHeight/3;
+    doctext.scrollTo({top: Math.max(0, top), behavior: 'smooth'});
+  }
+  function showRow(index){
+    var own = marksOf(index);
+    if(active !== index){ clearActive(); active = index; own.forEach(function(m){ m.classList.add('active'); }); }
+    tableRows.forEach(function(r){ r.classList.toggle('active', r.dataset.row === String(index)); });
+    if(!own.length) return;
+    own.forEach(function(m){ m.classList.remove('current'); });
+    cursor = (cursor + 1) % own.length;
+    own[cursor].classList.add('current');
+    scrollIntoText(own[cursor]);
+  }
+  tableRows.forEach(function(r){
+    r.addEventListener('click', function(){ showRow(r.dataset.row); });
+    r.addEventListener('keydown', function(e){ if(e.key === 'Enter' || e.key === ' '){ e.preventDefault(); showRow(r.dataset.row); } });
+  });
+  marks.forEach(function(m){
+    m.addEventListener('click', function(){
+      var first = m.dataset.rows.split(' ')[0];
+      clearActive(); active = first;
+      marksOf(first).forEach(function(x){ x.classList.add('active'); });
+      m.classList.add('current');
+      m.dataset.rows.split(' ').forEach(function(index){
+        var row = document.querySelector('table.cmp tr[data-row="'+index+'"]');
+        if(row){ row.classList.add('active'); }
+      });
+      var row = document.querySelector('table.cmp tr[data-row="'+first+'"]');
+      if(row){ row.scrollIntoView({block: 'nearest', behavior: 'smooth'}); }
+    });
+  });
+
   document.addEventListener('keydown', function(e){
     var t=(e.target.tagName||''); if(t==='INPUT'||t==='TEXTAREA'||t==='SELECT') return;
+    if(e.key === 'Escape'){ clearActive(); return; }
     // Cmd+H / Ctrl+M are the system's, and a letter typed while the revision
     // panel is open was meant for a cell: neither may submit a decision.
     if(e.metaKey||e.ctrlKey||e.altKey||e.repeat) return;
@@ -310,7 +418,6 @@ pre{white-space:pre-wrap;border:1px solid #bbb;padding:1rem}mark.ev{padding:0 .0
   });
 })();
 </script>
-</main>
 """
 
 
@@ -640,7 +747,6 @@ def _document_for_review(
         "judge_suggestion": judge_suggestion,
         "review_status": review["status"],
         "row_version": review["row_version"],
-        "evidence_spans": _evidence_spans(document["text"], candidate_a, candidate_b),
         "reference_policy": {
             "policy_id": DEFAULT_REFERENCE_POLICY_ID,
             "policy_fingerprint": reference_policy_spec()["fingerprint"],
@@ -655,27 +761,72 @@ def _document_for_review(
     return result
 
 
-def _evidence_spans(
-    text: str,
-    candidate_a: list[dict[str, str]],
-    candidate_b: list[dict[str, str]],
-) -> list[dict[str, Any]]:
-    spans = []
-    for label, references in (("A", candidate_a), ("B", candidate_b)):
-        for reference in references:
-            evidence = reference.get("source_text", "")
-            if not evidence:
-                continue
-            start = text.find(evidence)
-            if start >= 0:
-                spans.append({"start": start, "end": start + len(evidence), "candidate": label})
-    return sorted(spans, key=lambda item: (item["start"], item["end"], item["candidate"]))
+def row_highlights(text: str, rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[int]]:
+    """Where each row of the comparison (`ab_diff`) is cited in `text`.
+
+    Every row -- the annotator's, the model's, or both sides' -- is placed by
+    the locator at each of its mentions (`mention_offsets`), and each verbatim
+    quote the annotator wrote for it is marked as well (all occurrences). The
+    annotator's quote still decides nothing: it only adds a highlight. Returns
+    spans labelled with the row's index (for `evidence_segments`) and, per row,
+    how many places in the text cite it (0: cited nowhere, which the screen says).
+    """
+    spans: list[dict[str, Any]] = []
+    counts: list[int] = []
+    for index, row in enumerate(rows):
+        placed: set[tuple[int, int]] = set()
+        for reference in (*row["a"], *row["b"]):
+            bare = {field: str(reference.get(field, "") or "") for field in ("kanun_no", "kanun_ad", "madde")}
+            placed.update(mention_offsets(text, {**bare, "source_text": ""}))
+        located = len(placed)
+        for reference in row["a"]:
+            quote = str(reference.get("source_text") or "").strip()
+            start = text.find(quote) if quote else -1
+            while start >= 0:
+                placed.add((start, start + len(quote)))
+                start = text.find(quote, start + 1)
+        counts.append(located)
+        spans.extend({"start": start, "end": end, "candidate": str(index)} for start, end in sorted(placed))
+    return sorted(spans, key=lambda item: (item["start"], item["end"], item["candidate"])), counts
+
+
+def _row_label(row: dict[str, Any]) -> str:
+    core = row["core"]
+    law = " ".join(part for part in (core["kanun_no"], core["kanun_ad"]) if part) or "Kanun belirtilmemiş"
+    return f"{law} · madde {core['madde'] or '—'}"
+
+
+def display_status(row: dict[str, Any]) -> str:
+    """How the screen shows a comparison row: its status, or "excused".
+
+    A law-only row beside an article of its law in the same list claims nothing
+    more, so the engine counts it as no difference (`ab_diff` gives it "same").
+    When only one side wrote it, calling it "Aynı" or colouring it as cited by
+    both sides would mislead the expert; it is shown as "Fark sayılmaz".
+    """
+    if row["status"] == "same" and not (row["a"] and row["b"]) and (row["subsumed"]["a"] or row["subsumed"]["b"]):
+        return "excused"
+    return row["status"]
+
+
+def segment_kind(statuses: list[str]) -> str:
+    """The colour of a highlighted run: the display status of the rows it cites."""
+    counted = [status for status in statuses if status != "excused"]
+    if not counted:
+        return "neutral"
+    if "same" in counted:
+        return "both"
+    if set(counted) == {"only_a"}:
+        return "a"
+    if set(counted) == {"only_b"}:
+        return "b"
+    return "mixed"
 
 
 def evidence_segments(text: str, spans: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Slice ``text`` into contiguous runs annotated with covering candidates.
 
-    Pure and blind. Given evidence spans (``_evidence_spans`` output), return
+    Pure and blind. Given labelled spans (``row_highlights`` output), return
     ordered segments ``{"text", "candidates"}`` whose concatenated text equals
     the input, where ``candidates`` is the sorted set of candidate labels whose
     span covers that run (``[]`` for plain text). Overlapping A/B spans split
@@ -962,6 +1113,17 @@ def create_hitl_app(
             except (IntegrityError, OSError):
                 return render_template_string(BACKUP_BLOCKED_TEMPLATE), 503
         diff = ab_diff(document["candidate_a"], document["candidate_b"])
+        spans, mentions = row_highlights(document["text"], diff)
+        for index, (row, count) in enumerate(zip(diff, mentions, strict=True)):
+            row["index"] = index
+            row["mentions"] = count
+            row["label"] = _row_label(row)
+            row["display"] = display_status(row)
+        segments = evidence_segments(document["text"], spans)
+        for segment in segments:
+            cited = [diff[int(candidate)] for candidate in segment["candidates"]]
+            segment["kind"] = segment_kind([row["display"] for row in cited]) if cited else ""
+            segment["title"] = " | ".join(f"{row['label']} — {row['status_label'].split(' · ')[0]}" for row in cited)
         return render_template_string(
             REVIEW_TEMPLATE,
             doc=document,
@@ -969,7 +1131,7 @@ def create_hitl_app(
             diff_summary=summarize_diff(diff),
             position=review_position(queue, internal_doc_id),
             durability=durability,
-            segments=evidence_segments(document["text"], document["evidence_spans"]),
+            segments=segments,
             csrf_token=session["csrf_token"],
             opened_at=f"{time.time():.3f}",
         )

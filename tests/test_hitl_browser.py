@@ -147,3 +147,26 @@ def test_every_control_writes_what_it_says(screen) -> None:
         ]
     assert len(events) == 6
     assert all(isinstance(event["seconds_on_page"], float) for event in events)
+
+
+def test_a_row_and_its_places_in_the_text_point_at_each_other(screen) -> None:
+    """6 Oct 2026: a click on a comparison row moves to where its reference is
+    cited; a click on a highlight marks the rows it cites; Esc clears both."""
+    _, page, _ = screen
+    row = page.locator("table.cmp tbody tr[data-row]").first
+    index = row.get_attribute("data-row")
+    row.click()
+    current = page.locator("#doctext mark.current")
+    assert current.count() == 1
+    assert index in current.get_attribute("data-rows").split()
+    assert "active" in row.get_attribute("class")
+
+    page.keyboard.press("Escape")
+    assert page.locator("#doctext mark.current, #doctext mark.active").count() == 0
+    assert page.locator("table.cmp tr.active").count() == 0
+
+    mark = page.locator("#doctext mark.ev").first
+    mark.click()
+    rows = mark.get_attribute("data-rows").split()
+    for cited in rows:
+        assert "active" in page.locator(f'table.cmp tr[data-row="{cited}"]').get_attribute("class")

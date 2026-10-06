@@ -677,6 +677,27 @@ def place_reference(document_text: str, reference: Mapping[str, Any]) -> Placeme
     return min(candidates, key=lambda candidate: candidate.rank).placement
 
 
+def mention_offsets(document_text: str, reference: Mapping[str, Any]) -> list[tuple[int, int]]:
+    """Every (start, end) that cites `reference`, the best first; [] when none does.
+
+    The best placement is `place_reference`'s; further ones are the other
+    mentions `ranked_candidates` finds whose law is written before them or
+    inferred (`Placement.law` 0 or 1) -- the rule the round training data uses
+    (dq `feat/raw-label-arm`, measured on the gold training documents 6 Oct
+    2026). The expert screen highlights these.
+    """
+    best = place_reference(document_text, reference)
+    if best is None:
+        return []
+    offsets = [(best.start, best.end)]
+    for candidate in ranked_candidates(document_text, reference):
+        placement = candidate.placement
+        span = (placement.start, placement.end)
+        if placement.law in (0, 1) and placement.end > placement.start and span not in offsets:
+            offsets.append(span)
+    return [span for span in offsets if span[1] > span[0]]
+
+
 @dataclass(frozen=True)
 class Candidate:
     """One mention that cites the reference, with the key it is ranked by."""

@@ -74,6 +74,10 @@
 >   kontrolü: yok (yeniden yönlendirme yapılmadı). Arayüz geliştirmesi için deneme ekranı: `scripts/dev_review_screen.py
 >   --root <boş geçici klasör> --port 5057` (uydurma belgeler). **dq push EDİLMEDİ:** uzak depo herkese açık ve dal GT v6–v9'u
 >   (test cevap anahtarı dahil) ekliyor; karar kullanıcıda. ner `origin`'e push edildi.
+> - **6 Ekim 12:09 — EKRAN İKİNCİ SÜRÜM** (dq `68dbd01`): hazırlama uyarıları düz Türkçe ("Bursiyer listesi notları"), geçiş
+>   gezgini, kaydırma işaretleri, "yalnız farklar", seçerek düzeltme (kaydetme açık tıklama), maddesiz/numarasız etiketleri.
+>   Parmak izi önce/sonra aynı (62 bitmiş). Arayüz testleri: `tests/test_review_ui_browser.py` (gerçek tarayıcı, uydurma parti
+>   `tests/review_fixture.py`).
 
 > **2 Ekim 2026, 12:42 — TEK KARŞILAŞTIRMA MOTORU. Referans listelerini karşılaştıran her şey
 > `src/data_quality_checker/reference_matching.py`** (kullanıcı: "döngü motoru ve değerlendiriciyi farklı iki şey gibi

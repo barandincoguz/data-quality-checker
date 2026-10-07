@@ -853,3 +853,69 @@ def attach_missing_spans(
             new_references.append({**reference, "source_text": span})
         located[doc_id] = {**document, "references": new_references}
     return located, refusals
+
+
+# The law evidence a further mention must carry to place a reference too: the
+# law written before it (0) or inferred from the text before it (1). Measured
+# on the 500 gold training documents (6 Oct 2026): every such mention brings
+# the round document's windows within 96 of the gold quotes' 4,968
+# window-reference pairs (the best span alone: 289), and 24 of 25 sampled
+# windows it adds over the gold quotes do cite the reference.
+MENTION_LAW_EVIDENCE = frozenset({0, 1})
+
+
+def locate_reference_spans(document_text: str, reference: Mapping[str, Any]) -> list[str]:
+    """Every verbatim span that cites `reference`, the best first; [] when none does.
+
+    The best span is `locate_reference_span`'s. Further spans are the other
+    mentions `ranked_candidates` finds whose law is written or inferred
+    (`MENTION_LAW_EVIDENCE`), each spelling once.
+    """
+    best = place_reference(document_text, reference)
+    if best is None:
+        return []
+    spans = [document_text[best.start : best.end]]
+    for candidate in ranked_candidates(document_text, reference):
+        span = document_text[candidate.placement.start : candidate.placement.end]
+        if candidate.placement.law in MENTION_LAW_EVIDENCE and span and span not in spans:
+            spans.append(span)
+    return [span for span in spans if span]
+
+
+def attach_mention_spans(
+    documents: Mapping[Any, dict[str, Any]],
+) -> tuple[dict[Any, dict[str, Any]], list[dict[str, str]]]:
+    """`attach_missing_spans`, with every mention: `source_texts` holds all of them.
+
+    A training window lists a reference when any of its quotes is in the
+    window (`context_windows._quotes`), as gold documents list every quote
+    their annotators wrote. Each empty `source_text` becomes the best span and
+    `source_texts` every span (`locate_reference_spans`). A reference that
+    already has a `source_text` is left as it is; one that cannot be placed is
+    reported, never raised for. Nothing is mutated.
+    """
+    located: dict[Any, dict[str, Any]] = {}
+    refusals: list[dict[str, str]] = []
+    for doc_id, document in documents.items():
+        text = document["text"]
+        new_references: list[Any] = []
+        for reference in document["references"]:
+            source_text = reference.get("source_text") if isinstance(reference, dict) else None
+            if isinstance(source_text, str) and source_text.strip():
+                new_references.append(reference)
+                continue
+            spans = locate_reference_spans(text, reference)
+            if not spans:
+                refusals.append(
+                    {
+                        "doc_id": str(doc_id),
+                        "kanun_no": str(reference.get("kanun_no", "")),
+                        "kanun_ad": str(reference.get("kanun_ad", "")),
+                        "madde": str(reference.get("madde", "")),
+                    }
+                )
+                new_references.append(reference)
+                continue
+            new_references.append({**reference, "source_text": spans[0], "source_texts": spans})
+        located[doc_id] = {**document, "references": new_references}
+    return located, refusals

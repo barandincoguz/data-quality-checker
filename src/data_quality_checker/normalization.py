@@ -13,15 +13,49 @@ from .text import normalize_text
 
 CANONICAL_LAW_BY_NO = {
     "193": "Gelir Vergisi Kanunu",
+    "197": "Motorlu Taşıtlar Vergisi Kanunu",
     "213": "Vergi Usul Kanunu",
     "488": "Damga Vergisi Kanunu",
-    "5520": "Kurumlar Vergisi Kanunu",
+    "492": "Harçlar Kanunu",
+    "1319": "Emlak Vergisi Kanunu",
+    "2464": "Belediye Gelirleri Kanunu",
     "3065": "Katma Değer Vergisi Kanunu",
+    "3194": "İmar Kanunu",
+    "3218": "Serbest Bölgeler Kanunu",
+    "4458": "Gümrük Kanunu",
+    "4721": "Türk Medeni Kanunu",
     "4760": "Özel Tüketim Vergisi Kanunu",
+    "4857": "İş Kanunu",
     "5018": "Kamu Mali Yönetimi ve Kontrol Kanunu",
+    "5510": "Sosyal Sigortalar ve Genel Sağlık Sigortası Kanunu",
+    "5520": "Kurumlar Vergisi Kanunu",
+    "6098": "Türk Borçlar Kanunu",
+    "6102": "Türk Ticaret Kanunu",
     "6183": "Amme Alacaklarının Tahsil Usulü Hakkında Kanun",
+    "6802": "Gider Vergileri Kanunu",
 }
-CANONICAL_NO_BY_NAME = {name: number for number, name in CANONICAL_LAW_BY_NO.items()}
+# Names that more than one law has carried (a repealed law and its successor):
+# a name alone never decides between them.
+SHARED_LAW_NAMES = {"İş Kanunu", "Türk Ticaret Kanunu", "Gümrük Kanunu", "İmar Kanunu", "Kurumlar Vergisi Kanunu"}
+CANONICAL_NO_BY_NAME = {
+    **{name: number for number, name in CANONICAL_LAW_BY_NO.items() if name not in SHARED_LAW_NAMES},
+    # One law carries this name; the number 7338 is shared (the 2021 amending law), so it
+    # is absent from CANONICAL_LAW_BY_NO (number -> name) but the name decides the number.
+    "Veraset ve İntikal Vergisi Kanunu": "7338",
+}
+# Every number a law name can stand for. A row without a number takes a number only
+# from this set; a number outside it (a model's slip) never resolves the name.
+VALID_LAW_NUMBERS_BY_NAME = {
+    **{name: {number} for number, name in CANONICAL_LAW_BY_NO.items()},
+    "Kurumlar Vergisi Kanunu": {"5422", "5520"},
+    "İş Kanunu": {"931", "1475", "3008", "4857"},
+    "Türk Ticaret Kanunu": {"6762", "6102"},
+    "Gümrük Kanunu": {"1615", "4458"},
+    "İmar Kanunu": {"6785", "3194"},
+    "Medeni Kanun": {"743", "4721"},
+    "Borçlar Kanunu": {"818", "6098"},
+    "Veraset ve İntikal Vergisi Kanunu": {"7338"},
+}
 
 LAW_NAME_ALIASES = {
     "vuk": "Vergi Usul Kanunu",
@@ -42,6 +76,48 @@ LAW_NAME_ALIASES = {
     "özel tüketim vergisi kanunu": "Özel Tüketim Vergisi Kanunu",
     "dvk": "Damga Vergisi Kanunu",
     "damga vergisi kanunu": "Damga Vergisi Kanunu",
+    "harclar kanunu": "Harçlar Kanunu",
+    "harçlar kanunu": "Harçlar Kanunu",
+    "gider vergileri kanunu": "Gider Vergileri Kanunu",
+    "gider vergisi kanunu": "Gider Vergileri Kanunu",
+    "emlak vergisi kanunu": "Emlak Vergisi Kanunu",
+    "emlak kanunu": "Emlak Vergisi Kanunu",
+    "belediye gelirleri kanunu": "Belediye Gelirleri Kanunu",
+    "veraset ve intikal vergisi kanunu": "Veraset ve İntikal Vergisi Kanunu",
+    "veraset ve intikal kanunu": "Veraset ve İntikal Vergisi Kanunu",
+    "turk ticaret kanunu": "Türk Ticaret Kanunu",
+    "türk ticaret kanunu": "Türk Ticaret Kanunu",
+    "ttk": "Türk Ticaret Kanunu",
+    "sosyal sigortalar ve genel saglik sigortasi kanunu": "Sosyal Sigortalar ve Genel Sağlık Sigortası Kanunu",
+    "sosyal sigortalar ve genel sağlık sigortası kanunu": "Sosyal Sigortalar ve Genel Sağlık Sigortası Kanunu",
+    "ssgsk": "Sosyal Sigortalar ve Genel Sağlık Sigortası Kanunu",
+    "turk medeni kanunu": "Türk Medeni Kanunu",
+    "türk medeni kanunu": "Türk Medeni Kanunu",
+    "tmk": "Türk Medeni Kanunu",
+    "motorlu tasitlar vergisi kanunu": "Motorlu Taşıtlar Vergisi Kanunu",
+    "motorlu taşıtlar vergisi kanunu": "Motorlu Taşıtlar Vergisi Kanunu",
+    "mtvk": "Motorlu Taşıtlar Vergisi Kanunu",
+    "mtv kanunu": "Motorlu Taşıtlar Vergisi Kanunu",
+    "serbest bolgeler kanunu": "Serbest Bölgeler Kanunu",
+    "serbest bölgeler kanunu": "Serbest Bölgeler Kanunu",
+    "sbk": "Serbest Bölgeler Kanunu",
+    "turk borclar kanunu": "Türk Borçlar Kanunu",
+    "türk borçlar kanunu": "Türk Borçlar Kanunu",
+    "tbk": "Türk Borçlar Kanunu",
+    "gumruk kanunu": "Gümrük Kanunu",
+    "gümrük kanunu": "Gümrük Kanunu",
+    "imar kanunu": "İmar Kanunu",
+    "is kanunu": "İş Kanunu",
+    "iş kanunu": "İş Kanunu",
+    "aatuhk": "Amme Alacaklarının Tahsil Usulü Hakkında Kanun",
+    "aatk": "Amme Alacaklarının Tahsil Usulü Hakkında Kanun",
+    "amme alacaklarinin tahsil usulu hakkinda kanun": "Amme Alacaklarının Tahsil Usulü Hakkında Kanun",
+    "amme alacaklarının tahsil usulü hakkında kanun": "Amme Alacaklarının Tahsil Usulü Hakkında Kanun",
+    "amme alacaklari kanunu": "Amme Alacaklarının Tahsil Usulü Hakkında Kanun",
+    "amme alacakları kanunu": "Amme Alacaklarının Tahsil Usulü Hakkında Kanun",
+    "kmykk": "Kamu Mali Yönetimi ve Kontrol Kanunu",
+    "kamu mali yonetimi ve kontrol kanunu": "Kamu Mali Yönetimi ve Kontrol Kanunu",
+    "kamu mali yönetimi ve kontrol kanunu": "Kamu Mali Yönetimi ve Kontrol Kanunu",
 }
 
 _SPACE_RE = re.compile(r"\s+")
@@ -57,7 +133,7 @@ _MUTEAKIP_RE = re.compile(
     r"(?:\s+madde\w*)?\s*$",
     re.IGNORECASE,
 )
-_ARTICLE_RANGE_RE = re.compile(r"^(\d+)\s*(?:-|–|ila|ilâ)\s*(\d+)$", re.IGNORECASE)
+_ARTICLE_RANGE_RE = re.compile(r"^(\d+)\s*(?:-|–|—|ila|ilâ)\s*(\d+)$", re.IGNORECASE)
 _LEADING_WORD_RE = re.compile(r"^(?P<word>[^\W\d_]+)\.?\s*(?P<rest>.*)$")
 # An article's qualifier names a different article ("geçici 3" is not 3), so
 # it is kept -- but spelled one way. Compared folded and allowing one typing
@@ -125,7 +201,8 @@ def normalize_law_number(value: Any) -> str:
         text = _DOTTED_DATE_RE.sub(lambda m: re.sub(r"\s*\.\s*", "/", m.group(0)), text)
         compact = re.sub(r"[^0-9/-]", "", text).strip("/-")
         return re.sub(r"(?<!\d)0+(?=\d)", "", compact)
-    match = re.search(r"\d+", text.replace(".", ""))
+    cleaned_float = re.sub(r"\.0+$", "", text.strip())
+    match = re.search(r"\d+", cleaned_float.replace(".", ""))
     if not match:
         # No digits: not a number. A law *name* written into the number field
         # is read as the name by `normalize_reference`.
@@ -209,8 +286,11 @@ _LEADING_LIST_MARK_RE = re.compile(r"^[-–—•·*]+\s*")
 APOSTROPHE_ORDINAL_RE = re.compile(
     r"(?<=\d)\s*['’`´]\s*(?:inci|ıncı|uncu|üncü|nci|ncı|ncu|ncü)?", re.IGNORECASE
 )
-#: "madde 94", "md. 94", "m.94" before the number; "94 md." after it.
-_ARTICLE_WORD_BEFORE_RE = re.compile(r"^(?:madde|md\.?|m\.)\s*(?=\d)", re.IGNORECASE)
+#: "madde 94", "md. 94", "m.94", "madde: 94", "md: 94", "m: 94" before the number; "94 md." after it.
+_ARTICLE_WORD_BEFORE_RE = re.compile(
+    r"^(?:madde[^\W\d_]*|md\.?|m\.?)[:\s-]+(?=\d)|^(?:madde[^\W\d_]*|md\.|m\.)(?=\d)",
+    re.IGNORECASE,
+)
 _ARTICLE_ABBREVIATION_AFTER_RE = re.compile(r"\s+(?:md|mad)\.?$", re.IGNORECASE)
 #: "(17/4-r)", KDV rulings' way of writing article 17's part: the brackets
 #: enclose the whole value. A bare "(17)" is a paragraph or item number, not an
@@ -218,6 +298,20 @@ _ARTICLE_ABBREVIATION_AFTER_RE = re.compile(r"\s+(?:md|mad)\.?$", re.IGNORECASE)
 ENCLOSED_ARTICLE_RE = re.compile(r"^\(\s*(?P<inner>[^()]*?/[^()]*?|[^\W\d_]+\s+\d[^()]*?)\s*\)$")
 #: "32 / A" is "32/A".
 _SLASH_SPACING_RE = re.compile(r"\s*/\s*")
+
+
+def _normalize_range_span(span_text: str) -> str:
+    article_range = _ARTICLE_RANGE_RE.match(span_text)
+    if article_range:
+        start, end = article_range.group(1), article_range.group(2)
+        if int(end) > int(start):
+            return f"{start} ila {end}"
+        if int(end) == int(start):
+            return start
+        if "ila" not in span_text and "ilâ" not in span_text:
+            # "17-4" (from "17-4-r") is article 17 and its part, not a span.
+            return start
+    return span_text
 
 
 def _normalize_article_once(value: Any) -> str:
@@ -239,7 +333,8 @@ def _normalize_article_once(value: Any) -> str:
         text = leading.group("rest").strip()
         leading = _LEADING_WORD_RE.match(text)
     if leading and (qualifier := article_qualifier(leading.group("word"))):
-        rest = re.sub(r"^madde\w*\s+", "", leading.group("rest"), flags=re.IGNORECASE)
+        rest = _ARTICLE_WORD_BEFORE_RE.sub("", leading.group("rest")).strip()
+        rest = _normalize_range_span(rest)
         text = f"{qualifier} {rest}"
     text = _SPACE_RE.sub(" ", text).strip()
     inserted = _INSERTED_ARTICLE_RE.match(text)
@@ -247,15 +342,29 @@ def _normalize_article_once(value: Any) -> str:
         letter = re.sub(r"\s+", "", inserted.group("letter"))
         return f"{inserted.group('head').casefold()}/{letter}"
     text = text.casefold()
-    article_range = _ARTICLE_RANGE_RE.match(text)
-    if article_range:
-        start, end = article_range.group(1), article_range.group(2)
-        if int(end) > int(start):
-            text = f"{start} ila {end}"
-        elif "ila" not in text and "ilâ" not in text:
-            # "17-4" (from "17-4-r") is article 17 and its part, not a span.
-            text = start
-    return text
+    return _normalize_range_span(text)
+
+
+# "473 ila 475 inci maddeler" is 473, 474 and 475 (user decision, 7 Oct 2026: an
+# inclusive range, "her madde ayrı satır olarak tutulur"). A range ending at a
+# repeated article also names that article; inserted or lettered articles inside
+# a range are not guessed. Wider ranges than this are left as written.
+_ARTICLE_RANGE = re.compile(r"^(\d+) ila (mükerrer )?(\d+)$")
+MAX_RANGE_ARTICLES = 300
+
+
+def expand_article_range(value: Any) -> list[str] | None:
+    """The articles an article range names, in order; None when `value` is not one."""
+    match = _ARTICLE_RANGE.match(normalize_article(value))
+    if not match:
+        return None
+    first, repeated, last = int(match.group(1)), match.group(2), int(match.group(3))
+    if first > last or (first == last and not repeated) or last - first + 1 > MAX_RANGE_ARTICLES:
+        return None
+    articles = [str(number) for number in range(first, last + 1)]
+    if repeated:
+        articles.append(f"mükerrer {last}")
+    return articles
 
 
 def normalize_article(value: Any) -> str:

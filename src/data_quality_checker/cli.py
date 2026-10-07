@@ -270,7 +270,29 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["windows", "full_documents"],
         help="full_documents trains the kept whole-document line on the same data; it is never sealed",
     )
+    loop_train.add_argument(
+        "--labels",
+        choices=["clean", "raw"],
+        default="clean",
+        help="raw trains the noisy-vs-clean ablation's M_k_raw: the same documents with the "
+        "annotators' raw lists; it is never sealed",
+    )
     loop_train.set_defaults(handler=commands.loop_train)
+
+    loop_raw_check = subparsers.add_parser(
+        "loop-raw-check",
+        help="compare a raw-arm run trained before its release with the release's documents",
+    )
+    loop_raw_check.add_argument("--round", type=int, required=True)
+    loop_raw_check.set_defaults(handler=commands.loop_raw_check)
+
+    loop_select_rescored = subparsers.add_parser(
+        "loop-select-rescored",
+        help="select a run's checkpoint on its rescored validation curve (the trainer's own rule)",
+    )
+    loop_select_rescored.add_argument("--run-id", required=True)
+    loop_select_rescored.add_argument("--label", required=True, help="the loop-rescore label")
+    loop_select_rescored.set_defaults(handler=commands.loop_select_rescored)
 
     loop_compare = subparsers.add_parser(
         "loop-compare",

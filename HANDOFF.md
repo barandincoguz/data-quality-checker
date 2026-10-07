@@ -83,6 +83,9 @@
 >   madde ayrı satır; motor ve eğitim verisi; M001'den itibaren altın da). Süit 1.172. Yukarıdaki sıradaki "(4) iki dal
 >   birleştirilir" adımı artık bu dalın birleştirilmesidir. `M001_raw` 6 Ekim 22:00'de bitti (`dqcheck_loop_3331f64287a1`, ön
 >   değer @300 F1 0,9341); yeniden eğitilmez. Ekranda "aralığı aç" düğmesi canlıda (`9cf6079`).
+> - **7 Ekim 13:47 — HATA RAPORUNDA TAMAMLAYICILIK** (dq `7096b06`): uzmanın doğrusunu kim buldu (bursiyer/model/hakem/birleşik/
+>   yalnız uzman), taşınan 23 karar ayrı (kaynak ve süre ölçüleri). R01 kaydında `complementarity.new_decisions` ve
+>   `expert_workload.*_new` kullanılmalı; kayıt betiği sütunları hazır.
 
 > **2 Ekim 2026, 12:42 — TEK KARŞILAŞTIRMA MOTORU. Referans listelerini karşılaştıran her şey
 > `src/data_quality_checker/reference_matching.py`** (kullanıcı: "döngü motoru ve değerlendiriciyi farklı iki şey gibi

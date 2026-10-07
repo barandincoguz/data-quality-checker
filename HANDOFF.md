@@ -103,12 +103,17 @@
 >     - Boş bellek ≥ 45 GB olunca başlar; 23:53'te 32 GB, makinede başka bir kullanıcının modeli çalışıyor. Ham kolun tepe
 >       belleği 66,7 GB'tı.
 >   - **M001'den sonra:**
->     1. ikinci hat `loop-train --round 1 --view full_documents` ve `loop-compare --round 1`;
->     2. R02 tahmini (`loop-predict`);
->     3. `M002_raw`.
+>     1. bitiş/mühür kontrolü ve Journal kaydı;
+>     2. R02 tahmini, gizli hakem ve uzman ekranı;
+>     3. uzman R02'yi incelerken ikinci hat `loop-train --round 1 --view full_documents` / `loop-compare --round 1` ve `M002_raw`.
 >   - **Açık:**
 >     - dq push (uzak depo herkese açık; karar kullanıcıda);
->     - ner `CANLI_DURUM.md` üreticisi 4 Ekim'de kalmış.
+> - **8 Ekim — CODEX ÇALIŞMA DÜZENİNİ DEVRALDI.** Kullanıcı: "claude'un çalışma şeklini kopyala buradaki kuralları vesaire
+>   kopyala artık senle çalışmaya başlayacağız iyi çalışman lazım bu önemli". dq `AGENTS.md` ve ner
+>   `docs/agents/codex-research-workflow.md` kalıcı kuralları taşır; belge becerisi ner `.agents/skills/auditing-project-docs/`.
+>   Önemli belge/karar yazımı ve bağımsız doğrulama artık sorumlu Codex ajanındadır; düşük önem agy düzeni korunur.
+>   ner `CANLI_DURUM.md` üreticisi ve `--check` yayın sonrası duruma uyarlandı (ner `c99969b`).
+>   Güncel deney durumu hâlâ bu kutu, LEDGER ve komut çıktılarından alınır. M001 bitişi henüz kaydedilmedi; dq push kararı bekler.
 
 > **2 Ekim 2026, 12:42 — TEK KARŞILAŞTIRMA MOTORU. Referans listelerini karşılaştıran her şey
 > `src/data_quality_checker/reference_matching.py`** (kullanıcı: "döngü motoru ve değerlendiriciyi farklı iki şey gibi

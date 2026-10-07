@@ -396,3 +396,27 @@ def test_gold_ranges_are_expanded_from_round_one_but_not_in_m000(tmp_path: Path)
     _round1(config)
     m001 = train_round(config, generation="M001", split=SPLIT, cleaned_batch_ids=["round1"])
     assert json.loads(Path(m001["run_config_path"]).read_text(encoding="utf-8"))["article_ranges"] == "expanded_v1"
+
+
+def test_truth_corrections_are_a_new_clean_run_and_leave_the_raw_run_alone(tmp_path: Path) -> None:
+    """The user's corrections to a released truth (7 Oct 2026) are what the clean arm trains
+    on, so they are part of its run id; the raw arm reads the annotator's own lists."""
+    from data_quality_checker.truth_corrections import write_range_corrections
+
+    text = "6098 sayılı Türk Borçlar Kanununun 620 ila 645 inci maddeleri uygulanır."
+    config = canonical_fixture(tmp_path)
+    root = Path(config.sensitive_root)
+    _prepare(root, "round1", {"d1": (text, [_reference("6098", "620", ""), _reference("6098", "645", "")])})
+    write_sealed_release(
+        root, "round1",
+        [{"internal_doc_id": "d1", "text": text, "references": [_reference("6098", "620", ""),
+                                                                 _reference("6098", "645", "")]}],
+        [],
+    )
+    clean_before = train_round(config, generation="M001", split=SPLIT, cleaned_batch_ids=["round1"])
+    raw_before = train_round(config, generation="M001", split=SPLIT, cleaned_batch_ids=["round1"], labels="raw")
+    write_range_corrections(config, batch_id="round1", decision="Kuralla düzelt (Önerilen)")
+    clean_after = train_round(config, generation="M001", split=SPLIT, cleaned_batch_ids=["round1"])
+    raw_after = train_round(config, generation="M001", split=SPLIT, cleaned_batch_ids=["round1"], labels="raw")
+    assert clean_before["run_id"] != clean_after["run_id"]
+    assert raw_before["run_id"] == raw_after["run_id"]

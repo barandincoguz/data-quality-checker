@@ -286,6 +286,27 @@ def build_parser() -> argparse.ArgumentParser:
     loop_raw_check.add_argument("--round", type=int, required=True)
     loop_raw_check.set_defaults(handler=commands.loop_raw_check)
 
+    loop_correct_ranges = subparsers.add_parser(
+        "loop-correct-ranges",
+        help="correct a released round's expert lists that hold only a range's endpoints "
+        "(user decision 7 Oct 2026); a dry run unless --write",
+    )
+    loop_correct_ranges.add_argument("--round", type=int, required=True)
+    loop_correct_ranges.add_argument("--decision", help="the user's decision, quoted (required with --write)")
+    loop_correct_ranges.add_argument("--write", action="store_true")
+    loop_correct_ranges.set_defaults(handler=commands.loop_correct_ranges)
+
+    loop_correct_rows = subparsers.add_parser(
+        "loop-correct-rows",
+        help="replace or remove rows of a released round's expert lists (the user's decision, "
+        "a JSON list of fixes); a dry run unless --write",
+    )
+    loop_correct_rows.add_argument("--round", type=int, required=True)
+    loop_correct_rows.add_argument("--fixes", required=True, help="JSON file: the fixes (see write_row_fixes)")
+    loop_correct_rows.add_argument("--decision", help="the user's decision, quoted (required with --write)")
+    loop_correct_rows.add_argument("--write", action="store_true")
+    loop_correct_rows.set_defaults(handler=commands.loop_correct_rows)
+
     loop_select_rescored = subparsers.add_parser(
         "loop-select-rescored",
         help="select a run's checkpoint on its rescored validation curve (the trainer's own rule)",

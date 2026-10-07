@@ -158,7 +158,7 @@ def _released_rows(config: Any, batch_ids: Sequence[str]) -> dict[str, dict[str,
                         f"document {doc_id!r} is duplicated while assembling "
                         f"batch {batch_id!r}'s release"
                     )
-                documents[doc_id] = {"batch_id": batch_id, "text": text, "references": references}
+                documents[doc_id] = {"batch_id": batch_id, "tier": name, "text": text, "references": references}
                 batch_document_count += 1
         if not found:
             raise ContractError(f"no release found for batch {batch_id!r} under {directory}")
@@ -199,12 +199,17 @@ def round_training_documents(config: Any, *, batch_ids: Sequence[str]) -> dict[s
     # Each reference is trained once (5 Oct 2026): a released list may repeat
     # one -- an annotator's rows that differed only in fıkra or bent. The
     # release on disk keeps what was written.
+    from .truth_corrections import apply_corrections, load_corrections
+
+    # The user's corrections to a sealed release's truth (`truth_corrections`, 7 Oct 2026).
+    corrections = {batch_id: load_corrections(config, batch_id) for batch_id in batch_ids}
     documents: dict[str, dict[str, Any]] = {}
     for doc_id, row in _released_rows(config, batch_ids).items():
         if not all(isinstance(reference, dict) for reference in row["references"]):
             raise ContractError(f"released document {doc_id!r} has a reference that is not an object")
+        released = apply_corrections(row["references"], corrections[row["batch_id"]].get(doc_id, []))
         # An article range is every article in it (7 Oct 2026).
-        references = _without_range_marks(expand_ranges(row["references"]))
+        references = _without_range_marks(expand_ranges(released))
         documents[doc_id] = {
             "text": row["text"],
             "references": [{**references[index], "source_text": ""} for index in distinct_rows(references)],

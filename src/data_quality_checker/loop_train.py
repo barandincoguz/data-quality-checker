@@ -40,7 +40,7 @@ from .atomic import write_json_atomic
 from .config import AppConfig
 from .constants import MINIMUM_MLX_LM
 from .errors import ContractError, GateBlocked
-from .fingerprints import fingerprint_json, sha256_text
+from .fingerprints import fingerprint_json, sha256_file, sha256_text
 from .g0 import (
     EXAMPLE_BANK_SHA256,
     TRAINING_VIEW_POLICY,
@@ -335,6 +335,18 @@ def train_round(
         # for round 0, which has no round documents, so M000's run id stands.
         fingerprint_payload["round_reference_placement"] = "located_mentions_v1"
         fingerprint_payload["article_ranges"] = "expanded_v1"
+        if labels == "clean":
+            # The user's corrections to a released truth (7 Oct 2026) are part of what the
+            # clean arm trains on; absent when a batch has none, so those run ids stand.
+            from .truth_corrections import corrections_path
+
+            corrected = {
+                batch_id: sha256_file(corrections_path(config, batch_id))
+                for batch_id in cleaned_batch_ids
+                if corrections_path(config, batch_id).is_file()
+            }
+            if corrected:
+                fingerprint_payload["truth_corrections"] = corrected
     if labels != "clean":
         # A raw-label run is never the clean run (absent for "clean", so the
         # loop's run ids stand), and a different placement rule is another run.

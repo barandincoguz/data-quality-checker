@@ -349,6 +349,12 @@ def round_records(
         else set()
     )
 
+    # The user's corrections to the released truth (`truth_corrections`, 7 Oct 2026):
+    # the expert's list as the training data reads it.
+    from .truth_corrections import apply_corrections, load_corrections
+
+    corrections = load_corrections(config, batch_id)
+
     # Time the expert had each document's page open, over every decision on it
     # (a deferral and the later decision both cost time). None = never measured.
     seconds_on_page: dict[str, float] = {}
@@ -391,6 +397,8 @@ def round_records(
             if review["final_references_json"] is not None
             else None
         )
+        if final is not None and internal_doc_id in corrections:
+            final = apply_corrections(final, corrections[internal_doc_id])
 
         records.append(
             {
@@ -457,6 +465,8 @@ def write_error_report(
     (`judges.fix_loop_judge`, 29 Sep 2026): no lock is recorded, every decision
     is blind and falls in `before_judge_lock`; `judge_visible_to_expert` says so.
     """
+    from .truth_corrections import corrections_summary
+
     with Store(config.database_path, busy_timeout_ms=config.runtime.busy_timeout_ms) as store:
         records = round_records(
             config, store, batch_id=batch_id, generation=generation, judge_model=judge_model
@@ -486,6 +496,7 @@ def write_error_report(
         "expert_workload": expert_workload(records),
         "complementarity": complementarity(records),
         "reference_table": reference_tables(records),
+        "truth_corrections": corrections_summary(config, batch_id),
     }
     write_json_atomic(path, payload)
     return payload

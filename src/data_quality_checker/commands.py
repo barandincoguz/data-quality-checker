@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from argparse import Namespace
+from pathlib import Path
 from typing import Any
 
 from .config import AppConfig
@@ -297,6 +298,32 @@ def loop_raw_check(args: Namespace, config: AppConfig) -> int:
     _print_json(report)
     # Nonzero when the run is not the release's M_k_raw: it must be trained again.
     return 0 if report["same_documents"] else 1
+
+
+def loop_correct_ranges(args: Namespace, config: AppConfig) -> int:
+    from .loop_ops import batch_id_for
+    from .truth_corrections import propose_range_corrections, write_range_corrections
+
+    batch_id = batch_id_for(args.round)
+    if not args.write:
+        return _print_json({"written": False, **propose_range_corrections(config, batch_id)})
+    if not args.decision:
+        raise ContractError("--write records a user decision: quote it with --decision")
+    payload = write_range_corrections(config, batch_id=batch_id, decision=args.decision)
+    return _print_json({"written": True, **payload})
+
+
+def loop_correct_rows(args: Namespace, config: AppConfig) -> int:
+    from .loop_ops import batch_id_for
+    from .truth_corrections import write_row_fixes
+
+    if args.write and not args.decision:
+        raise ContractError("--write records a user decision: quote it with --decision")
+    fixes = json.loads(Path(args.fixes).read_text(encoding="utf-8"))
+    payload = write_row_fixes(
+        config, batch_id=batch_id_for(args.round), decision=args.decision or "", fixes=fixes, dry_run=not args.write
+    )
+    return _print_json({"written": args.write, **payload})
 
 
 def loop_select_rescored(args: Namespace, config: AppConfig) -> int:

@@ -275,6 +275,32 @@ def reference_identities(
     return {i for i in claims if i not in redundant}
 
 
+def row_groups(references: Sequence[Mapping[str, Any]]) -> list[list[int]]:
+    """The references a list claims, each as the indices of the rows that write it.
+
+    Exactly how a comparison counts a list (`_claims`): rows of one identity are
+    one claim, and a law-only row beside an article of its law claims nothing
+    more (it is in no group). Groups are in the order of their first row.
+    """
+    rows = [canonical_reference(r) for r in references]
+    context = DocumentContext(rows)
+    groups: dict[Identity, list[int]] = {}
+    for index, row in enumerate(rows):
+        groups.setdefault(context.identity(row), []).append(index)
+    _, redundant, _ = _claims(rows, context)
+    return [indices for identity, indices in groups.items() if identity not in redundant]
+
+
+def distinct_rows(references: Sequence[Mapping[str, Any]]) -> list[int]:
+    """The rows a list's claims rest on, by index: the first row of each reference.
+
+    Since 1 Oct 2026 an annotator's rows that differed only in fıkra or bent are
+    the same reference; a training target says each reference once, as the gold
+    training data does (5 Oct 2026).
+    """
+    return [indices[0] for indices in row_groups(references)]
+
+
 def display_name(identity: Identity) -> str:
     """A readable label for an identity (journal and screen tables)."""
     _, number, name, article = identity

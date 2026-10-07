@@ -60,7 +60,12 @@ from .g0_training import (
     run_development,
 )
 from .loop_sources import has_loop_settings, loop_split_policy, validate_loop_sources
-from .loop_training import compose_round_training_ids, round_training_documents
+from .loop_training import (
+    RAW_PLACEMENT_RULE,
+    compose_round_training_ids,
+    round_raw_training_documents,
+    round_training_documents,
+)
 
 # A round trains on the loop split, not on G0's. The label goes into the
 # fingerprint-adjacent record so a run can never be mistaken for a G0 run
@@ -69,6 +74,11 @@ LOOP_SPLIT_POLICY = "loop-300-50-150"
 
 
 TRAINING_VIEWS = ("windows", "full_documents")
+
+# Where a round's cleaned batches take their references from. "clean" is the
+# loop: the released lists. "raw" is the noisy-vs-clean ablation's `M_k_raw`
+# (pre-registered 4 Oct 2026): the same documents, the annotator's raw lists.
+LABEL_SOURCES = ("clean", "raw")
 
 
 def training_view_mode(config: AppConfig, view: str | None = None) -> str:
@@ -120,6 +130,7 @@ def _write_round_scaffolding(
     split_policy: str = LOOP_SPLIT_POLICY,
     view_mode: str = "windows",
     recurrence: str | None = None,
+    label_source: str = "clean",
 ) -> tuple[Path, Path]:
     """Write exactly what `g0_training._base_run_context` demands of a run.
 
@@ -159,6 +170,7 @@ def _write_round_scaffolding(
         "recovery": {"long_run_allowed": False},
         "training_view_mode": view_mode,
         **({"recurrence": recurrence} if recurrence else {}),
+        **({"label_source": label_source} if label_source != "clean" else {}),
     }
     write_json_atomic(run_dir / "run_config.json", run_config)
     # The contract states this round's own split. A bare TrainingContract()
@@ -217,6 +229,7 @@ def train_round(
     target_updates: int | None = PILOT_TARGET_UPDATES,
     resume: bool = False,
     view: str | None = None,
+    labels: str = "clean",
     compute_preflight_runner: Callable[..., dict[str, Any]] | None = None,
     worker_runner: WorkerRunner | None = None,
     evaluator_runner: EvaluatorRunner | None = None,
@@ -231,6 +244,10 @@ def train_round(
             "execute=True requires an explicit candidate_id, one of "
             f"{sorted(PILOT_LEARNING_RATES)}; got {candidate_id!r}"
         )
+    if labels not in LABEL_SOURCES:
+        raise ContractError(f"labels must be one of {LABEL_SOURCES}, got {labels!r}")
+    if labels == "raw" and not cleaned_batch_ids:
+        raise ContractError("the raw-label arm needs at least one cleaned batch; round 0 has none")
 
     if has_loop_settings(config):
         source = validate_loop_sources(config)
@@ -254,8 +271,20 @@ def train_round(
         }
         for doc_id, payload in source["documents"].items()
     }
+    raw_label_audit: dict[str, Any] | None = None
+    if labels == "raw":
+        raw_documents, raw_label_audit = round_raw_training_documents(
+            config, batch_ids=list(cleaned_batch_ids)
+        )
     for batch_id in cleaned_batch_ids:
-        batch_documents = round_training_documents(config, batch_ids=[batch_id])
+        if raw_label_audit is not None:
+            # The release's documents once it exists, the whole batch before it
+            # (`round_raw_training_documents`); in id order either way.
+            batch_documents = {
+                doc_id: raw_documents[doc_id] for doc_id in raw_label_audit["documents_by_batch"][batch_id]
+            }
+        else:
+            batch_documents = round_training_documents(config, batch_ids=[batch_id])
         cleaned_batches.append(list(batch_documents))
         documents.update(batch_documents)
 
@@ -290,6 +319,24 @@ def train_round(
         recurrence = RECURRENCE_ID
         fingerprint_payload["training_view_mode"] = view_mode
         fingerprint_payload["recurrence"] = recurrence
+    if cleaned_batch_ids:
+        # How round documents' references are placed in training windows: every
+        # located mention since 6 Oct 2026 (the best span alone before). Absent
+        # for round 0, which has no round documents, so M000's run id stands.
+        fingerprint_payload["round_reference_placement"] = "located_mentions_v1"
+    if labels != "clean":
+        # A raw-label run is never the clean run (absent for "clean", so the
+        # loop's run ids stand), and a different placement rule is another run.
+        fingerprint_payload["label_source"] = labels
+        fingerprint_payload["raw_placement_rule"] = RAW_PLACEMENT_RULE
+        # Which documents and which raw lists: a run built before the release and
+        # one built after it are one run exactly when these agree.
+        fingerprint_payload["raw_training_sha256"] = fingerprint_json(
+            {
+                "documents_by_batch": raw_label_audit["documents_by_batch"],
+                "references": {doc_id: raw_documents[doc_id]["references"] for doc_id in raw_documents},
+            }
+        )
     run_fingerprint = fingerprint_json(fingerprint_payload)
     run_id = f"dqcheck_loop_{run_fingerprint[:12]}"
     data_dir = config.sensitive_root / "loop" / run_id / "data"
@@ -300,6 +347,8 @@ def train_round(
         split=composed,
         system_prompt=system_prompt,
     )
+    if raw_label_audit is not None:
+        write_json_atomic(data_dir / "raw_label_audit.json", raw_label_audit)
 
     run_dir, preflight_path = _write_round_scaffolding(
         config=config,
@@ -315,6 +364,7 @@ def train_round(
         split_policy=split_policy,
         view_mode=view_mode,
         recurrence=recurrence,
+        label_source=labels,
     )
 
     result: dict[str, Any] = {
@@ -323,6 +373,8 @@ def train_round(
         "validation_documents": len(composed["valid"]),
         "test_documents": len(composed["test"]),
         "cleaned_batch_ids": list(cleaned_batch_ids),
+        "label_source": labels,
+        **({"raw_label_audit": raw_label_audit["batches"]} if raw_label_audit is not None else {}),
         "data_dir": str(data_dir),
         "data_manifest": data_manifest,
         "run_config_path": str(run_dir / "run_config.json"),

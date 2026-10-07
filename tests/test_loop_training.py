@@ -290,3 +290,27 @@ def test_an_annotator_quote_never_places_a_released_reference(tmp_path: Path) ->
     documents = round_training_documents(_Cfg(tmp_path), batch_ids=["round1"])
     placed = documents["d1"]["references"][0]["source_text"]
     assert placed in text and "10 uncu maddesinde" in placed
+
+
+def test_a_repeated_released_reference_is_trained_once(tmp_path: Path) -> None:
+    """5 Oct 2026: a released list may repeat a reference (an annotator's rows that
+    differed only in fıkra or bent). The target says it once, as the gold training
+    data does; the release on disk keeps what was written."""
+    text = "193 sayılı Gelir Vergisi Kanununun 94 üncü maddesi uygulanır."
+    rows = [{"kanun_no": "193", "kanun_ad": "", "madde": "94", "source_text": ""},
+            {"kanun_no": "193", "kanun_ad": "Gelir Vergisi Kanunu", "madde": "94", "source_text": ""},
+            {"kanun_no": "193", "kanun_ad": "", "madde": "", "source_text": ""}]
+    _release(tmp_path, "round1", expert=[{"internal_doc_id": "d1", "text": text, "references": rows}], consensus=[])
+    documents = round_training_documents(_Cfg(tmp_path), batch_ids=["round1"])
+    assert [(r["kanun_no"], r["madde"]) for r in documents["d1"]["references"]] == [("193", "94")]
+
+
+def test_a_released_reference_carries_every_mention_as_a_quote(tmp_path: Path) -> None:
+    """6 Oct 2026 (user: round documents only): a window citing the reference a
+    second time lists it too, as gold documents' every-quote placement does."""
+    text = ("193 sayılı Gelir Vergisi Kanununun 94 üncü maddesinde tevkifat düzenlenmiştir. "
+            "Ödemeler bakımından aynı Kanunun 94 üncü maddesi uygulanır.")
+    _release(tmp_path, "round1", expert=[{"internal_doc_id": "d1", "text": text, "references": [
+        {"kanun_no": "193", "kanun_ad": "", "madde": "94", "source_text": ""}]}], consensus=[])
+    [reference] = round_training_documents(_Cfg(tmp_path), batch_ids=["round1"])["d1"]["references"]
+    assert len(reference["source_texts"]) == 2 and reference["source_text"] == reference["source_texts"][0]

@@ -376,7 +376,7 @@ textarea{width:100%;font:.8rem ui-monospace,monospace}
   // The articles an inclusive range names: "N ila M" (also "N-M") and "N ila mükerrer M"
   // (N..M and mükerrer M). Anything else, or a range wider than 300, is left as written.
   function rangeArticles(madde){
-    var m = String(madde).trim().match(/^(\d+)\s*(?:ila|ilâ|-|–|—)\s*(mükerrer\s+)?(\d+)$/i);
+    var m = String(madde).trim().match(/^(\\d+)\\s*(?:ila|ilâ|-|–|—)\\s*(mükerrer\\s+)?(\\d+)$/i);
     if(!m) return null;
     var a = Number(m[1]), b = Number(m[3]);
     if(!(a < b || (m[2] && a <= b)) || b - a > 300) return null;

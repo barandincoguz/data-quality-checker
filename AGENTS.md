@@ -1,35 +1,24 @@
-# AGENTS.md — DQ-Loop
+# DQ-Loop
 
-Kullanıcı 8 Ekim 2026'da Claude'un çalışma düzenini Codex'e aktardı. Kalıcı ortak sözleşmeyi önce oku: `/Users/student2/ner-project/docs/agents/codex-research-workflow.md`. Oradaki araştırma, belge, agy doğrulaması ve kurtarma kuralları bu depoda da geçerlidir.
+Tur/eğitim işinde HANDOFF yalnız üst kutu, ner deney LEDGER son girdileri ve ilgili önkayıt okunur. Küçük kod/biçim işinde yalnız ilgili kaynakları oku. Aşama/koşu durumu canlı komut ve günlükten doğrulanır.
 
-## Her oturum başlangıcı
+## Deney sınırları
 
-1. Bu dosya ve `HANDOFF.md` yalnız en üst kutu.
-2. Ner `Journal/experiments/dq_loop_gt750/LEDGER.md` son girdileri ve ilgili önkayıt/ekler.
-3. İki deponun çalışma ağacı, kullanılan commit/dondurulmuş koşu ve gözetmen/günlük; güncel aşama için `loop-status`.
+- Aktif ayar configs/presets/gt750_law_article_loop.json; prompt P4, GT v8. Beş tur R01–R05; eğitim/doğrulama/test ayrımı sabittir. Test R05 sonuna kadar kapalı, açılışı kullanıcı kararıdır. Test GT, sır/anahtar ve data/sensitive/ elle okunmaz.
+- Referans = kanun no/adı + madde. Tek motor reference_matching.compare_reference_lists; VUK 213/413 politikası her kaynağa uygulanır. Aralığın her maddesi ayrı satır; tekilleştirme/yerleştirme mevcut ortak yordamlarla yapılır.
+- Bursiyer source_text doğruluk kararı vermez; ham kol yerleştirmesi önkayıtlı istisnadır. Uzman doğruyu tanımlar; Gemma 4 hakemi uzmana gösterilmez.
+- Ana hat pencereli; tam belge ikinci hat ve ham kol mühürlenmez. Aynı belge/kurallar korunur; bir kola özel kural değişikliği kullanıcı kararı + önkayıt gerektirir. Ablasyon kararı son testte; tur doğrulama farkları yalnız rapordur.
+- Yayın/dondurulmuş koşu değişmez. Doğru düzeltmesi kuru kontrol, sonra kullanıcı sözünü taşıyan ayrı kayıt. Yerleşmeyen satırı sessizce düşürme/yayını değiştirme; önerinle kullanıcıya bildir. Hata adayları makaleye kullanıcı kararıyla girer.
+- Ekran restart/kapatmada review satırlarının önce/sonra SHA256'sı aynı olmalı; kapatma kullanıcı kararıdır. R01'e özel eski karar taşıma R02'de yapılmaz.
+- Gözetmenin bellek/pause politikasını aşma; ham kol ana GPU hattına yol verir. Diğer kullanıcıların süreçlerine müdahale etme. Bitiş için günlük, mühür/aşama ve çıktı doğrulanır; bellek dışı hatada sessiz restart yapma.
+- Kamuya açık dq remote'una kullanıcı açıkça karar vermeden push yapma: dal test cevap anahtarını içerir.
 
-Güncel deney durumunu kalıcı talimatlara kopyalama. Handoff altındaki eski dönem akışını güncel kabul etme.
-
-## Sabit deney sınırları
-
-- Yalnız `configs/presets/gt750_law_article_loop.json`; prompt P4, GT v8. R01–R05, beş tur. Test kapalıdır; GT test dosyalarını elle açma, skor hesaplama. Son test açılışı kullanıcı kararıdır.
-- Hedef kanun no/adı + madde; fıkra/bent aktif döngüden çıkarıldı. Her aralık maddesi ayrı satırdır.
-- Tek motor `reference_matching.compare_reference_lists`; ayrı karşılaştırma yazma. `source_text` doğruluk ölçüsü değildir; ham kol yerleştirmesi kayıtlı istisnadır.
-- Uzman doğruyu tanımlar; Gemma 4 hakemi uzmana gösterilmez. Hata adayları makaleye yalnız kullanıcı kararıyla girer.
-- Yayınlara ve dondurulmuş koşu ağaçlarına dokunma. Doğru düzeltmeleri kuru kontrol → kullanıcı kararı → ayrı kayıt akışıyla yapılır. Ekran kararları restart öncesi/sonrası fingerprint ile korunur.
-- Ham kol ve tam belge ikinci hat mühürlenmez; ana GPU hattına öncelik verilir. Mevcut gözetmenin bellek eşiğini düşürme, başka kullanıcının süreçlerine müdahale etme.
-- `data/sensitive/`, anahtarlar, sırlar ve test GT elle okunmaz. Yetkili proje komutları gerekli okuma/yazmayı yapar. İnceleme/yayın verilerini uydurma veriyle karıştırma.
-- **dq push yapılmaz:** remote herkese açık, dal GT/test cevap anahtarını içerir. Kullanıcı açıkça karar vermeden gönderme.
-
-## Komutlar
-
-Repo kökünde:
+## Çalıştırma
 
 ```zsh
 D(){ PYTHONPATH=src /opt/llm-lab/.venv/bin/python -m data_quality_checker --config configs/presets/gt750_law_article_loop.json "$@"; }
-D loop-status --round 1
 PYTHONPATH=src /opt/llm-lab/.venv/bin/python -m pytest -q -p no:cacheprovider
 /opt/llm-lab/.venv/bin/ruff check src tests
 ```
 
-Yorumlayıcı paylaşımlıdır; yeni venv veya pip kurulumu yapılmaz. Belge işleri için `/Users/student2/ner-project/.agents/skills/auditing-project-docs/SKILL.md` okunur. HANDOFF'ta yalnız üst kutu; defterlerde yalnız ekleme; sayılar kaynak kayıtlarından. Uzun koşu tamamlandı denmeden gözetmen bitişi, tur aşaması, model/çıktı ve checksum doğrulanır.
+Test/lint değişikliğe göre çalışır; belge işi için GPU başlatılmaz. Önemli belge kaydı auditing-project-docs. dq_loop_gt750_record.py argümansız yazıcıdır; --help dahi yazar. HANDOFF yalnız üst kutu, defterler yalnız ekleme. Uzun iş altyapısında ner docs/context/RESILIENT_EXECUTION_POLICY.md okunur.

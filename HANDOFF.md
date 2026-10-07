@@ -1,119 +1,17 @@
 # Devir — DQ-Loop
 
-> **3 Ekim 2026, 12:41 — SIRADA UZMAN.**
-> - M000 (P4, GT v8) `dqcheck_loop_88cf7872b3ed` mühürlü: @550, F1 0,9469; temel model kapısı 0,7742. Önkayıtlı
->   doğrulama: P4 ≥ P0 (0,9443) → **P4 kaldı**.
-> - R01 bitti:
->   - tahmin 149/100/1 (karantina d000112: kaçak çıktı; pencere geri düşmesi denendi, kurtarılamadı,
->     karantinada kalır);
->   - uzmanın 23 kararı taşındı;
->   - hakem 131/131;
->   - sıfırdan kanıt tuttu;
->   - **ekran 5056 açık (tmux `gt750la-serve`), uzman kuyruğu 111**.
-> - Gece düzeltilen döngü açıkları:
->   - karantina belgesi uzmana ve hakeme gider (`e40bdc1` + judges);
->   - boş cevap kapısı tek kaçırmayı değil çöküşü durdurur (`d115e17`).
-> - Toplu tahmine pencere geri düşmesi eklendi (`7126ba4`): yalnız hata veren belge pencerelerle yeniden denenir;
->   d000112'de ilk pencere de sınıra koştu.
-> - İkinci hat: tam belge `dqcheck_loop_1090f276e398` @125 0,9296 vs pencereli 0,9469; fark anlamsız; ana hat
->   pencereli kalır. Durdurulan eski koşu `Fine-Tuning/runs/_archive/` altında.
-> - GT v9 (test bölmesi denetimi bitti): 200 belge tarandı, 191 şüpheli, iki bağımsız okuyucu (Claude, kör agy)
->   191/191 tam uyum; 1 belgede (doc 230) 2 tarife satırı (492/13, 492/20) düşürüldü; test satırı 896 → 894; döngü
->   v8'de kalır; v9 testi test açılırken kullanılacak (ayrı ve kayıtlı bir adımla yazılacak).
-> - Yabancı dal (`wip/foreign-deep-audit-2026-10-02`) değerlendirildi: Yürürlükteki motorda adayın yanlış numarasını
->   doğru sayan sızıntı bulundu; sızıntıyı düzelten `proposal/engine-valid-numbers` (`0ac39e6`) öneri paketi hazırlandı;
->   R01 sonrasında, M001 öncesinde testler uyarlanarak uygulanacak ve önceki turlar yeniden puanlanacak (P4 M000
->   0,9429 olur; kullanıcı kararıyla P4 kaldı).
-> - Açık kararlar (kullanıcı): yok (açık uçlu aralık yazımı olduğu gibi kalır).
-> - Bu kutunun altındaki numaralı bölümler ("1. Şu an nerede duruyoruz" … "7. Sıradaki adım": M01 pilotu, port 5055)
->   13 Eylül döneminin kaydıdır; güncel durum ve sıradaki adım yalnız bu kutudadır.
-> - 4 Ekim: her tur gürültülü ↔ temiz ablasyonu (`M_k_raw`, ham bursiyer etiketi; karar R05 sonrası testte) — ner
->   `Journal/experiments/dq_loop_gt750/ablation_noisy_vs_clean/` (önkayıt, kontrol listesi). Ham etiket dışa aktarımı salt
->   okunur + yedek: `data/sensitive/raw_label_snapshots/`.
-> - 5 Ekim: hedef dergi Expert Systems with Applications (kullanıcı). Taslak ner `Journal/manuscript/latex_eswa/main.tex`
->   (elsarticle, çift kör; kırmızı = yapılmamış); dergi bilgileri `Journal/manuscript/journal_targets/README.md`; iddia
->   kaydında `journal_scope` sütunu. R01 → M001 ve her tur sonucu bu taslağın tablolarına kayıttan girer.
-> - Belge işleri `auditing-project-docs` skill'iyle (ner `.claude/skills/`, `~/.claude/skills`'e bağlı): önem 1–3 agy
->   (gemini-3.8-flash-high) yazar, Claude doğrular; 4–5 (LEDGER, önkayıt, karar, makale; haftalık rapor özeti, genel
->   defterler, HANDOFF, canlı belge mantığı) Claude yazar; kapanışta `doc_guard.py` kontrolleri. Canlı belge
->   `ner-project/Journal/experiments/dq_loop_gt750/CANLI_DURUM.md`
->   (`Journal/analysis/scripts/dq_loop_gt750_live_status.py [--check]`).
-> - 5 Ekim 11:50: R01 uzman incelemesi başlamadı (WAL 0 bayt, 3 Ekim 03:55'ten beri). Ablasyonun ham etiket kolu yazıldı:
->   dal `feat/raw-label-arm` (`cdce2ff`, çalışma ağacı `/Users/student2/dq-raw-arm`), `loop-train --round k --labels raw`,
->   hiç mühürlenmez; temiz koşu kimlikleri değişmez. Yerleştirme (kullanıcı: "Bursiyer alıntısıyla yerleştir"): önce bulucu,
->   yerleşmeyen referans bursiyerin metinde birebir geçen alıntısıyla, o da yoksa düşer ve sayılır (önkayıt eki). **Dal R01
->   incelemesi bitince birleştirilir** (ekran ana ağaçtan çalışıyor), sonra R01 yayın listesiyle gerçek sınama, sonra
->   `M001` + `M001_raw`.
-> - **5 Ekim 12:11 — `M001_raw` ARKADA EĞİTİLİYOR** (kullanıcı: "ham kol arkada eğitik halde kalsın"): koşu
->   `dqcheck_loop_849cc99d1f69`, kod dondurulmuş ağaç `/Users/student2/dq-run-m001-raw` (etiket `run/m001-raw-2026-10-05`,
->   `615946e`), gözetmen `loop/supervise_m1_raw.sh` (tmux `gt750-m1raw-train`, günlük `loop/m1_raw_train.log`); 750 belge,
->   1.280 adım. **Ana hattın GPU işini (M001, ikinci hat, R02 tahmini, hakem) başlatmadan önce `touch
->   artifacts/data_quality_checker_gt750_law_article_p4_gtv8/loop/PAUSE_RAW_ARM`, günlükte `DURDU` bekle; ana hat bitince
->   dosyayı sil** (koşu kaldığı yerden sürer). `STOP_RAW_ARM` gözetmeni bitirir. Yayından sonra `loop-raw-check --round 1`.
->   Nokta seçimi motor önerisinden sonra yeniden puanlanmış eğriden (önkayıt eki 2).
-> - **5 Ekim 14:58 — HAZIR, R01 YAYININI BEKLİYOR:** seçim kodu `loop-select-rescored` (dal `feat/raw-label-arm`,
->   `1d44198`) ve motor önerisi (dal `feat/engine-valid-numbers`, `44ebbfd`, çalışma ağacı `/Users/student2/dq-engine-apply`;
->   commit edilmiş kodla yeniden ölçüldü: P4 M000 @550 0,9429, P0 @571 0,9443; dalın 30 testi geçiyor; iki dalın deneme
->   birleştirmesi çakışmasız, süit 1.113). Uzman R01'e başlıyor. **R01'den sonraki sıra:** (1) `loop-errors --round 1` +
->   kayıt betiği (mevcut motorla) → (2) yayın → (3) ekran kapatılır (kullanıcıya sor) → (4) iki dal `feat/gt750-loop`'a
->   birleştirilir → (5) `loop-rescore` M000 + `loop-select-rescored` (beklenen @550 0,9429) ve R01 hata raporu yeni motorla →
->   (6) `loop-raw-check --round 1` → (7) `PAUSE_RAW_ARM`, `DURDU` → `M001` → (8) `M001_raw` bitince `loop-rescore` +
->   `loop-select-rescored`.
-> - **5 Ekim 23:31 — TEKRARLI SATIRLAR:** tur belgelerinin eğitim hedefi iki kolda da her referansı bir kez taşır (dq
->   `5605ac1`, `feat/raw-label-arm`; önkayıt eki 3 ner `0908cad`). Bu yüzden `M001_raw` yeniden başlatıldı: **güncel koşu
->   `dqcheck_loop_02d8059bfbad`** (etiket `run/m001-raw-2026-10-05b`, aynı tmux ve gözetmen). Eski koşu
->   `dqcheck_loop_849cc99d1f69` 725. adımda durduruldu, kullanılmaz. Uzman ekranda tekrarlı satırı elle silmek zorunda değil.
-> - **6 Ekim 00:15 — EĞİTİM VERİSİ DENETİMİ:** tur belgelerinin referansları pencereye bulucunun bütün yazılı/çıkarsanmış
->   geçişleriyle yerleşir (dq `cb39c18`; kullanıcı "Yalnız tur belgeleri"; önkayıt eki 4 ner `0717c85`; kaynak ner
->   `sources/training_data_audit_2026-10-06.json`). **Güncel `M001_raw`: `dqcheck_loop_3331f64287a1`** (etiket
->   `run/m001-raw-2026-10-06c`, 1.362 adım). `dqcheck_loop_02d8059bfbad` 25'te duraklatıldı, kullanılmaz. Denetimde başka
->   sorun yok (213/413, hedef alanları, sızıntı, satır sınırı, kapsama).
-> - **6 Ekim 10:58 — UZMAN EKRANI YENİ ARAYÜZLE YENİDEN BAŞLATILDI** (dq `4f48556`, `feat/review-ui` ana dala ileri alındı; tmux
->   `gt750la-serve` aynı betikle yeniden kuruldu). Vurgulama düzeltildi (model satırları da, her geçiş, "metinde bulunamadı"),
->   iki sütunlu düzen. Kararlar korundu: inceleme satırlarının parmak izi önce/sonra aynı (62 bitmiş). Sahte uyuşmazlık
->   kontrolü: yok (yeniden yönlendirme yapılmadı). Arayüz geliştirmesi için deneme ekranı: `scripts/dev_review_screen.py
->   --root <boş geçici klasör> --port 5057` (uydurma belgeler). **dq push EDİLMEDİ:** uzak depo herkese açık ve dal GT v6–v9'u
->   (test cevap anahtarı dahil) ekliyor; karar kullanıcıda. ner `origin`'e push edildi.
-> - **6 Ekim 12:09 — EKRAN İKİNCİ SÜRÜM** (dq `68dbd01`): hazırlama uyarıları düz Türkçe ("Bursiyer listesi notları"), geçiş
->   gezgini, kaydırma işaretleri, "yalnız farklar", seçerek düzeltme (kaydetme açık tıklama), maddesiz/numarasız etiketleri.
->   Parmak izi önce/sonra aynı (62 bitmiş). Arayüz testleri: `tests/test_review_ui_browser.py` (gerçek tarayıcı, uydurma parti
->   `tests/review_fixture.py`).
-> - **7 Ekim 13:36 — R01 SONRASI TEK DAL `integrate/after-r01` (`59c3c63`, worktree `/Users/student2/dq-after-r01`):**
->   ham kol/eğitim verisi düzeltmeleri + motor önerisi + **madde aralığı kuralı** (kullanıcı: "473 ila 475" = 473, 474, 475, her
->   madde ayrı satır; motor ve eğitim verisi; M001'den itibaren altın da). Süit 1.172. Yukarıdaki sıradaki "(4) iki dal
->   birleştirilir" adımı artık bu dalın birleştirilmesidir. `M001_raw` 6 Ekim 22:00'de bitti (`dqcheck_loop_3331f64287a1`, ön
->   değer @300 F1 0,9341); yeniden eğitilmez. Ekranda "aralığı aç" düğmesi canlıda (`9cf6079`).
-> - **7 Ekim 13:47 — HATA RAPORUNDA TAMAMLAYICILIK** (dq `7096b06`): uzmanın doğrusunu kim buldu (bursiyer/model/hakem/birleşik/
->   yalnız uzman), taşınan 23 karar ayrı (kaynak ve süre ölçüleri). R01 kaydında `complementarity.new_decisions` ve
->   `expert_workload.*_new` kullanılmalı; kayıt betiği sütunları hazır.
-> - **7 Ekim 23:55 — R01 BİTTİ VE YAYINLANDI; M001 BELLEK BEKLİYOR.**
->   - Uzman kuyruğu bitti (134 karar). Yayın `release_23061e3c0de900d2`; tur 1 `adjudicated`.
->   - Ekran kapatıldı (kullanıcı; tmux `gt750la-serve` yok). Parmak izi `74676a38…` değişmedi.
->   - `integrate/after-r01` birleştirildi (`b54164d`).
->   - **Yayın sonrası doğru düzeltmeleri** (`322171c`): `releases/R01/truth_corrections.json`. Temiz kolun eğitim verisi ve
->     hata raporu bunu okur; yayın değişmez; komutlar `loop-correct-ranges`, `loop-correct-rows`.
->     - "Kuralla düzelt": aralık kuralından önceki 4 kararda 57 ara madde eklendi.
->     - "Önerileri uygula": bulucunun yerleştiremediği 7 doğru satırı düzeltildi; satırlar
->       `artifacts/…/batches/R01/row_fixes_2026-10-07.json`.
->   - M000 yeni motorla @550 0,9429. `M001_raw` nihai seçimi @300 0,9341. Ham koşu = yayın.
->   - R01 geçerli F1: bursiyer 0,8926, model 0,9287, hakem 0,9055 (eski motorla 0,9304 / 0,9107 / 0,9312; ayrıştırma ner LEDGER
->     7 Ekim 23:55).
->   - **`M001` = `dqcheck_loop_df9a27694e6a`**, dondurulmuş ağaç `/Users/student2/dq-run-m001` (etiket `run/m001-2026-10-07`).
->     - Gözetmen `loop/supervise_m1.sh` (tmux `gt750-m1-train`, günlük `loop/m1_train.log`); `STOP_M1` durdurur.
->     - Boş bellek ≥ 45 GB olunca başlar; 23:53'te 32 GB, makinede başka bir kullanıcının modeli çalışıyor. Ham kolun tepe
->       belleği 66,7 GB'tı.
->   - **M001'den sonra:**
->     1. bitiş/mühür kontrolü ve Journal kaydı;
->     2. R02 tahmini, gizli hakem ve uzman ekranı;
->     3. uzman R02'yi incelerken ikinci hat `loop-train --round 1 --view full_documents` / `loop-compare --round 1` ve `M002_raw`.
->   - **Açık:**
->     - dq push (uzak depo herkese açık; karar kullanıcıda);
-> - **8 Ekim — CODEX ÇALIŞMA DÜZENİNİ DEVRALDI.** Kullanıcı: "claude'un çalışma şeklini kopyala buradaki kuralları vesaire
->   kopyala artık senle çalışmaya başlayacağız iyi çalışman lazım bu önemli". dq `AGENTS.md` ve ner
->   `docs/agents/codex-research-workflow.md` kalıcı kuralları taşır; belge becerisi ner `.agents/skills/auditing-project-docs/`.
->   Önemli belge/karar yazımı ve bağımsız doğrulama artık sorumlu Codex ajanındadır; düşük önem agy düzeni korunur.
->   ner `CANLI_DURUM.md` üreticisi ve `--check` yayın sonrası duruma uyarlandı (ner `c99969b`).
->   Güncel deney durumu hâlâ bu kutu, LEDGER ve komut çıktılarından alınır. M001 bitişi henüz kaydedilmedi; dq push kararı bekler.
+> **8 Ekim 2026 — R01 YAYINLANDI; M001 BELLEK BEKLİYOR.**
+> - Güncel protokol ve komutlar `AGENTS.md`; eski numaralı bölümler tarihsel kayıttır.
+> - R01 yayını `release_23061e3c0de900d2`: 134 uzman + 116 uzlaşı, tur aşaması `adjudicated`. Uzman ekranı kullanıcı kararıyla kapalı.
+> - Yayın değişmez. Doğru düzeltmeleri `releases/R01/truth_corrections.json`: kullanıcı “Kuralla düzelt” ve “Önerileri uygula”. Temiz eğitim/hata raporu okur; ham kol okumaz.
+> - Motor ve madde aralığı kuralı ana dalda. M000 ve M001_raw yeni motorla yeniden puanlandı/seçildi; kaynaklar ner deney `sources/` altında. Biten ham kol yeniden eğitilmez.
+> - **M001:** `dqcheck_loop_df9a27694e6a`, 750 eğitim belgesi; dondurulmuş `/Users/student2/dq-run-m001`, etiket `run/m001-2026-10-07`. Bu ağaca dokunma.
+> - Gözetmen `gt750-m1-train`; `loop/supervise_m1.sh`, günlük `loop/m1_train.log`. Bellek eşiği 45 GB. Henüz eğitim denemesi/bitişi kaydedilmedi; eski BEKLE satırının belleği güncel ölçüm değildir. `gt750-load` örnekleyicisine dokunma.
+> - **Sıra:** M001 SUPERVISOR_DONE + tur sealed/model kaydı → Journal kayıt/defterler → R02 tahmini → gizli hakem → uzman ekranı. R02'de eski karar taşıma yapılmaz.
+> - Uzman R02'yi incelerken tam belge ikinci hat ve karşılaştırması; M002_raw ana GPU işine yol vererek arkada. Sonraki tur yayın akışı ve komutlar devir/önkayıtta.
+> - **Açık karar:** dq push. Kamuya açık remote ve test cevap anahtarı nedeniyle kullanıcı açıkça karar vermeden push yok.
+> - Codex çalışma kuralları sadeleştirildi: kısa AGENTS, görevle ilgili kaynak okuma; yerel beceriler `~/.agents/skills/`, eski kopyalar tarama dışı arşivde. Önemli belge/kararı Codex yazar/doğrular; agy birkaç satırlık işte zorunlu değildir.
+> - Canlı durum üreticisi ve --check yayın sonrası duruma uyarlandı (ner `c99969b`). Detaylı deney kaydı: ner `Journal/experiments/dq_loop_gt750/LEDGER.md`, metrics/sources ve ablasyon önkaydı.
 
 > **2 Ekim 2026, 12:42 — TEK KARŞILAŞTIRMA MOTORU. Referans listelerini karşılaştıran her şey
 > `src/data_quality_checker/reference_matching.py`** (kullanıcı: "döngü motoru ve değerlendiriciyi farklı iki şey gibi

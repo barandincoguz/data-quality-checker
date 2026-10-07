@@ -86,6 +86,29 @@
 > - **7 Ekim 13:47 — HATA RAPORUNDA TAMAMLAYICILIK** (dq `7096b06`): uzmanın doğrusunu kim buldu (bursiyer/model/hakem/birleşik/
 >   yalnız uzman), taşınan 23 karar ayrı (kaynak ve süre ölçüleri). R01 kaydında `complementarity.new_decisions` ve
 >   `expert_workload.*_new` kullanılmalı; kayıt betiği sütunları hazır.
+> - **7 Ekim 23:55 — R01 BİTTİ VE YAYINLANDI; M001 BELLEK BEKLİYOR.**
+>   - Uzman kuyruğu bitti (134 karar). Yayın `release_23061e3c0de900d2`; tur 1 `adjudicated`.
+>   - Ekran kapatıldı (kullanıcı; tmux `gt750la-serve` yok). Parmak izi `74676a38…` değişmedi.
+>   - `integrate/after-r01` birleştirildi (`b54164d`).
+>   - **Yayın sonrası doğru düzeltmeleri** (`322171c`): `releases/R01/truth_corrections.json`. Temiz kolun eğitim verisi ve
+>     hata raporu bunu okur; yayın değişmez; komutlar `loop-correct-ranges`, `loop-correct-rows`.
+>     - "Kuralla düzelt": aralık kuralından önceki 4 kararda 57 ara madde eklendi.
+>     - "Önerileri uygula": bulucunun yerleştiremediği 7 doğru satırı düzeltildi; satırlar
+>       `artifacts/…/batches/R01/row_fixes_2026-10-07.json`.
+>   - M000 yeni motorla @550 0,9429. `M001_raw` nihai seçimi @300 0,9341. Ham koşu = yayın.
+>   - R01 geçerli F1: bursiyer 0,8926, model 0,9287, hakem 0,9055 (eski motorla 0,9304 / 0,9107 / 0,9312; ayrıştırma ner LEDGER
+>     7 Ekim 23:55).
+>   - **`M001` = `dqcheck_loop_df9a27694e6a`**, dondurulmuş ağaç `/Users/student2/dq-run-m001` (etiket `run/m001-2026-10-07`).
+>     - Gözetmen `loop/supervise_m1.sh` (tmux `gt750-m1-train`, günlük `loop/m1_train.log`); `STOP_M1` durdurur.
+>     - Boş bellek ≥ 45 GB olunca başlar; 23:53'te 32 GB, makinede başka bir kullanıcının modeli çalışıyor. Ham kolun tepe
+>       belleği 66,7 GB'tı.
+>   - **M001'den sonra:**
+>     1. ikinci hat `loop-train --round 1 --view full_documents` ve `loop-compare --round 1`;
+>     2. R02 tahmini (`loop-predict`);
+>     3. `M002_raw`.
+>   - **Açık:**
+>     - dq push (uzak depo herkese açık; karar kullanıcıda);
+>     - ner `CANLI_DURUM.md` üreticisi 4 Ekim'de kalmış.
 
 > **2 Ekim 2026, 12:42 — TEK KARŞILAŞTIRMA MOTORU. Referans listelerini karşılaştıran her şey
 > `src/data_quality_checker/reference_matching.py`** (kullanıcı: "döngü motoru ve değerlendiriciyi farklı iki şey gibi

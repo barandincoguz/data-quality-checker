@@ -13,7 +13,11 @@ from __future__ import annotations
 
 from data_quality_checker.hitl import ab_diff
 from data_quality_checker.normalization import expand_article_range
-from data_quality_checker.reference_matching import compare_reference_lists, expand_ranges, reference_identities
+from data_quality_checker.reference_matching import (
+    compare_reference_lists,
+    expand_ranges,
+    reference_identities,
+)
 
 
 def ref(no: str, md: str, quote: str = "") -> dict[str, str]:

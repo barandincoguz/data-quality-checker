@@ -12,17 +12,8 @@ Tests all categories:
 from __future__ import annotations
 
 import random
-import pytest
 
-from data_quality_checker.normalization import (
-    normalize_article,
-    normalize_law_name,
-    normalize_law_number,
-    normalize_reference,
-)
 from data_quality_checker.reference_matching import (
-    DocumentContext,
-    canonical_reference,
     compare_reference_lists,
 )
 

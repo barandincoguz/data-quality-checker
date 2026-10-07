@@ -28,7 +28,12 @@ from .judges import ensure_green_audit_plan, judge_lock_payload, judge_visible_t
 from .loop_sources import has_loop_settings
 from .preparation import annotation_attribution_path
 from .reference_locator import mention_offsets
-from .reference_matching import DocumentContext, canonical_reference, compare_reference_lists, expand_ranges
+from .reference_matching import (
+    DocumentContext,
+    canonical_reference,
+    compare_reference_lists,
+    expand_ranges,
+)
 from .reference_policy import (
     DEFAULT_REFERENCE_POLICY_ID,
     apply_reference_policy,

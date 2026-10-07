@@ -26,6 +26,7 @@ from .g0 import CheckpointCandidate, select_checkpoint
 from .g0_training import canonical_evaluate
 from .judges import ensure_green_audit_plan, judge_visible_to_expert, run_judge_pilot
 from .loop_metrics import (
+    complementarity,
     documents_with_finalized_truth,
     expert_workload,
     model_round_metrics,
@@ -340,6 +341,14 @@ def round_records(
         else set()
     )
 
+    # Decisions carried from an earlier loop (`loop-carry-decisions`): reported apart.
+    carried_path = public_batch / "carried_decisions.json"
+    carried = (
+        {str(item["internal_doc_id"]) for item in json.loads(carried_path.read_text(encoding="utf-8"))["documents"]}
+        if carried_path.is_file()
+        else set()
+    )
+
     # Time the expert had each document's page open, over every decision on it
     # (a deferral and the later decision both cost time). None = never measured.
     seconds_on_page: dict[str, float] = {}
@@ -390,6 +399,7 @@ def round_records(
                 "escalated": escalated,
                 "in_green_audit_sample": internal_doc_id in audit_sample,
                 "in_judge_pilot": internal_doc_id in pilot,
+                "carried": internal_doc_id in carried,
                 "status": review["status"],
                 "action": review["action"],
                 "created_at_epoch": review["created_at_epoch"],
@@ -474,6 +484,7 @@ def write_error_report(
         "before_judge_lock": _agreement(before),
         "after_judge_lock": _agreement(after),
         "expert_workload": expert_workload(records),
+        "complementarity": complementarity(records),
         "reference_table": reference_tables(records),
     }
     write_json_atomic(path, payload)

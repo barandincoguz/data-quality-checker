@@ -236,7 +236,7 @@ summary{cursor:pointer;font-weight:650}.secondary[open]>summary,.technical[open]
 .defer-row button,.toolbar button{padding:.45rem .75rem;border:1px solid #c5ccd4;background:#fff;border-radius:.4rem;cursor:pointer}.defer-row button:hover,.toolbar button:hover{background:#f3f5f7}
 .editor-wrap{overflow:auto}.editor{border-collapse:collapse;width:100%}.editor th{font-size:.76rem;text-align:left;color:#3d444d;padding:.3rem}.editor td{padding:.2rem}
 .editor input{width:100%;min-width:70px;padding:.35rem;border:1px solid #c5ccd4;border-radius:.3rem}.editor input[data-field=kanun_ad]{min-width:170px}.editor input[data-field=kanun_no]{max-width:90px}.editor input[data-field=madde]{min-width:120px}.editor td:last-child{width:1%}.editor .source-input{min-width:220px}
-.editor button{border:1px solid #e3b4ae;background:#fff;color:var(--mix);border-radius:.3rem;padding:.3rem .5rem;cursor:pointer}
+.editor button{border:1px solid #e3b4ae;background:#fff;color:var(--mix);border-radius:.3rem;padding:.3rem .5rem;cursor:pointer}.editor button.expand-range{border-color:#b9cdf6;color:var(--brand);white-space:nowrap}
 .toolbar{display:flex;gap:.4rem;flex-wrap:wrap;margin:.6rem 0}
 .save-revision{background:var(--brand);color:white;border:0;border-radius:.45rem;font-weight:700;padding:.6rem .95rem;cursor:pointer}
 pre{white-space:pre-wrap;border:1px solid var(--line);padding:.8rem;border-radius:.4rem;font-size:.78rem;background:#fbfcfd}
@@ -355,7 +355,34 @@ textarea{width:100%;font:.8rem ui-monospace,monospace}
     var td=document.createElement('td'), del=document.createElement('button');
     del.type='button'; del.textContent='sil'; del.title='Bu satırı sil';
     del.addEventListener('click', function(){ tr.remove(); tableEdited(); });
+    var articles = rangeArticles(ref.madde||'');
+    if(articles){
+      // "473 ila 475" means 473, 474 and 475, each its own row (user, 7 Oct 2026).
+      var expand=document.createElement('button'); expand.type='button'; expand.className='expand-range';
+      expand.textContent='aralığı aç (' + articles.length + ')'; expand.title='Aralığı her madde ayrı satır olacak biçimde aç';
+      expand.addEventListener('click', function(){
+        var current = {}; tr.querySelectorAll('input').forEach(function(i){ current[i.dataset.field] = i.value; });
+        var anchor = tr.nextSibling;
+        articles.forEach(function(madde){
+          addRow({kanun_no: current.kanun_no, kanun_ad: current.kanun_ad, madde: madde, source_text: current.source_text});
+          if(anchor){ rows.insertBefore(rows.lastChild, anchor); }
+        });
+        tr.remove(); tableEdited();
+      });
+      td.appendChild(expand); td.appendChild(document.createTextNode(' '));
+    }
     td.appendChild(del); tr.appendChild(td); rows.appendChild(tr);
+  }
+  // The articles an inclusive range names: "N ila M" (also "N-M") and "N ila mükerrer M"
+  // (N..M and mükerrer M). Anything else, or a range wider than 300, is left as written.
+  function rangeArticles(madde){
+    var m = String(madde).trim().match(/^(\d+)\s*(?:ila|ilâ|-|–|—)\s*(mükerrer\s+)?(\d+)$/i);
+    if(!m) return null;
+    var a = Number(m[1]), b = Number(m[3]);
+    if(!(a < b || (m[2] && a <= b)) || b - a > 300) return null;
+    var out = []; for(var n = a; n <= b; n++){ out.push(String(n)); }
+    if(m[2]){ out.push('mükerrer ' + b); }
+    return out;
   }
   function fill(list){ rows.innerHTML=''; (list||[]).forEach(addRow); if(!rows.children.length) addRow(); tableEdited(); }
   function clearComposeWarn(){ var w = document.getElementById('compose-warn'); if(w){ w.hidden = true; } }

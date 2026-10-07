@@ -153,3 +153,27 @@ def test_a_kind_with_no_rows_is_dimmed_in_the_legend(page) -> None:
     page.goto(page.base + "/review/d000001")
     assert "zero" in page.locator(".legend [data-kind=mixed]").get_attribute("class")
     assert "zero" not in (page.locator(".legend [data-kind=b]").get_attribute("class") or "")
+
+
+def test_a_range_row_in_the_revision_table_expands_to_one_row_per_article(ui, page) -> None:
+    """User (7 Oct 2026): "473 ila 475" means 473, 474 and 475, each its own row."""
+    config, _, _ = ui
+    page.goto(page.base + "/review/d000004")
+    page.click("#revision-panel > summary")
+    page.click("#fill-a")
+    rows = page.locator("#ref-rows tr")
+    before = rows.count()
+    index = next(i for i in range(before) if rows.nth(i).locator("input[data-field=madde]").input_value() == "620 ila 645")
+    assert rows.nth(index).locator("button.expand-range").count() == 1
+    rows.nth(index).locator("button.expand-range").click()
+    assert rows.count() == before - 1 + 26
+    maddes = [rows.nth(i).locator("input[data-field=madde]").input_value() for i in range(rows.count())]
+    assert [m for m in maddes if m.isdigit() and 620 <= int(m) <= 645] == [str(n) for n in range(620, 646)]
+    assert all(rows.nth(i).locator("input[data-field=kanun_no]").input_value() == "6098"
+               for i in range(rows.count()) if maddes[i].isdigit() and 620 <= int(maddes[i]) <= 645)
+    assert page.locator("button.expand-range").count() == 0
+    page.click("button[value=revise]")
+    page.wait_for_function("!location.pathname.endsWith('d000004')")
+    with Store(config.database_path) as store:
+        final = json.loads(store.get_review("batch", "d000004")["final_references_json"])
+    assert {r["madde"] for r in final if r["kanun_no"] == "6098"} == {str(n) for n in range(620, 646)}

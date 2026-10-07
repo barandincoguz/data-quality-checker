@@ -258,6 +258,28 @@ def _normalize_article_once(value: Any) -> str:
     return text
 
 
+# "473 ila 475 inci maddeler" is 473, 474 and 475 (user decision, 7 Oct 2026: an
+# inclusive range, "her madde ayrı satır olarak tutulur"). A range ending at a
+# repeated article also names that article; inserted or lettered articles inside
+# a range are not guessed. Wider ranges than this are left as written.
+_ARTICLE_RANGE = re.compile(r"^(\d+) ila (mükerrer )?(\d+)$")
+MAX_RANGE_ARTICLES = 300
+
+
+def expand_article_range(value: Any) -> list[str] | None:
+    """The articles an article range names, in order; None when `value` is not one."""
+    match = _ARTICLE_RANGE.match(normalize_article(value))
+    if not match:
+        return None
+    first, repeated, last = int(match.group(1)), match.group(2), int(match.group(3))
+    if first > last or (first == last and not repeated) or last - first + 1 > MAX_RANGE_ARTICLES:
+        return None
+    articles = [str(number) for number in range(first, last + 1)]
+    if repeated:
+        articles.append(f"mükerrer {last}")
+    return articles
+
+
 def normalize_article(value: Any) -> str:
     """The article a `madde` value names, in one spelling.
 

@@ -63,6 +63,7 @@ from .loop_sources import has_loop_settings, loop_split_policy, validate_loop_so
 from .loop_training import (
     RAW_PLACEMENT_RULE,
     compose_round_training_ids,
+    gold_training_references,
     round_raw_training_documents,
     round_training_documents,
 )
@@ -131,6 +132,7 @@ def _write_round_scaffolding(
     view_mode: str = "windows",
     recurrence: str | None = None,
     label_source: str = "clean",
+    article_ranges: str | None = None,
 ) -> tuple[Path, Path]:
     """Write exactly what `g0_training._base_run_context` demands of a run.
 
@@ -171,6 +173,7 @@ def _write_round_scaffolding(
         "training_view_mode": view_mode,
         **({"recurrence": recurrence} if recurrence else {}),
         **({"label_source": label_source} if label_source != "clean" else {}),
+        **({"article_ranges": article_ranges} if article_ranges else {}),
     }
     write_json_atomic(run_dir / "run_config.json", run_config)
     # The contract states this round's own split. A bare TrainingContract()
@@ -271,6 +274,13 @@ def train_round(
         }
         for doc_id, payload in source["documents"].items()
     }
+    if cleaned_batch_ids:
+        # From M001 on the gold lists follow the article-range rule too (7 Oct
+        # 2026); M000, trained before it, keeps its data and its run id.
+        documents = {
+            doc_id: {**payload, "references": gold_training_references(payload["references"])}
+            for doc_id, payload in documents.items()
+        }
     raw_label_audit: dict[str, Any] | None = None
     if labels == "raw":
         raw_documents, raw_label_audit = round_raw_training_documents(
@@ -324,6 +334,7 @@ def train_round(
         # located mention since 6 Oct 2026 (the best span alone before). Absent
         # for round 0, which has no round documents, so M000's run id stands.
         fingerprint_payload["round_reference_placement"] = "located_mentions_v1"
+        fingerprint_payload["article_ranges"] = "expanded_v1"
     if labels != "clean":
         # A raw-label run is never the clean run (absent for "clean", so the
         # loop's run ids stand), and a different placement rule is another run.
@@ -365,6 +376,7 @@ def train_round(
         view_mode=view_mode,
         recurrence=recurrence,
         label_source=labels,
+        article_ranges="expanded_v1" if cleaned_batch_ids else None,
     )
 
     result: dict[str, Any] = {

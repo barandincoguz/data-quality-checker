@@ -28,7 +28,7 @@ from .judges import ensure_green_audit_plan, judge_lock_payload, judge_visible_t
 from .loop_sources import has_loop_settings
 from .preparation import annotation_attribution_path
 from .reference_locator import mention_offsets
-from .reference_matching import DocumentContext, canonical_reference, compare_reference_lists
+from .reference_matching import DocumentContext, canonical_reference, compare_reference_lists, expand_ranges
 from .reference_policy import (
     DEFAULT_REFERENCE_POLICY_ID,
     apply_reference_policy,
@@ -161,7 +161,7 @@ REVIEW_TEMPLATE = """
 {% macro refcell(refs) %}
 {%- for r in refs -%}
 <div class="ref"><span class="law">{{ r.kanun_no or "—" }}</span>{% if r.kanun_ad %} <span class="lawname">{{ r.kanun_ad }}</span>{% endif %}
-<span class="art">madde {{ r.madde or "—" }}</span>{% if not r.madde %} <span class="tag" title="Satırda madde yok: kanun düzeyinde bir referans sayılır">maddesiz</span>{% endif %}{% if not r.kanun_no %} <span class="tag" title="Satırda kanun numarası yok: yalnız kanun adıyla eşleştirilebilir">numarasız</span>{% endif %}{% if r.source_text %}
+<span class="art">madde {{ r.madde or "—" }}</span>{% if r.expanded_from %} <span class="tag tag-range" title="Bu satır yazılan aralıktan açıldı">{{ r.expanded_from }} aralığından</span>{% endif %}{% if not r.madde %} <span class="tag" title="Satırda madde yok: kanun düzeyinde bir referans sayılır">maddesiz</span>{% endif %}{% if not r.kanun_no %} <span class="tag" title="Satırda kanun numarası yok: yalnız kanun adıyla eşleştirilebilir">numarasız</span>{% endif %}{% if r.source_text %}
 <div class="quote" title="Bursiyerin metinden aldığı alıntı; karar vermez, yalnız vurgulanır">“{{ r.source_text }}”</div>{% endif %}</div>
 {%- else -%}<span class="muted">—</span>{%- endfor -%}
 {% endmacro %}
@@ -197,7 +197,7 @@ h2{font-size:1rem;margin:0 0 .6rem}.hint{color:var(--muted);font-size:.83rem;mar
 .tool{border:1px solid #c5ccd4;background:#fff;border-radius:.4rem;padding:.3rem .65rem;font-size:.8rem;cursor:pointer}.tool[aria-pressed=true]{background:#1f2937;color:#fff;border-color:#1f2937}
 .tool.primary{background:var(--brand);color:#fff;border-color:var(--brand);font-weight:650}.tool:disabled{opacity:.45;cursor:default}
 .link{border:0;background:none;color:var(--brand);padding:0;cursor:pointer;font-size:.82rem}.link:hover{text-decoration:underline}
-.tag{display:inline-block;font-size:.68rem;font-weight:650;color:#92400e;background:#fef3c7;border-radius:.25rem;padding:0 .3rem;vertical-align:1px}
+.tag{display:inline-block;font-size:.68rem;font-weight:650;color:#92400e;background:#fef3c7;border-radius:.25rem;padding:0 .3rem;vertical-align:1px}.tag-range{color:#1e40af;background:#dbeafe}
 .cmp tbody tr:has(input.pick:checked) td{background:#f0faf3}.pickcell{text-align:center}.pick{width:1rem;height:1rem;cursor:pointer}
 table.cmp.only-diff tr.same,table.cmp.only-diff tr.excused{display:none}
 .guide{border-left:4px solid var(--brand)}.guide h2{margin-bottom:.3rem}.guide p{margin:.2rem 0;font-size:.9rem}
@@ -589,6 +589,8 @@ def ab_diff(
     # The status of a row is the project's one comparison's answer (2 Oct 2026,
     # `reference_matching`): matched, missed, extra -- or a law-only row beside an
     # article of its law in its own list, which is extra, not a difference.
+    # An article range is every article in it (7 Oct 2026): each is its own row.
+    candidate_a, candidate_b = expand_ranges(candidate_a), expand_ranges(candidate_b)
     canonical_a = [canonical_reference(reference) for reference in candidate_a]
     canonical_b = [canonical_reference(reference) for reference in candidate_b]
     context = DocumentContext(canonical_a, canonical_b)

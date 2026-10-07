@@ -314,3 +314,13 @@ def test_a_released_reference_carries_every_mention_as_a_quote(tmp_path: Path) -
         {"kanun_no": "193", "kanun_ad": "", "madde": "94", "source_text": ""}]}], consensus=[])
     [reference] = round_training_documents(_Cfg(tmp_path), batch_ids=["round1"])["d1"]["references"]
     assert len(reference["source_texts"]) == 2 and reference["source_text"] == reference["source_texts"][0]
+
+
+def test_a_released_range_is_trained_as_its_articles(tmp_path: Path) -> None:
+    """User decision, 7 Oct 2026: "473 ila 475" is 473, 474 and 475, each its own row."""
+    text = "6102 sayılı Türk Ticaret Kanununun 473 ila 475 inci maddeleri uygulanır."
+    _release(tmp_path, "round1", expert=[{"internal_doc_id": "d1", "text": text, "references": [
+        {"kanun_no": "6102", "kanun_ad": "", "madde": "473 ila 475", "source_text": ""}]}], consensus=[])
+    references = round_training_documents(_Cfg(tmp_path), batch_ids=["round1"])["d1"]["references"]
+    assert [r["madde"] for r in references] == ["473", "474", "475"]
+    assert all("expanded_from" not in r for r in references)

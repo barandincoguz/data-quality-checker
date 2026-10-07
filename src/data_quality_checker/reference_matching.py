@@ -52,6 +52,7 @@ from typing import Any
 from .normalization import (
     CANONICAL_NO_BY_NAME,
     _fold,
+    expand_article_range,
     names_a_particular_law,
     normalize_law_name,
     normalize_reference,
@@ -186,6 +187,22 @@ def empty_diagnostics() -> dict[str, int]:
     }
 
 
+def expand_ranges(references: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """Each row naming an article range as one row per article (7 Oct 2026).
+
+    Order is kept; every field is copied; a row made from a range records the
+    range it came from in `expanded_from` (shown to the expert, never compared).
+    """
+    expanded: list[dict[str, Any]] = []
+    for reference in references:
+        articles = expand_article_range(reference.get("madde", ""))
+        if articles is None:
+            expanded.append(dict(reference))
+            continue
+        expanded.extend({**reference, "madde": article, "expanded_from": str(reference.get("madde", ""))} for article in articles)
+    return expanded
+
+
 def compare_reference_lists(
     reference: Iterable[Mapping[str, Any]],
     candidate: Iterable[Mapping[str, Any]],
@@ -198,9 +215,12 @@ def compare_reference_lists(
     instance the other raters), so that one law name resolves the same way in
     every pairwise comparison of the document.
     """
-    reference_rows = [canonical_reference(r) for r in reference]
-    candidate_rows = [canonical_reference(r) for r in candidate]
-    context = DocumentContext(reference_rows, candidate_rows, *([canonical_reference(r) for r in rows] for rows in context_lists))
+    # An article range is every article in it (7 Oct 2026), on both sides.
+    reference_rows = [canonical_reference(r) for r in expand_ranges(reference)]
+    candidate_rows = [canonical_reference(r) for r in expand_ranges(candidate)]
+    context = DocumentContext(
+        reference_rows, candidate_rows, *([canonical_reference(r) for r in expand_ranges(rows)] for rows in context_lists)
+    )
     ref_claims, ref_redundant, ref_repeated = _claims(reference_rows, context)
     cand_claims, cand_redundant, cand_repeated = _claims(candidate_rows, context)
 
@@ -269,8 +289,8 @@ def reference_identities(
     """The references a list claims, aligned with the other lists of its document:
     one identity per reference, law-only rows beside an article of their law left
     out (extra, not a claim)."""
-    rows = [canonical_reference(r) for r in references]
-    context = DocumentContext(rows, *([canonical_reference(r) for r in other] for other in context_lists))
+    rows = [canonical_reference(r) for r in expand_ranges(references)]
+    context = DocumentContext(rows, *([canonical_reference(r) for r in expand_ranges(other)] for other in context_lists))
     claims, redundant, _ = _claims(rows, context)
     return {i for i in claims if i not in redundant}
 

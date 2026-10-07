@@ -18,7 +18,7 @@ from .atomic import write_json_atomic
 from .errors import ContractError
 from .fingerprints import sha256_file
 from .reference_locator import attach_mention_spans
-from .reference_matching import distinct_rows, row_groups
+from .reference_matching import distinct_rows, expand_ranges, row_groups
 from .reference_policy import DEFAULT_REFERENCE_POLICY_ID, apply_reference_policy
 
 
@@ -201,9 +201,10 @@ def round_training_documents(config: Any, *, batch_ids: Sequence[str]) -> dict[s
     # release on disk keeps what was written.
     documents: dict[str, dict[str, Any]] = {}
     for doc_id, row in _released_rows(config, batch_ids).items():
-        references = row["references"]
-        if not all(isinstance(reference, dict) for reference in references):
+        if not all(isinstance(reference, dict) for reference in row["references"]):
             raise ContractError(f"released document {doc_id!r} has a reference that is not an object")
+        # An article range is every article in it (7 Oct 2026).
+        references = _without_range_marks(expand_ranges(row["references"]))
         documents[doc_id] = {
             "text": row["text"],
             "references": [{**references[index], "source_text": ""} for index in distinct_rows(references)],
@@ -252,6 +253,31 @@ def _annotator_lists(database_path: Path, batch_id: str) -> dict[str, dict[str, 
         doc_id: {"text": text, "references": json.loads(references_json)}
         for doc_id, text, references_json in rows
     }
+
+
+def _without_range_marks(references: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Training targets carry the decision fields only, not where a row was expanded from."""
+    return [{key: value for key, value in reference.items() if key != "expanded_from"} for reference in references]
+
+
+def gold_training_references(references: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """A gold list as round training uses it (7 Oct 2026): each article of a range its own
+    row, each reference once, every quote of the rows it merges kept for placement."""
+    expanded = _without_range_marks(expand_ranges(references))
+    merged: list[dict[str, Any]] = []
+    for group in row_groups(expanded):
+        quotes: list[str] = []
+        for index in group:
+            for quote in expanded[index].get("source_texts") or [expanded[index].get("source_text") or ""]:
+                if quote and quote not in quotes:
+                    quotes.append(quote)
+        first = dict(expanded[group[0]])
+        if quotes:
+            first["source_text"] = quotes[0]
+            if len(quotes) > 1 or "source_texts" in first:
+                first["source_texts"] = quotes
+        merged.append(first)
+    return merged
 
 
 def _has_sealed_release(config: Any, batch_id: str) -> bool:
@@ -325,6 +351,7 @@ def round_raw_training_documents(
     unplaced: dict[str, dict[str, Any]] = {}
     for doc_id, prepared in prepared_texts.items():
         references, _ = apply_reference_policy(prepared["references"])
+        references = _without_range_marks(expand_ranges(references))  # every article of a range (7 Oct 2026)
         # Each reference once (5 Oct 2026), as in the clean arm; the quotes of
         # every row that writes it may place it, as GT v7 kept every quote of
         # the rows it merged.

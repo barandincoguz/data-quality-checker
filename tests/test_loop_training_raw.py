@@ -379,3 +379,20 @@ def test_a_raw_reference_carries_every_mention_as_a_quote(tmp_path: Path) -> Non
     [reference] = documents["d1"]["references"]
     assert len(reference["source_texts"]) == 2
     assert audit["placement_rule"] == "locator_mentions_then_annotator_verbatim_quote_v2"
+
+
+def test_a_raw_range_is_trained_as_its_articles(tmp_path: Path) -> None:
+    text = "6102 sayılı Türk Ticaret Kanununun 473 ila 475 inci maddeleri uygulanır."
+    _prepare(tmp_path, "R01", {"d1": (text, [_reference("6102", "473 ila 475", "")])})
+    documents, audit = round_raw_training_documents(_Cfg(tmp_path), batch_ids=["R01"])
+    assert [r["madde"] for r in documents["d1"]["references"]] == ["473", "474", "475"]
+
+
+def test_gold_ranges_are_expanded_from_round_one_but_not_in_m000(tmp_path: Path) -> None:
+    """M000 is sealed and keeps its run id; M001 on trains gold ranges as articles."""
+    config = canonical_fixture(tmp_path)
+    m000 = train_round(config, generation="M000", split=SPLIT, cleaned_batch_ids=[])
+    assert "article_ranges" not in json.loads(Path(m000["run_config_path"]).read_text(encoding="utf-8"))
+    _round1(config)
+    m001 = train_round(config, generation="M001", split=SPLIT, cleaned_batch_ids=["round1"])
+    assert json.loads(Path(m001["run_config_path"]).read_text(encoding="utf-8"))["article_ranges"] == "expanded_v1"

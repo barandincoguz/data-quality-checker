@@ -132,9 +132,11 @@ def test_qualified_articles():
 
 
 def test_ranges_normalized():
-    assert counts([ref("193", "", "94 ila 96")], [ref("193", "", "94-96")]) == (1, 0, 0)
-    assert counts([ref("193", "", "94 ila 96")], [ref("193", "", "94–96")]) == (1, 0, 0)
-    assert counts([ref("193", "", "94 ila 96")], [ref("193", "", "94 ilâ 96")]) == (1, 0, 0)
+    # Every spelling of a range is the same range; since 7 Oct 2026 (user decision)
+    # a range is every article in it, so "94 ila 96" counts as 94, 95 and 96.
+    assert counts([ref("193", "", "94 ila 96")], [ref("193", "", "94-96")]) == (3, 0, 0)
+    assert counts([ref("193", "", "94 ila 96")], [ref("193", "", "94–96")]) == (3, 0, 0)
+    assert counts([ref("193", "", "94 ila 96")], [ref("193", "", "94 ilâ 96")]) == (3, 0, 0)
 
 
 def test_open_ended_ranges():
@@ -359,8 +361,8 @@ def test_article_prefix_colons_and_hyphens():
 
 def test_em_dash_range_normalization():
     """Em-dash '—' is treated identically to hyphen and en-dash."""
-    assert counts([ref("193", "", "94 ila 96")], [ref("193", "", "94 — 96")]) == (1, 0, 0)
-    assert counts([ref("193", "", "94 ila 96")], [ref("193", "", "94—96")]) == (1, 0, 0)
+    assert counts([ref("193", "", "94 ila 96")], [ref("193", "", "94 — 96")]) == (3, 0, 0)
+    assert counts([ref("193", "", "94 ila 96")], [ref("193", "", "94—96")]) == (3, 0, 0)
 
 
 def test_float_law_number_preservation():

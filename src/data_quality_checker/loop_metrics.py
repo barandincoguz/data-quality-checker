@@ -434,6 +434,68 @@ def edit_distance_from_best_candidate(
     }
 
 
+def complementarity(records: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    """How the annotator and the model complement each other against the expert's truth.
+
+    For every finalized document with both sources (7 Oct 2026, user: what is
+    measured when the expert decides "neither is right" and writes the list?):
+    each reference of the expert's truth is counted by who had it -- the
+    annotator, the model, both, either, neither (only the expert brought it),
+    and none of the three when the judge is counted too -- and the references
+    both sources wrote that the expert did not keep. `union_recall` is the
+    share of the truth the two sources together already held. Computed on the
+    project's one comparison (`attribute_errors`), for all finalized documents
+    and for the `revise` decisions alone. A document missing a source is left
+    out and counted, never scored as a miss.
+    """
+
+    def block(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+        counts: Counter[str] = Counter()
+        documents = skipped = 0
+        for row in rows:
+            if row.get("status") != "finalized" or row.get("final") is None:
+                continue
+            if row.get("annotator") is None or row.get("model") is None:
+                skipped += 1
+                continue
+            documents += 1
+            att = attribute_errors(
+                expert=row["final"], annotator=row["annotator"], model=row["model"], judge=row.get("judge")
+            )
+            found = {name: {tuple(i) for i in att[name]["correct"]} for name in _RATER_NAMES if att[name]["available"]}
+            truth = {tuple(i) for i in att["annotator"]["correct"] + att["annotator"]["missed"]}
+            annotator, model, judge = found["annotator"], found["model"], found.get("judge", set())
+            counts["truth_references"] += len(truth)
+            counts["found_by_annotator"] += len(annotator)
+            counts["found_by_model"] += len(model)
+            counts["found_by_judge"] += len(judge)
+            counts["found_by_both"] += len(annotator & model)
+            counts["found_by_either"] += len(annotator | model)
+            counts["found_by_neither"] += len(truth - (annotator | model))
+            counts["found_by_none_of_three"] += len(truth - (annotator | model | judge))
+            counts["wrong_in_both"] += len(
+                {tuple(i) for i in att["annotator"]["spurious"]} & {tuple(i) for i in att["model"]["spurious"]}
+            )
+        keys = ("truth_references", "found_by_annotator", "found_by_model", "found_by_judge", "found_by_both",
+                "found_by_either", "found_by_neither", "found_by_none_of_three", "wrong_in_both")
+        return {
+            "documents": documents,
+            "documents_without_both_sources": skipped,
+            **{key: counts[key] for key in keys},
+            "union_recall": counts["found_by_either"] / counts["truth_references"] if counts["truth_references"] else None,
+        }
+
+    return {
+        "all_finalized": block(records),
+        "revise": block([row for row in records if row.get("action") == "revise"]),
+        # Decisions carried from an earlier loop chose among that loop's lists
+        # (R01: its "accept_model" took the earlier model), so the figures that
+        # describe this loop's sources leave them out.
+        "new_decisions": block([row for row in records if not row.get("carried")]),
+        "carried_documents": sum(1 for row in records if row.get("carried") and row.get("status") == "finalized"),
+    }
+
+
 def documents_with_finalized_truth(
     records: Iterable[Mapping[str, Any]],
 ) -> list[Mapping[str, Any]]:
@@ -516,6 +578,10 @@ def expert_workload(records: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     action_counts = {action: 0 for action in EXPERT_ACTIONS}
     deferred_count = 0
     decision_seconds: list[float] = []
+    # A decision carried from an earlier loop (R01: 23 from the fıkra/bent loop)
+    # was timed on that loop's screen; the new-decision figures leave it out.
+    new_decision_seconds: list[float] = []
+    carried_decisions = 0
     revise_count = 0
     edit_distances: list[int] = []
     closest_candidate_counts = {"annotator": 0, "model": 0}
@@ -574,6 +640,10 @@ def expert_workload(records: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
 
         if record.get("seconds_on_page") is not None:
             decision_seconds.append(float(record["seconds_on_page"]))
+            if not record.get("carried"):
+                new_decision_seconds.append(float(record["seconds_on_page"]))
+        if record.get("carried") and status == "finalized":
+            carried_decisions += 1
 
         if action == "revise":
             revise_count += 1
@@ -597,6 +667,14 @@ def expert_workload(records: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         "action_distribution": {**action_counts, "total": sum(action_counts.values())},
         "deferred_count": deferred_count,
         "seconds_to_decision_sample_count": len(decision_seconds),
+        "carried_decision_count": carried_decisions,
+        "seconds_to_decision_new_p50": (
+            round(_percentile(sorted(new_decision_seconds), 50), 4) if new_decision_seconds else None
+        ),
+        "seconds_to_decision_new_p95": (
+            round(_percentile(sorted(new_decision_seconds), 95), 4) if new_decision_seconds else None
+        ),
+        "expert_seconds_new_total": round(sum(new_decision_seconds), 1) if new_decision_seconds else None,
         "expert_seconds_total": round(sum(decision_seconds), 1) if decision_seconds else None,
         "seconds_to_decision_p50": (
             round(_percentile(sorted_seconds, 50), 4) if sorted_seconds else None

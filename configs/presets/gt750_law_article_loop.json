@@ -27,9 +27,14 @@
   "loop": {
     "split_path": "../../data/ground_truth/gt_v8_gt750_law_article_2026-10-02/SPLIT.json",
     "expected_documents": 750,
-    "sizes": {"train": 500, "valid": 50, "test": 200},
+    "sizes": {
+      "train": 500,
+      "valid": 50,
+      "test": 200
+    },
     "gt_manifest_sha256": "c8bfee936de67aeb4b1be461196d77ed26cd36ef0941b200e3b69f2a9ca7fa03",
     "split_sha256": "51d85483e8bcd4634a2474d8ee6a5747daccff3c68e97850867f96df811c42aa",
-    "prompt_variant": "law-article-p4-combined"
+    "prompt_variant": "law-article-p4-combined",
+    "window_training_memory_mode": "recurrence"
   }
 }

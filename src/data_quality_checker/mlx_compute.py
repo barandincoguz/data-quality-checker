@@ -326,6 +326,7 @@ def _training_request(
     target_updates: int,
     resume_checkpoint: Path | None = None,
     view_mode: str = "windows",
+    memory_mode: str | None = None,
 ) -> dict[str, Any]:
     memory = (
         {
@@ -334,7 +335,7 @@ def _training_request(
             "compile_gradient_step": False,
         }
         if view_mode == "full_documents"
-        else {}
+        else ({"memory_mode": memory_mode} if memory_mode else {})
     )
     training = StatefulTrainingConfig(
         warmup_updates=1,
@@ -442,6 +443,7 @@ def run_compute_acceptance_preflight(
         training_view_rows: list[dict[str, Any]] | None = None
         training_view_dataset: NoThinkChatDataset | None = None
         view_mode = str(run_config.get("training_view_mode", "windows"))
+        training_memory_mode = run_config.get("training_memory_mode")
         training_candidates = training_sequence_candidates(
             view_mode,
             longest_train_tokens=int(tokenizer_info["summary"]["split_maximum_tokens"]["train"]),
@@ -480,6 +482,7 @@ def run_compute_acceptance_preflight(
                     stage=f"training_memory_smoke_{candidate}",
                     request=_training_request(
                         view_mode=view_mode,
+                        memory_mode=training_memory_mode,
                         model_path=model_path,
                         train_path=probe_path,
                         checkpoint_root=compute_root
@@ -620,6 +623,7 @@ def run_compute_acceptance_preflight(
             stage="resume_uninterrupted",
             request=_training_request(
                 view_mode=view_mode,
+                memory_mode=training_memory_mode,
                 model_path=model_path,
                 train_path=resume_path,
                 checkpoint_root=compute_root / "checkpoints" / "uninterrupted",
@@ -634,6 +638,7 @@ def run_compute_acceptance_preflight(
             stage="resume_interrupted",
             request=_training_request(
                 view_mode=view_mode,
+                memory_mode=training_memory_mode,
                 model_path=model_path,
                 train_path=resume_path,
                 checkpoint_root=compute_root / "checkpoints" / "resumed",
@@ -648,6 +653,7 @@ def run_compute_acceptance_preflight(
             stage="resume_restored",
             request=_training_request(
                 view_mode=view_mode,
+                memory_mode=training_memory_mode,
                 model_path=model_path,
                 train_path=resume_path,
                 checkpoint_root=compute_root / "checkpoints" / "resumed",

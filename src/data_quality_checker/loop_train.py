@@ -131,6 +131,7 @@ def _write_round_scaffolding(
     split_policy: str = LOOP_SPLIT_POLICY,
     view_mode: str = "windows",
     recurrence: str | None = None,
+    memory_mode: str = "stock",
     label_source: str = "clean",
     article_ranges: str | None = None,
 ) -> tuple[Path, Path]:
@@ -172,6 +173,7 @@ def _write_round_scaffolding(
         "recovery": {"long_run_allowed": False},
         "training_view_mode": view_mode,
         **({"recurrence": recurrence} if recurrence else {}),
+        **({"training_memory_mode": memory_mode} if memory_mode != "stock" else {}),
         **({"label_source": label_source} if label_source != "clean" else {}),
         **({"article_ranges": article_ranges} if article_ranges else {}),
     }
@@ -318,6 +320,17 @@ def train_round(
     }
     view_mode = training_view_mode(config, view)
     recurrence: str | None = None
+    memory_mode = "stock"
+    if cleaned_batch_ids and view_mode == "windows":
+        memory_mode = str(config.raw.get("loop", {}).get("window_training_memory_mode", "stock"))
+        if memory_mode not in {"stock", "recurrence"}:
+            raise ContractError(f"unknown window training memory mode: {memory_mode!r}")
+        if memory_mode == "recurrence":
+            from .mlx_memory import RECURRENCE_ID
+
+            recurrence = RECURRENCE_ID
+            fingerprint_payload["training_memory_mode"] = memory_mode
+            fingerprint_payload["recurrence"] = recurrence
     if view_mode != "windows":
         # A different view is a different run: it must never resume into the
         # windowed run's directory (absent for "windows", so those ids stand).
@@ -387,6 +400,7 @@ def train_round(
         split_policy=split_policy,
         view_mode=view_mode,
         recurrence=recurrence,
+        memory_mode=memory_mode,
         label_source=labels,
         article_ranges="expanded_v1" if cleaned_batch_ids else None,
     )

@@ -171,6 +171,7 @@ def _candidate_training_config(
     schedule_total_updates: int | None = None,
     warmup_updates_override: int | None = None,
     training_view_mode: str = "windows",
+    training_memory_mode: str | None = None,
 ) -> StatefulTrainingConfig:
     contract = TrainingContract()
     # Whole documents: the chunked memory path (`mlx_memory`) and finer padding
@@ -185,7 +186,7 @@ def _candidate_training_config(
             "compile_gradient_step": False,
         }
         if whole
-        else {}
+        else ({"memory_mode": training_memory_mode} if training_memory_mode else {})
     )
     # The first development trajectory consumes every balanced training-view
     # row once. More epochs require a new reviewed trajectory after validation;
@@ -316,6 +317,7 @@ def _candidate_contract(
         schedule_total_updates=PILOT_SCHEDULE_OVERRIDES.get(candidate_id),
         warmup_updates_override=PILOT_WARMUP_OVERRIDES.get(candidate_id),
         training_view_mode=str(run_config.get("training_view_mode", "windows")),
+        training_memory_mode=run_config.get("training_memory_mode"),
     )
     trajectory = asdict(training)
     trajectory["sequence_length_buckets"] = list(training.sequence_length_buckets)

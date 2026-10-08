@@ -78,7 +78,9 @@ class StatefulTrainingConfig:
     sequence_length_buckets: tuple[int, ...] = (1024, 2048, 4096, 8192, 10241)
     checkpoint_every_updates: int = 25
     checkpoint_max_seconds: int = 600
-    # "stock": mlx_lm's training path as it is. "chunked": whole-document
+    # "recurrence": stock loss/padding/compile with block-parallel recurrence
+    # and no free-buffer cache. "stock": mlx_lm's training path as it is.
+    # "chunked": whole-document
     # training -- chunked checkpointed linear-attention recurrence, chunked
     # vocabulary loss, Metal cache released (`mlx_memory`). Same arithmetic.
     memory_mode: str = "stock"
@@ -243,9 +245,9 @@ class StatefulMlxTrainer:
             self.lora_parameters,
             use_dora=False,
         )
-        if self.config.memory_mode not in {"stock", "chunked"}:
+        if self.config.memory_mode not in {"stock", "chunked", "recurrence"}:
             raise ContractError(f"unknown memory_mode {self.config.memory_mode!r}")
-        if self.config.memory_mode == "chunked":
+        if self.config.memory_mode in {"chunked", "recurrence"}:
             from .mlx_memory import install_chunked_recurrence, metal_cache_limit
 
             install_chunked_recurrence()

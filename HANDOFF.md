@@ -1,19 +1,20 @@
 # Devir — DQ-Loop
 
-> **8 Ekim 2026, 20:10 — R01 YAYINLANDI; M001 @75'TEN DEVAM İÇİN BELLEK BEKLİYOR.**
+> **8 Ekim 2026 — M001 DÜŞÜK BELLEKLİ YOLDA @75'TEN DEVAM EDİYOR; YENİ CHECKPOINT 100 GEÇTİ.**
 > - Güncel protokol ve komutlar `AGENTS.md`; eski numaralı bölümler tarihsel kayıttır.
 > - R01 yayını `release_23061e3c0de900d2`: 134 uzman + 116 uzlaşı, tur aşaması `adjudicated`. Uzman ekranı kullanıcı kararıyla kapalı.
 > - Yayın değişmez. Doğru düzeltmeleri `releases/R01/truth_corrections.json`: kullanıcı “Kuralla düzelt” ve “Önerileri uygula”. Temiz eğitim/hata raporu okur; ham kol okumaz.
 > - Motor ve madde aralığı kuralı ana dalda. M000 ve M001_raw yeni motorla yeniden puanlandı/seçildi; kaynaklar ner deney `sources/` altında. Biten ham kol yeniden eğitilmez.
-> - **M001:** `dqcheck_loop_df9a27694e6a`, 750 eğitim belgesi; dondurulmuş `/Users/student2/dq-run-m001`, etiket `run/m001-2026-10-07`. Bu ağaca dokunma.
-> - M001 14:23'te başladı; checkpoint 75 full-state doğrulandı. Sonraki bölüm stuck oldu; yeniden deneme Metal Insufficient Memory verdi. Trainer/veri/ayar değişmedi.
-> - Gözetmen `gt750-m1-train`; `loop/supervise_m1.sh`, günlük `loop/m1_train.log`. Başlangıç bellek eşiği artık **80 GiB**. Aynı checkpoint/kodla otomatik devam bekler; eski BEKLE satırının belleği güncel ölçüm değildir. `gt750-load` örnekleyicisine dokunma.
+> - **Aktif M001:** `dqcheck_loop_5b860fa57ede`, 750 belge; dondurulmuş `/Users/student2/dq-run-m001-recurrence`, etiket `run/m001-recurrence-2026-10-08` (dfc05e5). Aktif kayıt `loop/rounds/round_001_active_training.json`.
+> - Kullanıcı “Düşük bellekli yola geç, önkayda işle (Önerilen)”; önkayıt eki 5. Eski stock koşu `dqcheck_loop_df9a27694e6a` ve 75 checkpoint'i korunur. Yeni run/contract'ta doğrulanmış kopyalar ve origin SHA var; veri/model/reçete aynı, yalnız bloklu recurrence/cache backend'i değişti.
+> - Native M001 21:51'de 75'ten başladı, yeni checkpoint 100 full-state/finite geçti (tepe yaklaşık 9,81 GiB); doğrulama sürüyor. Eski doğrulama noktaları stock kökenli, sayıları değişmedi. Biten M001_raw yeniden eğitilmez; sonraki temiz/ham kollar aynı backend'de.
+> - Gözetmen `gt750-m1-train`; `loop/supervise_m1.sh`, günlük `loop/m1_train.log`. Yeni backend için başlangıç kapısı **35 GiB**. `gt750-load` örnekleyicisine dokunma. Dondurulmuş kod ağacını değiştirme.
 > - **Sıra:** M001 SUPERVISOR_DONE + tur sealed/model kaydı → Journal kayıt/defterler → R02 tahmini → gizli hakem → uzman ekranı. R02'de eski karar taşıma yapılmaz.
 > - Uzman R02'yi incelerken tam belge ikinci hat ve karşılaştırması; M002_raw ana GPU işine yol vererek arkada. Sonraki tur yayın akışı ve komutlar devir/önkayıtta.
 > - **Açık karar:** dq push. Kamuya açık remote ve test cevap anahtarı nedeniyle kullanıcı açıkça karar vermeden push yok.
 > - Codex çalışma kuralları sadeleştirildi: kısa AGENTS, görevle ilgili kaynak okuma; yerel beceriler `~/.agents/skills/`, eski kopyalar tarama dışı arşivde. Önemli belge/kararı Codex yazar/doğrular; agy birkaç satırlık işte zorunlu değildir.
 > - Canlı durum üreticisi ve --check yayın sonrası duruma uyarlandı (ner `c99969b`). Detaylı deney kaydı: ner `Journal/experiments/dq_loop_gt750/LEDGER.md`, metrics/sources ve ablasyon önkaydı.
-> - Hazır commitler üç depoda main'e alındı; 17 eski dal ve 10 kullanılmayan worktree kaldırıldı. Yalnız aktif dq-run-m001 korundu; koşu etiketleri ve eski dal paketleri saklı. R01 özeti ner `artifacts/2026-10-08_m001-stall-recovery/R01_OZET.md`.
+> - Hazır commitler üç depoda main'e alındı; 17 eski dal ve 10 kullanılmayan worktree kaldırıldı. Eski/yeni M001 kodları rollback için korunuyor; koşu etiketleri ve eski dal paketleri saklı. R01 özeti ner `artifacts/2026-10-08_m001-stall-recovery/R01_OZET.md`.
 
 > **2 Ekim 2026, 12:42 — TEK KARŞILAŞTIRMA MOTORU. Referans listelerini karşılaştıran her şey
 > `src/data_quality_checker/reference_matching.py`** (kullanıcı: "döngü motoru ve değerlendiriciyi farklı iki şey gibi

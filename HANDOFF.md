@@ -1,17 +1,19 @@
 # Devir — DQ-Loop
 
-> **8 Ekim 2026 — R01 YAYINLANDI; M001 BELLEK BEKLİYOR.**
+> **8 Ekim 2026, 20:10 — R01 YAYINLANDI; M001 @75'TEN DEVAM İÇİN BELLEK BEKLİYOR.**
 > - Güncel protokol ve komutlar `AGENTS.md`; eski numaralı bölümler tarihsel kayıttır.
 > - R01 yayını `release_23061e3c0de900d2`: 134 uzman + 116 uzlaşı, tur aşaması `adjudicated`. Uzman ekranı kullanıcı kararıyla kapalı.
 > - Yayın değişmez. Doğru düzeltmeleri `releases/R01/truth_corrections.json`: kullanıcı “Kuralla düzelt” ve “Önerileri uygula”. Temiz eğitim/hata raporu okur; ham kol okumaz.
 > - Motor ve madde aralığı kuralı ana dalda. M000 ve M001_raw yeni motorla yeniden puanlandı/seçildi; kaynaklar ner deney `sources/` altında. Biten ham kol yeniden eğitilmez.
 > - **M001:** `dqcheck_loop_df9a27694e6a`, 750 eğitim belgesi; dondurulmuş `/Users/student2/dq-run-m001`, etiket `run/m001-2026-10-07`. Bu ağaca dokunma.
-> - Gözetmen `gt750-m1-train`; `loop/supervise_m1.sh`, günlük `loop/m1_train.log`. Bellek eşiği 45 GB. Henüz eğitim denemesi/bitişi kaydedilmedi; eski BEKLE satırının belleği güncel ölçüm değildir. `gt750-load` örnekleyicisine dokunma.
+> - M001 14:23'te başladı; checkpoint 75 full-state doğrulandı. Sonraki bölüm stuck oldu; yeniden deneme Metal Insufficient Memory verdi. Trainer/veri/ayar değişmedi.
+> - Gözetmen `gt750-m1-train`; `loop/supervise_m1.sh`, günlük `loop/m1_train.log`. Başlangıç bellek eşiği artık **80 GiB**. Aynı checkpoint/kodla otomatik devam bekler; eski BEKLE satırının belleği güncel ölçüm değildir. `gt750-load` örnekleyicisine dokunma.
 > - **Sıra:** M001 SUPERVISOR_DONE + tur sealed/model kaydı → Journal kayıt/defterler → R02 tahmini → gizli hakem → uzman ekranı. R02'de eski karar taşıma yapılmaz.
 > - Uzman R02'yi incelerken tam belge ikinci hat ve karşılaştırması; M002_raw ana GPU işine yol vererek arkada. Sonraki tur yayın akışı ve komutlar devir/önkayıtta.
 > - **Açık karar:** dq push. Kamuya açık remote ve test cevap anahtarı nedeniyle kullanıcı açıkça karar vermeden push yok.
 > - Codex çalışma kuralları sadeleştirildi: kısa AGENTS, görevle ilgili kaynak okuma; yerel beceriler `~/.agents/skills/`, eski kopyalar tarama dışı arşivde. Önemli belge/kararı Codex yazar/doğrular; agy birkaç satırlık işte zorunlu değildir.
 > - Canlı durum üreticisi ve --check yayın sonrası duruma uyarlandı (ner `c99969b`). Detaylı deney kaydı: ner `Journal/experiments/dq_loop_gt750/LEDGER.md`, metrics/sources ve ablasyon önkaydı.
+> - Hazır commitler üç depoda main'e alındı; 17 eski dal ve 10 kullanılmayan worktree kaldırıldı. Yalnız aktif dq-run-m001 korundu; koşu etiketleri ve eski dal paketleri saklı. R01 özeti ner `artifacts/2026-10-08_m001-stall-recovery/R01_OZET.md`.
 
 > **2 Ekim 2026, 12:42 — TEK KARŞILAŞTIRMA MOTORU. Referans listelerini karşılaştıran her şey
 > `src/data_quality_checker/reference_matching.py`** (kullanıcı: "döngü motoru ve değerlendiriciyi farklı iki şey gibi

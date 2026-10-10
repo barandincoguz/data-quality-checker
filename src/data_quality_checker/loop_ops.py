@@ -281,7 +281,7 @@ def train_loop_candidate(
             # `check_raw_candidate_against_release`.
             if ROUND_STAGES.index(stage) < ROUND_STAGES.index("routed"):
                 raise GateBlocked(f"round {round_index} is at {stage!r}; the raw arm needs it routed")
-        elif stage != "adjudicated":
+        elif ROUND_STAGES.index(stage) < ROUND_STAGES.index("adjudicated"):
             raise GateBlocked(f"round {round_index} is at {stage!r}; run loop-mark --stage adjudicated first")
     mode = training_view_mode(config, view)
     trained = _train_and_select(

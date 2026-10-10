@@ -196,6 +196,19 @@ def test_the_whole_document_line_is_trained_on_the_same_round_and_never_sealed(t
     assert not (tmp_path / "public" / "g0").exists()
 
 
+@pytest.mark.parametrize("stage", ["adjudicated", "trained", "sealed"])
+def test_second_line_can_follow_main_training_without_changing_its_seal(tmp_path, monkeypatch, stage):
+    config = _config(tmp_path)
+    _second_line_fakes(monkeypatch)
+    monkeypatch.setattr(loop_ops, "resume_round", lambda d, k: SimpleNamespace(stage=stage))
+    model = tmp_path / "public/loop/rounds/round_001_model.json"
+    model.parent.mkdir(parents=True, exist_ok=True)
+    model.write_bytes(b"original sealed model record")
+    record = loop_ops.train_loop_candidate(config, round_index=1, resume=True, view="full_documents")
+    assert record["sealed"] is False
+    assert model.read_bytes() == b"original sealed model record"
+
+
 def test_the_training_view_reaches_the_trainer(tmp_path, monkeypatch):
     seen = {}
     monkeypatch.setattr(loop_ops, "validate_loop_sources", lambda c: {"split": {"train": [], "valid": [], "test": []}})

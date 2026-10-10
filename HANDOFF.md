@@ -1,21 +1,15 @@
 # Devir — DQ-Loop
 
-> **8 Ekim 2026 — M001 DÜŞÜK BELLEKLİ YOLDA @75'TEN DEVAM EDİYOR; YENİ CHECKPOINT 100 GEÇTİ.**
-> - Güncel protokol ve komutlar `AGENTS.md`; eski numaralı bölümler tarihsel kayıttır.
-> - R01 yayını `release_23061e3c0de900d2`: 134 uzman + 116 uzlaşı, tur aşaması `adjudicated`. Uzman ekranı kullanıcı kararıyla kapalı.
-> - Yayın değişmez. Doğru düzeltmeleri `releases/R01/truth_corrections.json`: kullanıcı “Kuralla düzelt” ve “Önerileri uygula”. Temiz eğitim/hata raporu okur; ham kol okumaz.
-> - Motor ve madde aralığı kuralı ana dalda. M000 ve M001_raw yeni motorla yeniden puanlandı/seçildi; kaynaklar ner deney `sources/` altında. Biten ham kol yeniden eğitilmez.
-> - **Aktif M001:** `dqcheck_loop_5b860fa57ede`, 750 belge; dondurulmuş `/Users/student2/dq-run-m001-recurrence`, etiket `run/m001-recurrence-2026-10-08` (dfc05e5). Aktif kayıt `loop/rounds/round_001_active_training.json`.
-> - Kullanıcı “Düşük bellekli yola geç, önkayda işle (Önerilen)”; önkayıt eki 5. Eski stock koşu `dqcheck_loop_df9a27694e6a` ve 75 checkpoint'i korunur. Yeni run/contract'ta doğrulanmış kopyalar ve origin SHA var; veri/model/reçete aynı, yalnız bloklu recurrence/cache backend'i değişti.
-> - Native M001 21:51'de 75'ten başladı, yeni checkpoint 100 full-state/finite geçti (eğitim tepe yaklaşık 9,81 GiB); doğrulama 100 tamamlandı (kapsam/parse 50, eligible), 125 hedefli eğitim sürüyor. Eski doğrulama noktaları stock kökenli, sayıları değişmedi. Biten M001_raw yeniden eğitilmez; sonraki temiz/ham kollar aynı backend'de.
-> - Gözetmen `gt750-m1-train`; `loop/supervise_m1.sh`, günlük `loop/m1_train.log`. Yeni backend için başlangıç kapısı **35 GiB**. `gt750-load` örnekleyicisine dokunma. Dondurulmuş kod ağacını değiştirme.
-> - Kullanıcı isteğiyle 30 dakikalık sohbet raporu: tmux `gt750-m1-reports`; ner `scripts/dq_loop_report_timer.py` mevcut sohbete `codex queue` gönderir. Durum `artifacts/2026-10-08_m001-progress-monitor/timer_state.json`; aynı klasörde `STOP_REPORTS` yalnız raporu durdurur. Bilgisayar/Codex sunucusu açık olmalı; sohbet meşgulse rapor kuyrukta bekler.
-> - **Sıra:** M001 SUPERVISOR_DONE + tur sealed/model kaydı → Journal kayıt/defterler → R02 tahmini → gizli hakem → uzman ekranı. R02'de eski karar taşıma yapılmaz.
-> - Uzman R02'yi incelerken tam belge ikinci hat ve karşılaştırması; M002_raw ana GPU işine yol vererek arkada. Sonraki tur yayın akışı ve komutlar devir/önkayıtta.
-> - **Açık karar:** dq push. Kamuya açık remote ve test cevap anahtarı nedeniyle kullanıcı açıkça karar vermeden push yok.
-> - Codex çalışma kuralları sadeleştirildi: kısa AGENTS, görevle ilgili kaynak okuma; yerel beceriler `~/.agents/skills/`, eski kopyalar tarama dışı arşivde. Önemli belge/kararı Codex yazar/doğrular; agy birkaç satırlık işte zorunlu değildir.
-> - Canlı durum üreticisi ve --check yayın sonrası duruma uyarlandı (ner `c99969b`). Detaylı deney kaydı: ner `Journal/experiments/dq_loop_gt750/LEDGER.md`, metrics/sources ve ablasyon önkaydı.
-> - Hazır commitler üç depoda main'e alındı; 17 eski dal ve 10 kullanılmayan worktree kaldırıldı. Eski/yeni M001 kodları rollback için korunuyor; koşu etiketleri ve eski dal paketleri saklı. R01 özeti ner `artifacts/2026-10-08_m001-stall-recovery/R01_OZET.md`.
+> **10 Ekim 2026 — M001 TAMAMLANDI/MÜHÜRLENDİ; R02 OTONOM DEVAM ZİNCİRİ ETKİN.**
+> - Protokol ve komutlar AGENTS.md; eski kutular tarihsel kayıttır.
+> - M001 dqcheck_loop_5b860fa57ede: 9 Ekim 19:26 bitti, 1386 adım/750 belge. Seçilen @1225: F1 %94,23; P %93,31; R %95,18 (aynı GT v8/P4/optimal doğrulama). Registry/adapter SHA ve full-state checkpoint doğrulandı; test kapalı.
+> - M000 güncel motor @550 F1 %94,29; M001_raw @300 F1 %93,41. Eski in-run CSV koordinatı karşılaştırmaya karıştırılmaz. Biten M001_raw stock olarak korunur; sonraki iki pencereli kol recurrence backend'inde (önkayıt eki 5).
+> - **Aktif devam:** tmux gt750-r02-continue; ner scripts/dq_loop_continue.py. State/log/başlatma: ner artifacts/2026-10-10_r02-continuation/. İlk aşama r02_predict çalışıyor; kaynak state.json. Bellek değerini canlı vm_stat ile doğrula. Ana GPU kapısı 45 GiB; sonraki M002_raw recurrence 35 GiB ve PAUSE_RAW_ARM/STOP_RAW_ARM.
+> - Sıra: R02 tahmin → gizli hakem → R02/M001 uzman ekranı → M001 tam belge ikinci hat/karşılaştırma → M002_raw → kayıtlar. Ekran gt750-r02-serve, port 5056; başlangıçta review SHA önce/sonra aynı olmalı. R02'de eski karar taşıma yok.
+> - Kullanıcı otonom devamı yetkilendirdi; sözünün tamamı ner deney LEDGER son girdisi ve sources/m001_completion_2026-10-10.json içinde. Controller 30 dakikalık kısa rapor ve aşama/bitiş bildirimini aynı sohbete kuyruğa koyar. STOP_CONTINUATION yalnız bu controller ve kendi child grubunu durdurur; mevcut uzman ekranına dokunmaz.
+> - Devamın dondurulmuş kodu /Users/student2/dq-run-r02-continuation; tag run/r02-continuation-2026-10-10, commit d9ee62e. Yalnız ikinci hat için post-adjudication stage kapısı düzeltildi; reçete/veri aynı. İlgili 53 test ve controller 8 CPU güvenlik kontrolü geçti. Çalışan frozen ağaca dokunma.
+> - R01 yayını release_23061e3c0de900d2 (134 uzman + 116 uzlaşı) değişmez; ayrı truth_corrections kullanıcı kararlarını taşır. R01 uzman ekranı kapalı. R02 yayın/temiz M002 uzman kararlarından sonra; test R05 ve açık kullanıcı kararı olmadan açılmaz. Makale hata adayları kullanıcı kararıdır; dq push yok.
+> - gt750-load örnekleyicisine ve diğer kullanıcıların süreçlerine dokunma. M001 eski/yeni kaynak etiketleri ve checkpoint'leri korunuyor. Güncel kayıtlar ner Journal/experiments/dq_loop_gt750/ altındadır.
 
 > **2 Ekim 2026, 12:42 — TEK KARŞILAŞTIRMA MOTORU. Referans listelerini karşılaştıran her şey
 > `src/data_quality_checker/reference_matching.py`** (kullanıcı: "döngü motoru ve değerlendiriciyi farklı iki şey gibi

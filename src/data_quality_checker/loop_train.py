@@ -62,6 +62,7 @@ from .g0_training import (
 from .loop_sources import has_loop_settings, loop_split_policy, validate_loop_sources
 from .loop_training import (
     RAW_PLACEMENT_RULE,
+    _released_rows,
     compose_round_training_ids,
     gold_training_references,
     round_raw_training_documents,
@@ -267,8 +268,8 @@ def train_round(
     cleaned_batches: list[list[str]] = []
     # Canonical documents keep their integer id: that is what the ground-truth
     # directory and the evaluator resolve, and what G0's own training data
-    # used. Round-cleaned documents keep their own `d000001`-shaped id, so the
-    # two kinds stay distinguishable without decorating either.
+    # used. Round documents use strings, scoped by batch when several batches
+    # are composed; historical single-batch identities remain unchanged.
     documents: dict[int | str, dict[str, Any]] = {
         doc_id: {
             "text": payload["text"],
@@ -288,6 +289,9 @@ def train_round(
         raw_documents, raw_label_audit = round_raw_training_documents(
             config, batch_ids=list(cleaned_batch_ids)
         )
+    elif cleaned_batch_ids:
+        clean_documents = round_training_documents(config, batch_ids=list(cleaned_batch_ids))
+        released_rows = _released_rows(config, list(cleaned_batch_ids))
     for batch_id in cleaned_batch_ids:
         if raw_label_audit is not None:
             # The release's documents once it exists, the whole batch before it
@@ -296,7 +300,10 @@ def train_round(
                 doc_id: raw_documents[doc_id] for doc_id in raw_label_audit["documents_by_batch"][batch_id]
             }
         else:
-            batch_documents = round_training_documents(config, batch_ids=[batch_id])
+            batch_documents = {
+                doc_id: clean_documents[doc_id] for doc_id, row in released_rows.items()
+                if row["batch_id"] == batch_id
+            }
         cleaned_batches.append(list(batch_documents))
         documents.update(batch_documents)
 

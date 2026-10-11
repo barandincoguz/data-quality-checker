@@ -31,10 +31,9 @@ def compose_round_training_ids(
     own training data, because that is the identity the ground-truth directory
     resolves (`doc_<id>.json`) and the identity the evaluator matches a
     prediction against. A document cleaned by a DQ-Loop round is a string like
-    `d000001`. The two can never be confused, so the type itself records where
-    a training document came from -- no decorated key is needed, and none is
-    used, because a decorated key would stop the evaluator finding the
-    document's ground truth.
+    `d000001`. Multiple batches use a serialized [batch_id, internal_doc_id]
+    pair instead, because those internal IDs are local to each batch. Canonical
+    IDs are never decorated: the evaluator resolves their integer identity.
 
     A cleaned document whose id reads as a bare integer is refused for exactly
     that reason: it would be indistinguishable from canonical document `id`.
@@ -117,6 +116,11 @@ def sealed_release_dir(config: Any, batch_id: str) -> Path:
     return sealed[0]
 
 
+def training_document_id(batch_id: str, doc_id: str, batch_ids: Sequence[str]) -> str:
+    """Preserve historical single-batch IDs; scope multi-batch training IDs."""
+    return json.dumps([batch_id, doc_id], ensure_ascii=False, separators=(",", ":")) if len(batch_ids) > 1 else doc_id
+
+
 def _released_rows(config: Any, batch_ids: Sequence[str]) -> dict[str, dict[str, Any]]:
     """Every training document of these batches' sealed releases, checked.
 
@@ -126,6 +130,7 @@ def _released_rows(config: Any, batch_ids: Sequence[str]) -> dict[str, dict[str,
     the same documents.
     """
     documents: dict[str, dict[str, Any]] = {}
+    source_documents: set[tuple[str, str]] = set()
     for batch_id in batch_ids:
         directory = sealed_release_dir(config, batch_id)
         found = False
@@ -153,12 +158,20 @@ def _released_rows(config: Any, batch_ids: Sequence[str]) -> dict[str, dict[str,
                     raise ContractError(f"{path}:{line_number} ({doc_id}) has no text")
                 if not isinstance(references, list):
                     raise ContractError(f"{path}:{line_number} ({doc_id}) has no references list")
-                if doc_id in documents:
+                training_id = training_document_id(batch_id, doc_id, batch_ids)
+                if training_id in documents:
                     raise ContractError(
                         f"document {doc_id!r} is duplicated while assembling "
                         f"batch {batch_id!r}'s release"
                     )
-                documents[doc_id] = {"batch_id": batch_id, "tier": name, "text": text, "references": references}
+                raw_id = row.get("raw_document_id")
+                source_id = ("raw", raw_id) if isinstance(raw_id, str) and raw_id else ("legacy", doc_id)
+                if source_id in source_documents:
+                    raise ContractError(f"source document is duplicated while assembling batch {batch_id!r}")
+                source_documents.add(source_id)
+                documents[training_id] = {"batch_id": batch_id, "internal_doc_id": doc_id,
+                                          "raw_document_id": raw_id, "tier": name,
+                                          "text": text, "references": references}
                 batch_document_count += 1
         if not found:
             raise ContractError(f"no release found for batch {batch_id!r} under {directory}")
@@ -207,7 +220,7 @@ def round_training_documents(config: Any, *, batch_ids: Sequence[str]) -> dict[s
     for doc_id, row in _released_rows(config, batch_ids).items():
         if not all(isinstance(reference, dict) for reference in row["references"]):
             raise ContractError(f"released document {doc_id!r} has a reference that is not an object")
-        released = apply_corrections(row["references"], corrections[row["batch_id"]].get(doc_id, []))
+        released = apply_corrections(row["references"], corrections[row["batch_id"]].get(row["internal_doc_id"], []))
         # An article range is every article in it (7 Oct 2026).
         references = _without_range_marks(expand_ranges(released))
         documents[doc_id] = {
@@ -249,14 +262,14 @@ def _annotator_lists(database_path: Path, batch_id: str) -> dict[str, dict[str, 
     connection = sqlite3.connect(f"{database_path.resolve().as_uri()}?mode=ro", uri=True)
     try:
         rows = connection.execute(
-            "SELECT internal_doc_id, text, human_references_json FROM documents WHERE batch_id = ?",
+            "SELECT internal_doc_id, text, human_references_json, raw_document_id FROM documents WHERE batch_id = ?",
             (batch_id,),
         ).fetchall()
     finally:
         connection.close()
     return {
-        doc_id: {"text": text, "references": json.loads(references_json)}
-        for doc_id, text, references_json in rows
+        doc_id: {"text": text, "references": json.loads(references_json), "raw_document_id": raw_id}
+        for doc_id, text, references_json, raw_id in rows
     }
 
 
@@ -322,6 +335,8 @@ def round_raw_training_documents(
     batch_of: dict[str, str] = {}
     documents_from: dict[str, str] = {}
     prepared_texts: dict[str, dict[str, Any]] = {}
+    source_documents: set[str] = set()
+    source_mapping: dict[str, dict[str, str]] = {}
     for batch_id in batch_ids:
         annotator = _annotator_lists(Path(config.database_path), batch_id)
         if _has_sealed_release(config, batch_id):
@@ -335,6 +350,8 @@ def round_raw_training_documents(
                     raise ContractError(
                         f"released document {doc_id!r} differs from the text prepared in batch {batch_id!r}"
                     )
+                if row["raw_document_id"] and row["raw_document_id"] != prepared["raw_document_id"]:
+                    raise ContractError(f"released source document {doc_id!r} differs from batch {batch_id!r}")
             ids = sorted(_released_rows(config, [batch_id]))
             documents_from[batch_id] = "release"
         else:
@@ -345,12 +362,19 @@ def round_raw_training_documents(
                 )
             documents_from[batch_id] = "batch"
         for doc_id in ids:
-            if doc_id in batch_of:
+            training_id = training_document_id(batch_id, doc_id, batch_ids)
+            if training_id in batch_of:
                 raise ContractError(
-                    f"document {doc_id!r} is in batch {batch_of[doc_id]!r} and batch {batch_id!r}"
+                    f"document {doc_id!r} is repeated in batch {batch_id!r}"
                 )
-            batch_of[doc_id] = batch_id
-            prepared_texts[doc_id] = annotator[doc_id]
+            raw_id = annotator[doc_id]["raw_document_id"]
+            if raw_id in source_documents:
+                raise ContractError(f"source document is duplicated while assembling batch {batch_id!r}")
+            source_documents.add(raw_id)
+            batch_of[training_id] = batch_id
+            prepared_texts[training_id] = annotator[doc_id]
+            source_mapping[training_id] = {"batch_id": batch_id, "internal_doc_id": doc_id,
+                                            "raw_document_id": raw_id}
     quotes: dict[str, list[list[str]]] = {}
     written: dict[str, int] = {}
     unplaced: dict[str, dict[str, Any]] = {}
@@ -423,4 +447,6 @@ def round_raw_training_documents(
         },
         "dropped": dropped,
     }
+    if len(batch_ids) > 1:
+        audit["source_documents"] = source_mapping
     return documents, audit

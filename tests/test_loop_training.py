@@ -187,7 +187,7 @@ def test_reads_several_rounds(tmp_path: Path) -> None:
         consensus=[],
     )
     documents = round_training_documents(_Cfg(tmp_path), batch_ids=["round1", "round2"])
-    assert set(documents) == {"d1", "d2"}
+    assert set(documents) == {'["round1","d1"]', '["round2","d2"]'}
 
 
 def test_a_missing_release_is_rejected(tmp_path: Path) -> None:

@@ -11,7 +11,7 @@ Tur/eğitim işinde HANDOFF yalnız üst kutu, ner deney LEDGER son girdileri ve
 - Yayın/dondurulmuş koşu değişmez. Doğru düzeltmesi kuru kontrol, sonra kullanıcı sözünü taşıyan ayrı kayıt. Yerleşmeyen satırı sessizce düşürme/yayını değiştirme; önerinle kullanıcıya bildir. Hata adayları makaleye kullanıcı kararıyla girer.
 - Ekran restart/kapatmada review satırlarının önce/sonra SHA256'sı aynı olmalı; kapatma kullanıcı kararıdır. R01'e özel eski karar taşıma R02'de yapılmaz.
 - Gözetmenin bellek/pause politikasını aşma; ham kol ana GPU hattına yol verir. Diğer kullanıcıların süreçlerine müdahale etme. Bitiş için günlük, mühür/aşama ve çıktı doğrulanır; bellek dışı hatada sessiz restart yapma.
-- Kamuya açık dq remote'una kullanıcı açıkça karar vermeden push yapma: dal test cevap anahtarını içerir.
+- Kamuya açık dq push için kullanıcı kararı gerekir; kapalı GT v6–v9, data/sensitive/, anahtarlar ve orijinal frozen tag/ref geçmişi gönderilmez. Tam bilimsel geçmiş özel NER arşivinde ve yerel frozen ağaçlarda korunur.
 
 ## Çalıştırma
 

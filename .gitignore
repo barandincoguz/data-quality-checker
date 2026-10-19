@@ -78,3 +78,9 @@ artifacts/
 evaluator.log
 worker.log
 trainer.log
+
+# Closed DQ-Loop ground truth stays local or in the private research archive.
+data/ground_truth/gt_v6_gt750_2026-09-24/
+data/ground_truth/gt_v7_gt750_law_article_2026-10-01/
+data/ground_truth/gt_v8_gt750_law_article_2026-10-02/
+data/ground_truth/gt_v9_gt750_law_article_2026-10-03/

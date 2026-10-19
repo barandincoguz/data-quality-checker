@@ -1,6 +1,7 @@
 # Devir — DQ-Loop
 
 > **16 Ekim 2026 — CLAUDE'A DEVİR. BAĞIMSIZ İŞLER TAMAM; R02 UZMAN REVIEW'I BEKLİYOR.**
+> - **19 Ekim GitHub eşitlemesi:** kamuya açık main geçmişinde kapalı GT dosyaları çıkarıldı; orijinal bilimsel commit/tag geçmişi ve yerel çalışma kayıtları özel barandincoguz/Named_Entity_Recognition deposunun work-record-archives/2026-10-19/ klasöründe korunur. Kod dosyaları aynı; çalışma kayıtları için kökte WORK_RECORDS.md. Eski frozen hash'ler kamuya açık yeniden yazılmış commitlerden farklıdır; eşleme docs/work-records/2026-10-19-commit-map.json içinde. Deney/test/uzman kararları değiştirilmedi.
 > **Önce oku / kaynaklar**
 > - Bu üst kutu güncel özettir; aşağıdaki eski kutular ve ~/SESSION_HANDOFF_2026-10-08.md tarihsel kayıttır. Yeni giriş: ~/SESSION_HANDOFF_2026-10-16.md. Önce hedef deponun AGENTS.md'si, ner Journal/experiments/dq_loop_gt750/LEDGER.md son girdileri ve ablation_noisy_vs_clean/preregistration.json (özellikle ek 5) okunur. Genel arşivleri bağlama doldurma.
 > - Kökler: dq /Users/student2/data-quality-checker; ner /Users/student2/ner-project; AnnotationPlatform ayrı depo. Aktif tek config configs/presets/gt750_law_article_loop.json; GT v8, P4, sabit 500 train / 50 valid / 200 test. Paylaşımlı Python /opt/llm-lab/.venv/bin/python; kişisel venv/pip kurulumu yok.

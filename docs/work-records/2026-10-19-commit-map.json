@@ -1,0 +1,814 @@
+{
+  "public_base": "da1812530e01ee7fdd355a7032c48c4218d2315e",
+  "original_head": "f682a22943036f9796a42750b5498ca0e87310f3",
+  "filtered_head": "70957cd9fec6c3f258de14b99a3cb8cbf23d0d2e",
+  "preserved_commits": 160,
+  "excluded_paths": [
+    "data/ground_truth/gt_v6_gt750_2026-09-24",
+    "data/ground_truth/gt_v7_gt750_law_article_2026-10-01",
+    "data/ground_truth/gt_v8_gt750_law_article_2026-10-02",
+    "data/ground_truth/gt_v9_gt750_law_article_2026-10-03"
+  ],
+  "mapping": [
+    {
+      "original_private_history": "a863a7c5a54e16ed53ad1775fb63d8c6670e4de3",
+      "public_history": "a863a7c5a54e16ed53ad1775fb63d8c6670e4de3",
+      "subject": "docs(plan): remove source_text from decisions and train the real M0 baseline"
+    },
+    {
+      "original_private_history": "0f77a9cb513d1d230062a7fd43a51048c238494d",
+      "public_history": "0f77a9cb513d1d230062a7fd43a51048c238494d",
+      "subject": "fix(router): source_text no longer decides GREEN vs YELLOW"
+    },
+    {
+      "original_private_history": "43a762755dc329950b4040db5d2b9dfdb1382193",
+      "public_history": "43a762755dc329950b4040db5d2b9dfdb1382193",
+      "subject": "fix(g0): source_text leaves the model's field list and target"
+    },
+    {
+      "original_private_history": "55b8655c51b350c10926840ce9ff30454d7169f7",
+      "public_history": "55b8655c51b350c10926840ce9ff30454d7169f7",
+      "subject": "fix(judges): final_references no longer require verbatim source_text"
+    },
+    {
+      "original_private_history": "a920b9bfd5342e5f7e7ba259a7e56d35cd4e9095",
+      "public_history": "a920b9bfd5342e5f7e7ba259a7e56d35cd4e9095",
+      "subject": "fix(hitl): the expert may summarise the supporting passage"
+    },
+    {
+      "original_private_history": "cd492ecdfd4aa8b95f25985513e11817a1d18191",
+      "public_history": "cd492ecdfd4aa8b95f25985513e11817a1d18191",
+      "subject": "feat(loop): seal the loop split as a fingerprinted manifest"
+    },
+    {
+      "original_private_history": "738e4cb4cd9c45843bf0b2ba332e7d008937c245",
+      "public_history": "738e4cb4cd9c45843bf0b2ba332e7d008937c245",
+      "subject": "feat(loop): let a round's training reach the compute path"
+    },
+    {
+      "original_private_history": "1471b0043c2235d463e74263e32ad7946ef90707",
+      "public_history": "1471b0043c2235d463e74263e32ad7946ef90707",
+      "subject": "fix(loop): build the windowed view before the trainer asks for it"
+    },
+    {
+      "original_private_history": "91f4ae3cc8fcc571ce20def8f27993903530af91",
+      "public_history": "91f4ae3cc8fcc571ce20def8f27993903530af91",
+      "subject": "feat(loop): make a round trainable, with the document's own identity"
+    },
+    {
+      "original_private_history": "767f6bddfea8d0976170400268fe0a44df2be1c7",
+      "public_history": "767f6bddfea8d0976170400268fe0a44df2be1c7",
+      "subject": "fix(cli): let a round name its own model on the command line"
+    },
+    {
+      "original_private_history": "e935a90eb5dfab916f597082b251baa290be97ff",
+      "public_history": "e935a90eb5dfab916f597082b251baa290be97ff",
+      "subject": "fix(processing): stop a tuple loop instead of paying for it, and salvage it"
+    },
+    {
+      "original_private_history": "f2bb4e3da242466dc2e0fba1c2977e6bf39ee241",
+      "public_history": "f2bb4e3da242466dc2e0fba1c2977e6bf39ee241",
+      "subject": "fix(normalization): absorb a bare article into its own paragraph"
+    },
+    {
+      "original_private_history": "fb3e9f9b7232a85c4220f89023a565150c540f0a",
+      "public_history": "fb3e9f9b7232a85c4220f89023a565150c540f0a",
+      "subject": "fix(hitl): the expert decides; the pipeline stops refusing their references"
+    },
+    {
+      "original_private_history": "3ea1f5a39923d56f9cec4aba66e6197ae8d97a25",
+      "public_history": "3ea1f5a39923d56f9cec4aba66e6197ae8d97a25",
+      "subject": "fix(judges): a verdict records which predictions it judged"
+    },
+    {
+      "original_private_history": "16fc992025d7e9d822bb6117c879dcd63e4b6c7d",
+      "public_history": "16fc992025d7e9d822bb6117c879dcd63e4b6c7d",
+      "subject": "fix(cli): a loop command will not guess which model it acts on"
+    },
+    {
+      "original_private_history": "110bb7c3786a2cc1c1832086b55f49ff638b814b",
+      "public_history": "110bb7c3786a2cc1c1832086b55f49ff638b814b",
+      "subject": "docs: add a repo-cleanup prompt that defaults to keeping"
+    },
+    {
+      "original_private_history": "11b766d2e49cc8b4e06294671e3509ea9bba4732",
+      "public_history": "11b766d2e49cc8b4e06294671e3509ea9bba4732",
+      "subject": "test: source_text must reach no model surface (failing)"
+    },
+    {
+      "original_private_history": "6b0308a1859e8fa9c06e353a8db32fa1a0be5839",
+      "public_history": "6b0308a1859e8fa9c06e353a8db32fa1a0be5839",
+      "subject": "test: assert the five decision fields literally, not via the constant"
+    },
+    {
+      "original_private_history": "7f501b4441290454d04efaa4bed773795b677dad",
+      "public_history": "7f501b4441290454d04efaa4bed773795b677dad",
+      "subject": "fix(judges): a candidate carries only the five decision fields"
+    },
+    {
+      "original_private_history": "6be2614edb3896ae591b3886dd3314a006528268",
+      "public_history": "6be2614edb3896ae591b3886dd3314a006528268",
+      "subject": "test: make the blinded-candidate assertion actually execute"
+    },
+    {
+      "original_private_history": "9fc17dc95ebaf8978eba3b3ea16fb90edbbd1949",
+      "public_history": "9fc17dc95ebaf8978eba3b3ea16fb90edbbd1949",
+      "subject": "fix(judges): a verdict records the instrument that formed it"
+    },
+    {
+      "original_private_history": "833964f1e39c555aee2a087b0333c02421161989",
+      "public_history": "833964f1e39c555aee2a087b0333c02421161989",
+      "subject": "test: the locked judge refuses a verdict from another instrument"
+    },
+    {
+      "original_private_history": "739326afbb774acb57cb6ccf7549381229fa9ef7",
+      "public_history": "739326afbb774acb57cb6ccf7549381229fa9ef7",
+      "subject": "fix(training-view): size a row on the target the model is served"
+    },
+    {
+      "original_private_history": "ce1b630ff0b5cd7ec7ff67b172353ad4d070a2bc",
+      "public_history": "ce1b630ff0b5cd7ec7ff67b172353ad4d070a2bc",
+      "subject": "test: pick a sequence limit that separates the two sizings"
+    },
+    {
+      "original_private_history": "0ae9461bd333e74288400fbe4b0543fb83c89108",
+      "public_history": "0ae9461bd333e74288400fbe4b0543fb83c89108",
+      "subject": "fix(training-view): a rescued reference is taught on its real window"
+    },
+    {
+      "original_private_history": "5e40b9aacf4de6bf42d657399ba23b1c03e5c8ff",
+      "public_history": "5e40b9aacf4de6bf42d657399ba23b1c03e5c8ff",
+      "subject": "test: prove the rescue window is wider than the span, not just relabelled"
+    },
+    {
+      "original_private_history": "574d552a6796548b9bf0c21e14bf0329402116cc",
+      "public_history": "574d552a6796548b9bf0c21e14bf0329402116cc",
+      "subject": "fix(training-view): dense replay teaches on real document passages"
+    },
+    {
+      "original_private_history": "b044971c76c6bb2e90ac63e92d0525652e2e5b8f",
+      "public_history": "b044971c76c6bb2e90ac63e92d0525652e2e5b8f",
+      "subject": "chore(training-view): re-key the view policy for real-text inputs"
+    },
+    {
+      "original_private_history": "3b82a5102b7acfb078271f8adeefd6d044860a42",
+      "public_history": "3b82a5102b7acfb078271f8adeefd6d044860a42",
+      "subject": "docs: plan for taking source_text off every model surface"
+    },
+    {
+      "original_private_history": "cb195abc56c42f58fecd972489152a82a7721092",
+      "public_history": "cb195abc56c42f58fecd972489152a82a7721092",
+      "subject": "test: cover the pack split and the over-length refusal; correct the counts"
+    },
+    {
+      "original_private_history": "a465a81c212be4e71384f4f93d13045d164cbcec",
+      "public_history": "a465a81c212be4e71384f4f93d13045d164cbcec",
+      "subject": "feat(loop): locate a known reference's span instead of asking the expert"
+    },
+    {
+      "original_private_history": "d5218532574784211032812986d2d7627c2d0ee8",
+      "public_history": "d5218532574784211032812986d2d7627c2d0ee8",
+      "subject": "test: pin that the judge's exam is served blind"
+    },
+    {
+      "original_private_history": "c054834be85f4574e4ee13775bd522f355bd605e",
+      "public_history": "c054834be85f4574e4ee13775bd522f355bd605e",
+      "subject": "fix(judges): one unquotable span no longer discards a whole verdict"
+    },
+    {
+      "original_private_history": "701dd95589d2bb8b4c2540e36f052a3e1c2f2218",
+      "public_history": "701dd95589d2bb8b4c2540e36f052a3e1c2f2218",
+      "subject": "fix(hitl): pair the expert's A/B diff on normalised identity"
+    },
+    {
+      "original_private_history": "6a097894df855b2520a3d78d7cb76178b6ffca48",
+      "public_history": "6a097894df855b2520a3d78d7cb76178b6ffca48",
+      "subject": "fix(hitl): stop calling a set difference a field difference"
+    },
+    {
+      "original_private_history": "dbd4ccfff108c9c77849d176f7a5807f06d7a961",
+      "public_history": "dbd4ccfff108c9c77849d176f7a5807f06d7a961",
+      "subject": "fix(eval): name the matcher instead of inheriting benchmark's frozen default"
+    },
+    {
+      "original_private_history": "dbddc5dc96728b3700af54940822e9d90b708084",
+      "public_history": "dbddc5dc96728b3700af54940822e9d90b708084",
+      "subject": "fix(processing): a cyclic runaway carries a usable prefix too"
+    },
+    {
+      "original_private_history": "a82c14166ad180a08e22df1870b0d1991fba54a8",
+      "public_history": "a82c14166ad180a08e22df1870b0d1991fba54a8",
+      "subject": "docs: record the round-1 rewind and its outcome"
+    },
+    {
+      "original_private_history": "9a09c4c9a2d67b2b41dbd48d27f781096b8249c5",
+      "public_history": "9a09c4c9a2d67b2b41dbd48d27f781096b8249c5",
+      "subject": "docs: consolidate the record so a paper cannot cite a stale claim"
+    },
+    {
+      "original_private_history": "d6a22c1b790ee7c91c2456c61dc981d32655de05",
+      "public_history": "d6a22c1b790ee7c91c2456c61dc981d32655de05",
+      "subject": "docs: correct commands and claims the code no longer supports"
+    },
+    {
+      "original_private_history": "de14546b085f5058644a3d62e594c1efd2fef844",
+      "public_history": "de14546b085f5058644a3d62e594c1efd2fef844",
+      "subject": "refactor(hitl): drop a parameter that promised a check no longer made"
+    },
+    {
+      "original_private_history": "7084fb4f2601e7e9d317ae6992898fee99b0925e",
+      "public_history": "7084fb4f2601e7e9d317ae6992898fee99b0925e",
+      "subject": "fix(eval): make optimal the default matcher and archive greedy"
+    },
+    {
+      "original_private_history": "4c78e830dcf88466ccdb540a9e981c418d3984f7",
+      "public_history": "4c78e830dcf88466ccdb540a9e981c418d3984f7",
+      "subject": "fix(eval): honour --matching-engine in run.py's hard-case evaluation"
+    },
+    {
+      "original_private_history": "dc4be3632744970fb35d952712a07e2edab63d8a",
+      "public_history": "3a7133b1252f0a291efba1d4495cf542913f4e91",
+      "subject": "feat(loop): GT750 kaynak sözleşmesi ve yeni döngünün ayarı"
+    },
+    {
+      "original_private_history": "5485c5ef6b927b7504a7d54a4a6b933c2d9c24c4",
+      "public_history": "7ede0f544e83c328799bba37732611ca3dbc860a",
+      "subject": "feat(loop): tur eğitimi GT750 bölmesine bağlı, ufuk turun kendi epoch'u"
+    },
+    {
+      "original_private_history": "eba7f1084fe3685f1ac6dc67ea46ad0892cb8d5d",
+      "public_history": "536ba5acd31dd050bb37e95a003f477a93e4eaa9",
+      "subject": "fix(loop): GT750 puanlamasında 213/413 tahminden de düşer"
+    },
+    {
+      "original_private_history": "3c9f2c649cc52e7e100e3c038d2fbe04e774e651",
+      "public_history": "fd0a1119ed4e4b3dbfe05832dcc0f161d2ff2677",
+      "subject": "fix(text): havuz metni anahtar metniyle aynı — satır içi etiket kelimeyi bölmez, <head> düşer"
+    },
+    {
+      "original_private_history": "e00a9b4abae716370fbfe40dd703dd3a976c374f",
+      "public_history": "a33fb1a237b64b8ccc6687cd2051f0cf712b6751",
+      "subject": "feat(loop): havuz katmanları ve kalanlı dağıtım (4x250 + 5. tur)"
+    },
+    {
+      "original_private_history": "7e564b5f148ed41883980cd6f53f62046db544a8",
+      "public_history": "5fb4d8e692db75a101a394cd1ee82b74652a0903",
+      "subject": "feat(loop): GT750 döngüsünün operatör komutları — test en sona kadar kapalı"
+    },
+    {
+      "original_private_history": "ff30acd44023cc937d75bdca519005d17e8d05fc",
+      "public_history": "17fd06f17a6b6f9c3982a3ecfffd0f8374ffcb7d",
+      "subject": "docs(handoff): döngü GT750 ile yeniden kuruldu"
+    },
+    {
+      "original_private_history": "cfa468325edb9f2f764720acb27a58454844d82d",
+      "public_history": "2c59fea05ac91425bcbdfd34c4b1555d7835daaf",
+      "subject": "docs(handoff): M000 kapıyı geçti, R01 uzman aşamasında"
+    },
+    {
+      "original_private_history": "6fb0c8f634fbcb7756f811522724cd46dba3acb5",
+      "public_history": "dbfe574a8a0ade27c62c105298e21a22c5adf248",
+      "subject": "fix(performance): belge başı tepe bellek GB'tan bayta doğru çevrilir"
+    },
+    {
+      "original_private_history": "7144a14bbd9095067e67d74877deba1efa4fab72",
+      "public_history": "8cb179f167ebfd60e29fdb6434064f36b2fa82c2",
+      "subject": "docs(handoff): her aşamadan sonra Journal kaydı"
+    },
+    {
+      "original_private_history": "af452d0686d89af8f52bcd55a43b35fa7f43152a",
+      "public_history": "2c24acd5f501c23fef4a88a4d41dd7e95a679b78",
+      "subject": "feat(loop): bursiyer/model/hakem hatası uzmana karşı tur başına; uzman ekranında hakem seçeneği"
+    },
+    {
+      "original_private_history": "acac643a63d51d1dd4d75682b1d7d0cb321b496d",
+      "public_history": "73218208573c35490a9c7f09aad6b3a8892c9047",
+      "subject": "fix(hitl): uzman ekranı gerçek tarayıcıda sınandı — kısayol, JSON, süre, yedek"
+    },
+    {
+      "original_private_history": "3da9e723fb9d5040bef6fee6234e3b485e6e2d9f",
+      "public_history": "7bc31ce41596625d0dc36dab35fde9c24df82419",
+      "subject": "fix(loop): 1. tur uçtan uca denetimi — sürüm, eğitim okuyucusu, tur modeli, source_text"
+    },
+    {
+      "original_private_history": "e9a3cc8248aa2df63727117a678ff7ff5daf071f",
+      "public_history": "90a2916e3c6b2d6ae6f72a641b74ca3a7a545efc",
+      "subject": "feat(locator): alıntısız en iyi bulucu; madde yazımı iki motorda tek kimlik"
+    },
+    {
+      "original_private_history": "4476a1893442093384932651b3d34cf4dbf54f97",
+      "public_history": "2582da1b6f9159ae20857da83e83a9281b001744",
+      "subject": "docs(handoff): bulucu ve madde yazımı; M000 yeniden puanı"
+    },
+    {
+      "original_private_history": "1393b83617f79872514010680eab1e087348cc77",
+      "public_history": "ef8cf79234bfeeca414efa6f57129c765aac2116",
+      "subject": "feat(train): GT750 döngüsü belgeleri bölmeden eğitir — parçalı yineleme"
+    },
+    {
+      "original_private_history": "96a73c663f882009f9a80fc8950f11a3dd37a929",
+      "public_history": "e3edc71d1ca094c8ba5cfadbab2c896c15217ffd",
+      "subject": "feat(loop): loop-train --no-seal — adayı eğit ve seç, mühürleme"
+    },
+    {
+      "original_private_history": "aa9bad21d9460a8b67c195107ce43eda5b8bda3d",
+      "public_history": "af9ad948442a16477f15d3996cece3dfb8eabae8",
+      "subject": "feat(train): doğrusal dikkat eğitimde parça-paralel (WY) hesapla"
+    },
+    {
+      "original_private_history": "0e9631f2562c34160cba1fd057df3caf247907c4",
+      "public_history": "5517dd4dcf3b13a096019875e6613c6c5d321873",
+      "subject": "feat(train): tam belge koşusunun kimliğine yineleme sürümü girer"
+    },
+    {
+      "original_private_history": "db992a06c41a6e887d679899477906e82cd092d0",
+      "public_history": "a56cae067147fcd99b22771252e15930c25bd06c",
+      "subject": "fix(train): WY tersi ileri yerine koymayla; tam belge derlemesiz"
+    },
+    {
+      "original_private_history": "9faf6bbd488d85c1548587df6e430ec5474e62a2",
+      "public_history": "52441bdb429f43bb7ebfd8276e42d25c6df77dee",
+      "subject": "feat(loop): GT750 döngüsü pencereli eğitimle sürer (M000 ablasyon kararı)"
+    },
+    {
+      "original_private_history": "835e3b0fc77841cbaf48df46683d748ccb8a48dc",
+      "public_history": "b95972f42501e1611845116451cdcd3e5187b655",
+      "subject": "docs(handoff): M000 eğitim biçimi ablasyonu ve pencereli devam kararı"
+    },
+    {
+      "original_private_history": "f02b23ef757f277bc202cafe534a72845fbe89bf",
+      "public_history": "c15da5a1d569ff0747865b1cf30e23c081b13917",
+      "subject": "feat(loop): tam belge modeli ikinci hat — her tur aynı veriyle eğitilir, hiç mühürlenmez"
+    },
+    {
+      "original_private_history": "c3eff007f7cac26f65735efbaafeb3d35cb6a0fa",
+      "public_history": "a8864a81f110b95de43b17dc2761799e043d9dec",
+      "subject": "docs(handoff): iki hat, her tur — tur sırası ve ikinci hat kayıtları"
+    },
+    {
+      "original_private_history": "ba512f2f1517b08db406f989756536a07dc8c667",
+      "public_history": "1e5c979a2c28eaa1fced71f0cc36dc1a8ac1eaa0",
+      "subject": "docs(handoff): test açılınca iki hat da puanlanır (önkayıt)"
+    },
+    {
+      "original_private_history": "5798798589409a94273671bd8b12de62d7c2b630",
+      "public_history": "dbdf979533818d3b179f8182398aaa7603cfb892",
+      "subject": "feat(locator): kanunu metnin yazdığı gibi okuyan, GT750'de dondurulmuş bulucu"
+    },
+    {
+      "original_private_history": "43a14431cc7bd27f7b2960e061d97832d422ac0c",
+      "public_history": "3183a484691e3e696b00adb51b29142dc4cc1e1c",
+      "subject": "docs(handoff): bulucu sağlamlaştırma, gardiyan test, karar numarası yan bulgusu"
+    },
+    {
+      "original_private_history": "88e57a31a8198c2e0a97fe8ea6373f5fd23f21c4",
+      "public_history": "5bbc7a856e33470535cecbfd34c082436fec90c0",
+      "subject": "feat(loop): hakem pilotu kalkar — Gemma 4 önceden sabit, uzmana hiç gösterilmez"
+    },
+    {
+      "original_private_history": "95eef3bc2cd6632f53c0315b9a70dfe9fdd43aad",
+      "public_history": "414669874f9be8814890baa9fd77ee43ce9ba3e5",
+      "subject": "docs(handoff): hakem pilotu kalktı — loop-judge, kör hakem, 172 belgelik kuyruk"
+    },
+    {
+      "original_private_history": "acac4467c85566e6df3f109c12e32280f9dcf25c",
+      "public_history": "a6538bf6a958cfa72d1b25306ef3c41ce0fd6ad3",
+      "subject": "feat(hitl): döngü uzman ekranı doğrudan açılır — erişim anahtarı ve /login yok"
+    },
+    {
+      "original_private_history": "ca7b8a421b128ad822d99dd6323e50c712c11973",
+      "public_history": "1d246f9998ee01c622038102180ef390e07e7641",
+      "subject": "docs(handoff): uzman ekranı anahtarsız açılır; kalıcı başlatma betiği"
+    },
+    {
+      "original_private_history": "4d7c34e7bbd25960abb182b7c5dc0e8b74f97499",
+      "public_history": "011346c15269c59c6c90e268e100bca8336a4c69",
+      "subject": "feat(storage): her uzman kararı olayı tam listeyi ve yerine geçtiği hâli taşır"
+    },
+    {
+      "original_private_history": "850673e9efcc9e6ee7e520ce7fdc93d5fc5a4b3d",
+      "public_history": "953e6cf942aa8ceeb7db1483e79aaa7bb7da6aef",
+      "subject": "feat(metrics): dergi tablosu — kaynak başına bulunan, hatalı, kaçırılan; paket eğilimi"
+    },
+    {
+      "original_private_history": "781bfedd93fa1e7a0d34e0698699cebec46d791d",
+      "public_history": "a7abd47beb7b0ffedf283595ba749913d4bd65ef",
+      "subject": "docs(handoff): dergi tablosu, paket eğilimi, karar geçmişi, sıfırdan kanıt"
+    },
+    {
+      "original_private_history": "141996b4bd766d059dcb6293559629ba748a3568",
+      "public_history": "aaa013a3a07a3601f0d8d5fc01b560330fa1ca13",
+      "subject": "fix(metrics): dergi tablosunun aralıkları yayımlanmış yöntemin kuantiliyle"
+    },
+    {
+      "original_private_history": "8b2e35d8307790bbc6f1038443699f8ed4ffb571",
+      "public_history": "06211a15dfe5a20f44cb1926e82612f40faf2401",
+      "subject": "fix(hitl): iki kez yazılan referans 'aynı' sayılır ve işaretlenir; tabloda yinelenen satır"
+    },
+    {
+      "original_private_history": "b8d22ced00daa892523a5484b4b9fd75e33cb33b",
+      "public_history": "b43df43dfe18e313fa8bc136208595c532bd5a5a",
+      "subject": "feat: referans = kanun no + madde — fıkra ve bent her yerden kalkar (eğitim yolu)"
+    },
+    {
+      "original_private_history": "0673923ab283f13e272b647d48d4c2f3ad288201",
+      "public_history": "9e2dfc4196da276c93bd0f6dd50810f15d45282e",
+      "subject": "test+fix: ekran, hakem, ölçü ve bulucu testleri kanun+madde kuralına geçti"
+    },
+    {
+      "original_private_history": "4a4a99c7a2c8600938ba80561c2e9970806112be",
+      "public_history": "39766fd4f4265e208057c24771de5ccddd61374a",
+      "subject": "feat(loop): arşiv döngüsündeki uzman kararlarını kanun+madde izdüşümüyle taşı; fıkra/bent gardiyanı"
+    },
+    {
+      "original_private_history": "83b54ddb48550f4d20d4ebce4a631167fcb83885",
+      "public_history": "88e45e1160f70c51601beb3030e94ea50086b7b5",
+      "subject": "docs: kanun+madde kuralı — devir kutusu, mimari, ekran rehberi, runbook, değerlendirici README"
+    },
+    {
+      "original_private_history": "b5a07e628a6cb363da048ce3729b97ccc28771de",
+      "public_history": "8d0a8401dcc76ce7108ef2a08334780012b87ff4",
+      "subject": "fix(normalization): maddenin önündeki liste imi (\"-1/1\") maddeye ait değildir — iki motorda"
+    },
+    {
+      "original_private_history": "d2ea7354a2aec813097f3e8a5aa5a2020ed46d7d",
+      "public_history": "bd9a6dcbbbe17e895cb814771cdc4faef0477c43",
+      "subject": "docs(handoff): prompt taraması bekliyor; zincir ve ikinci hat durduruldu"
+    },
+    {
+      "original_private_history": "b0fdd834a76770593d5821a644adda82c6e8f751",
+      "public_history": "c01981e8dd01d8d95ff934950205a2819bce059f",
+      "subject": "feat(prompt-screen): kayıtlı prompt sicili, ayardan prompt seçimi, kısa koşu, eleme aşaması"
+    },
+    {
+      "original_private_history": "96c12433f81e96a14b5c95f9d46076c0ed76ae92",
+      "public_history": "7536b68d7d369d71a522a357d37df12649c07577",
+      "subject": "feat(prompt-screen): aşama 2 karşılaştırması — 150. adımda F1, eşleştirilmiş bootstrap, önkayıtlı kural"
+    },
+    {
+      "original_private_history": "9d76f7e603ee287ebee3eddbce25b3d5668a602b",
+      "public_history": "b9d4718e21f4eeb524cb489e40ebae0403fc5e58",
+      "subject": "Merge branch 'feat/prompt-screen' into feat/gt750-loop"
+    },
+    {
+      "original_private_history": "944c8817c03285a00348233edd53de1a57a9040f",
+      "public_history": "66f23afff27355ccfda503ee04bbad7c2f49bd58",
+      "subject": "fix(evaluate): --docs varsayılanı yok — belge listesi verilen çağrı 500 üstü kimlikleri kaybetmesin"
+    },
+    {
+      "original_private_history": "796626ba350b310ce14a863e8e9b6048dd62aa96",
+      "public_history": "e76c05394e0a8bedbc8a606f15b5eaa25aa621a9",
+      "subject": "config: prompt taraması aşama 2 adaylarının ayarları (p1 kanun bağlama, p4 hepsi; kendi kökleri)"
+    },
+    {
+      "original_private_history": "8664143b41b93c3c59ab7be800e4afe506e3ecc8",
+      "public_history": "9e432e830ed276156b568f29516c61fc8c6275b3",
+      "subject": "feat(loop): döngü P4 promptu ve GT v8 ile sabitlendi; loop-rescore"
+    },
+    {
+      "original_private_history": "a26f0b979a2df0d3bb042bb67882ebdd25902433",
+      "public_history": "2a78badf2166575796780c82055cc100f5d86ef3",
+      "subject": "docs(handoff): 2 Ekim kutusu — döngü P4 + GT v8, prompt taraması sonucu, doğrulama kuralı"
+    },
+    {
+      "original_private_history": "0c780b5d1b298d0bc8fd21376e785224b5d86df8",
+      "public_history": "5d352f5329193bbe8bf6d9630c9c637c23ff3cf5",
+      "subject": "fix(engines): eşleme motoru denetimi — iki motorda kanun numarası, madde yazımı, sabit nokta; 213/413 iki tarafa"
+    },
+    {
+      "original_private_history": "ef681840c96f78729ada7713cf9d22a3de9c6495",
+      "public_history": "2c9262d8d4efa42de58d5deb7b4aa6098ba0668c",
+      "subject": "fix(loop-metrics): belge başı kazanç/eşit/kayıp — altı boş ve boş bırakılmış belge 1,0 (doc 262)"
+    },
+    {
+      "original_private_history": "c74703392166f45d15d87798ebdc53d01a6278be",
+      "public_history": "86d9f77c6ba4de514f247f7ebb910c4161269e10",
+      "subject": "feat(engines): tek karşılaştırma motoru — değerlendirici ve döngü aynı kod; ad yedeği; aynı listedeki fazladan kanun satırı cezasız"
+    },
+    {
+      "original_private_history": "8aa7f0e1f6f200245704b6e531aaa56325d2774d",
+      "public_history": "8a8247918d9d6e672bb8fcb4304135b10f25efad",
+      "subject": "docs(handoff): tek karşılaştırma motoru kutusu; M000 (P4, v8) ve R01 zinciri çalışıyor"
+    },
+    {
+      "original_private_history": "e40bdc11393e1d9e1b48e2ef0eabe7760ee8258b",
+      "public_history": "3509e4b5b7243d23127b9a3470acc2b48f5f6a15",
+      "subject": "fix(hitl): karantina belgesi uzmanın zorunlu kuyruğunda; karar verilmişse uzmanın listesiyle yayımlanır"
+    },
+    {
+      "original_private_history": "6523db17ae9c886359b6f5bcaa75e72dbdb2ef76",
+      "public_history": "c60f45bc35daf58ea61493a6757b69eff785c7dd",
+      "subject": "fix(judges): hakem karantina belgesini de değerlendirir (uzmanın incelediği her belge)"
+    },
+    {
+      "original_private_history": "d115e1712d1fd7bc1ef519fb9f547a545d3e634d",
+      "public_history": "853f40b03c75783153fc0481fadcf725c3c04ae0",
+      "subject": "fix(g0): boş cevap kapısı tek kaçırmayı değil çöküşü durdurur; GT'si boş belgedeki doğru [] sayılmaz"
+    },
+    {
+      "original_private_history": "b19bae7187a5cf830dee7a741d5892034cbd84b2",
+      "public_history": "bcfc13ac5876c3957386d05d67240b1648ca51c7",
+      "subject": "docs(handoff): 3 Ekim sabahı — gece bitti, sırada uzman (R01 kuyruğu 111)"
+    },
+    {
+      "original_private_history": "7126ba4c60dffca2a4ebeebce5dbb44064a7c054",
+      "public_history": "97d98babe0fd3ebef19762376a76900e19ee9bc1",
+      "subject": "feat(predict): toplu tahmin başarısız belgeyi doğrulamanın pencere geri düşmesiyle yeniden dener"
+    },
+    {
+      "original_private_history": "fcc476c437f426a4cc31f7cff6ec938d4c5c9a30",
+      "public_history": "71df1bbf255c9fe1138e235db2d9d53d82fc3624",
+      "subject": "docs(handoff): 3 Ekim 11:07 — toplu tahmine pencere geri düşmesi; d000112 karantinada kalır"
+    },
+    {
+      "original_private_history": "79f0684e5d0418fcd05a5705692a89cc1a41b2b9",
+      "public_history": "e2409ad7ae20ca71dffd4ec96d6425c2fc624e76",
+      "subject": "docs(handoff): 3 Ekim 12:13 — GT v9 (test bölmesi denetimi); açık karar yalnız yabancı dal"
+    },
+    {
+      "original_private_history": "96d753395de0d2c7674b65bb9f9a9ce1e809eb8a",
+      "public_history": "f479c4550e603b05c4ad9bb4660fb6528dd22da4",
+      "subject": "data(gt750): GT v9 kopyası (ner 188e8d4 ile bayt bayt aynı; döngü ayarı v8'de kalır)"
+    },
+    {
+      "original_private_history": "4bb9d18ce32285d2b8be9393ebf56227ed955e3c",
+      "public_history": "b2f9af63112a6ede56fb856108feb1eca27971fa",
+      "subject": "docs(handoff): 3 Ekim 12:41 — yabancı dal değerlendirildi; öneri R01 sonrası; açık karar yok"
+    },
+    {
+      "original_private_history": "f13bc903426c733337aa6c18658fc4a09514820c",
+      "public_history": "5fd714d0f1efde41679b364206939ecca097f96f",
+      "subject": "docs(handoff): belge işleri önem sırasına göre (1–3 agy, 4–5 Claude)"
+    },
+    {
+      "original_private_history": "c30607a896b50bdc23019b294d7a2bd828616c30",
+      "public_history": "617da18a2d80b8bc59d7946a7a7275f9df4ee47a",
+      "subject": "docs(handoff): belge işleri auditing-project-docs skill'iyle"
+    },
+    {
+      "original_private_history": "7b1517744f69baa02b2611abcf6c87271a534d62",
+      "public_history": "b9e408e21d0e70b753e1b554d014006020cf952b",
+      "subject": "docs(handoff): alt bölümlerin 13 Eylül kaydı olduğu üst kutuda belirtildi (tam belge denetimi)"
+    },
+    {
+      "original_private_history": "0846575972da42e429b5976f9715f4bf8f94cf90",
+      "public_history": "f6bb60932839cf722dae9ac3dcc6df6315040e30",
+      "subject": "docs(handoff): gürültülü ↔ temiz ablasyonu hatırlatıcısı; ham etiket yedeği"
+    },
+    {
+      "original_private_history": "43fbc893481855ff52f246abcd0e7e4fc87f20f6",
+      "public_history": "4b09be35efd7490dae375c4a4dfb72418e512164",
+      "subject": "docs(handoff): 5 Ekim — hedef dergi ESWA; taslak ve iddia kapsamı işaretçileri"
+    },
+    {
+      "original_private_history": "ba2898f8fbae5d4c86df24f2a070e63e8a3db80b",
+      "public_history": "6097e992001447164feac4be4679b2bc5f9a7a12",
+      "subject": "docs(handoff): 5 Ekim — ham etiket kolu dalı (feat/raw-label-arm), R01 incelemesi başlamadı"
+    },
+    {
+      "original_private_history": "e9ed9f483908f8cae53800c2b387261472adbf0d",
+      "public_history": "bd10dc240061ca81d56099a8e78389d72c1f1824",
+      "subject": "docs(handoff): M001_raw arkada eğitiliyor; ana hattan önce PAUSE_RAW_ARM"
+    },
+    {
+      "original_private_history": "294d511a47f7b75f476baee4dfe1e9515aaca264",
+      "public_history": "182e2950461f418b3aedaf1b244ba7c8cd7bae00",
+      "subject": "docs(handoff): seçim kodu ve motor önerisi hazır; R01 sonrası uygulama sırası"
+    },
+    {
+      "original_private_history": "dae1c8617c4c5a4de5e26cfbe18c89882069f635",
+      "public_history": "127e0e4fc1f1434d0cd85b95d381700cce7ac7cd",
+      "subject": "docs(handoff): tekrarlı satırlar tekilleştirildi; güncel M001_raw koşusu dqcheck_loop_02d8059bfbad"
+    },
+    {
+      "original_private_history": "f0fe6c7bbe1135c2edcb979c21d208961d5ac5af",
+      "public_history": "a02c6c8f2c79b870c8e3ff53698fb170b196e6ba",
+      "subject": "docs(handoff): eğitim verisi denetimi; güncel M001_raw koşusu dqcheck_loop_3331f64287a1"
+    },
+    {
+      "original_private_history": "4f48556504a899206eff170366c70576d72379ab",
+      "public_history": "0a19fb54c47912a00a89e34fb78ae8592fa939c6",
+      "subject": "feat(review-ui): vurgulama düzeltmeleri ve temiz, iki sütunlu uzman ekranı"
+    },
+    {
+      "original_private_history": "919b1d1f8c9473bba6f15ee9f4c89fdc0c5be051",
+      "public_history": "c069fcdeea93d94a1c1691889056464a7706137f",
+      "subject": "docs(handoff): uzman ekranı yeni arayüzle yeniden başlatıldı; sahte uyuşmazlık yok; dq push bekliyor"
+    },
+    {
+      "original_private_history": "68dbd0102be292c7a7fb47fcad777a9a4c44b066",
+      "public_history": "2894e613cc4059b214ff256232e18fec008c5830",
+      "subject": "feat(review-ui): gezgin, kaydırma işaretleri, seçerek düzeltme; hazırlama uyarıları düz Türkçe"
+    },
+    {
+      "original_private_history": "4cf3e300b236b406d90e6bedf635bd84c6220c3d",
+      "public_history": "8ff94d7b4011df8cec2369ff093bd155f71927f4",
+      "subject": "docs(handoff): uzman ekranı ikinci sürüm canlıda (68dbd01)"
+    },
+    {
+      "original_private_history": "9cf6079b815e827c399c230a8cac75b8e98d147b",
+      "public_history": "fc7518dd7c1d9ece8b38d08d434e7946be054fa4",
+      "subject": "feat(review-ui): düzeltme tablosunda \"aralığı aç\" — \"X ila Y\" her madde ayrı satır"
+    },
+    {
+      "original_private_history": "73dcafff3a723498f174b2291d60c3dce7492db2",
+      "public_history": "1e7797c57af92897d56363655045cfa6e137d7fb",
+      "subject": "fix(review-ui): şablondaki JS düzenli ifadesinde Python kaçışları (W605); çıktı aynı"
+    },
+    {
+      "original_private_history": "74627a227031614a74976bf473b5dee6f86df77d",
+      "public_history": "801b068f91bc9412b8f0c85e2b620bea116c6fae",
+      "subject": "docs(handoff): R01 sonrası tek dal integrate/after-r01; madde aralığı kuralı; M001_raw bitti"
+    },
+    {
+      "original_private_history": "7096b0655363f90cbae26987978b2e6d3f2d026c",
+      "public_history": "cb48e9a1dae09379424d943c0455fba4ef9734f9",
+      "subject": "feat(metrics): hata raporuna tamamlayıcılık; taşınan kararlar ayrı (iş yükü ve kaynak ölçüleri)"
+    },
+    {
+      "original_private_history": "68c1ae0862f85b380bb3fbaf81e85f936fb74779",
+      "public_history": "a23571ed7387789488c675d91b9593e621f04b00",
+      "subject": "docs(handoff): hata raporunda tamamlayıcılık; taşınan kararlar ayrı"
+    },
+    {
+      "original_private_history": "cdce2ffee9c46036a22e53f8b1f166adcb689a81",
+      "public_history": "cff57496a86765c54b7c5d057c1e7240f420690d",
+      "subject": "feat(loop-train): gürültülü ↔ temiz ablasyonu için ham etiket kolu (loop-train --labels raw)"
+    },
+    {
+      "original_private_history": "615946e30e7c2ef7499373f036b8f531ccc6545c",
+      "public_history": "48f19aa6f585dc15018f524c7f4f1c6f92466af8",
+      "subject": "feat(loop-train): ham kol yayından önce eğitilebilir; yayınla karşılaştırma (loop-raw-check)"
+    },
+    {
+      "original_private_history": "1d441980ca1f00292eaddbbdfdaaef9cca708212",
+      "public_history": "a2204da6eeb38d5ca01789ffb03e524d99a619ea",
+      "subject": "feat(rescore): yeniden puanlanmış eğriden nokta seçimi (loop-select-rescored)"
+    },
+    {
+      "original_private_history": "5605ac174e248674469796e9f7440ced1a652eac",
+      "public_history": "da4700c982fd607e3ed0a2261612394e8c6547c0",
+      "subject": "fix(loop-train): tur belgelerinin eğitim hedefinde her referans bir kez (iki kol)"
+    },
+    {
+      "original_private_history": "cb39c18a2fb96ecec0f71771a6b383be1674a87e",
+      "public_history": "b376c84a79bb93e443da2484e136337b70066e46",
+      "subject": "fix(loop-train): tur belgelerinde referans bulucunun bütün geçişleriyle pencereye yerleşir"
+    },
+    {
+      "original_private_history": "1acafa01448703d37a53b1ff8273301df2a14570",
+      "public_history": "aa519523ba8aeccb2ba168a1735cde52b20ea404",
+      "subject": "Merge branch 'feat/raw-label-arm' into feat/article-ranges"
+    },
+    {
+      "original_private_history": "bafa80744e9456ef7ad3261227a3f2511adedb3c",
+      "public_history": "9d1871bca85343a4b2d87037650f06b8b980f2a4",
+      "subject": "wip: aralık kuralı (test önce; birleştirme öncesi)"
+    },
+    {
+      "original_private_history": "24620d0e8001754eb09364e0bde563d4bdc31b17",
+      "public_history": "0a0ecbbc949758d6de2f869c924f15d2868ab4e7",
+      "subject": "Merge branch 'feat/gt750-loop' into feat/article-ranges"
+    },
+    {
+      "original_private_history": "6320d2ff97ffd949bc2ace78d4e407eea7618208",
+      "public_history": "68d3997bcdf00965db8a31a1aace95d3653f49c8",
+      "subject": "feat(engine,loop-train): madde aralığı = aralıktaki her madde (kullanıcı kararı 7 Ekim)"
+    },
+    {
+      "original_private_history": "0c769568d3571df664b2f5cb17904f0fe33da298",
+      "public_history": "44afaa1929636fd811c3e2f83ff94dce54ec1842",
+      "subject": "wip(engine): öneri — yabancı dalın düzeltmeleri + ad başına geçerli numaralar (UYGULANMADI; R01 sonrası, M001 öncesi)"
+    },
+    {
+      "original_private_history": "44ebbfd761bee10b58fb6384cd251cb881031213",
+      "public_history": "9ff6487dbc62e9996133fbd7717f3fdee3fd632a",
+      "subject": "chore(engine): öneri uygulanmaya hazır — dal testleri 30/30, commit edilmiş kodla yeniden ölçüldü"
+    },
+    {
+      "original_private_history": "8e8c84589a155da3bdf144bb61684811246870b6",
+      "public_history": "792b5383d4d8062cd76729cdb32f3505b6fb71e1",
+      "subject": "Merge branch 'feat/engine-valid-numbers' into integrate/after-r01"
+    },
+    {
+      "original_private_history": "c781178da75c1e0402f359dde1f4af82e356fc48",
+      "public_history": "3b96d3a7fe9561cfc19a7661d7b6af3d8487adb3",
+      "subject": "test(engine): aralık testleri yeni kurala göre — \"94 ila 96\" üç madde (7 Ekim)"
+    },
+    {
+      "original_private_history": "59c3c6312f8d57140d3fbd211c3dcca60fea4652",
+      "public_history": "e1cdf990ad84d91d34cf33124c81af33a0b6f5c1",
+      "subject": "style: birleşik dalda içe aktarma sırası ve kullanılmayan içe aktarmalar (ruff)"
+    },
+    {
+      "original_private_history": "067476ecfadc8abd2e78e312567c840634d530a5",
+      "public_history": "67e8c52d269433bc4372e3c82918e2e7ce88362a",
+      "subject": "Merge branch 'feat/gt750-loop' into integrate/after-r01"
+    },
+    {
+      "original_private_history": "b54164da1417d06536bc1d9602fcb9725db9e558",
+      "public_history": "5330dac117eda111211e32b2cc37c05ec5a5e124",
+      "subject": "Merge branch 'integrate/after-r01' into feat/gt750-loop — R01 sonrası: ham kol, motor önerisi, madde aralığı kuralı"
+    },
+    {
+      "original_private_history": "322171c4e1d77d1cd88515afe62e7ef27400e730",
+      "public_history": "8755b3ab4468410ef42f8f89c7ba76d1e53a6de1",
+      "subject": "feat(loop): yayın sonrası doğru düzeltmeleri — aralık kuralı ve uzman satır düzeltmeleri (kullanıcı kararları 7 Ekim)"
+    },
+    {
+      "original_private_history": "916716e007e543a3ed742eee3a3a2ae8ef497f01",
+      "public_history": "0d5c82185a0d66dd1d0a8b0c72cdeabf31ebe4ad",
+      "subject": "docs(handoff): R01 bitti ve yayınlandı; yayın sonrası doğru düzeltmeleri; M000/M001_raw yeniden puanlandı; M001 bellek bekliyor"
+    },
+    {
+      "original_private_history": "2c49e7b39736a353cd60770f51a09a32a6620e6c",
+      "public_history": "8afc46eab04557e084af0cd36d18ed5accb4f036",
+      "subject": "docs(agents): Codex kalıcı DQ-Loop kuralları ve devir"
+    },
+    {
+      "original_private_history": "eb3d0d68c4ac1b5cc9633dd5776346608c006468",
+      "public_history": "e78566c0d5a9ea7893c5543b3fbd6efeb401e118",
+      "subject": "docs(agents): kısa DQ-Loop kuralları ve güncel devir"
+    },
+    {
+      "original_private_history": "3ed9d4ac2345c95f079ec05ef5857a61e607ec11",
+      "public_history": "07adc5ebb28c84707d9e41f9c51dcf320a456f8f",
+      "subject": "docs(handoff): main birleşti; M001 checkpoint 75 ve 80 GiB bellek kapısı"
+    },
+    {
+      "original_private_history": "dfc05e504d9d32be7f510db730d8e33916b584a2",
+      "public_history": "203c2cc63af04cfc2707485bb6d95f2cf08624b6",
+      "subject": "feat(training): aynı reçeteyle düşük bellekli recurrence ve doğrulanmış checkpoint geçişi"
+    },
+    {
+      "original_private_history": "801848225888f971757274a886a6bfa4fd85a978",
+      "public_history": "778795b8b29e3269fd5cffa7d9cdc42a452d9f68",
+      "subject": "docs(handoff): M001 recurrence ile 75ten devam etti; checkpoint 100 geçti"
+    },
+    {
+      "original_private_history": "cc5afa9cebb8d73345a93f22120b31584b8611ef",
+      "public_history": "6e4e91f728c98d17c0eb0609a70cbb0dd54fb9f1",
+      "subject": "docs(handoff): M001 doğrulama 100 tamamlandı, eğitim sürüyor"
+    },
+    {
+      "original_private_history": "939d5183452b4af1dec42b135bea06277524aa64",
+      "public_history": "f7177b7976f3279c352914592359a739499bac51",
+      "subject": "docs(handoff): 30 dakikalık sohbet rapor izleyicisi ve durdurma yolu"
+    },
+    {
+      "original_private_history": "d9ee62eaae81658631c3dd626d1851243932ed4d",
+      "public_history": "425c46043062f8025c6e5181a2dd80db938175b0",
+      "subject": "fix(loop): mühürlenen ana modelden sonra ikinci hat eğitilebilir"
+    },
+    {
+      "original_private_history": "974565eca6a806e37f31666922ba4cc8e75aacd5",
+      "public_history": "25684c9a15b20f5556c9a3110c09022bc5e56ed3",
+      "subject": "docs(handoff): mühürlü M001 ve çalışan R02 devam zinciri"
+    },
+    {
+      "original_private_history": "00fac1b40780eba381fb5a9a4cd10b5465078b34",
+      "public_history": "9d9351856fc9501b2d86ebf661df44b49bde66ae",
+      "subject": "docs(handoff): R02 kontrollü GPU resume ve onarılan bildirim"
+    },
+    {
+      "original_private_history": "689d6c0e0a9e2faedc176426b411490b8544da75",
+      "public_history": "83f3de24974cbc28b82fa509d075d43c1e622546",
+      "subject": "docs(handoff): R02 tahmini tamam, gizli hakem başladı"
+    },
+    {
+      "original_private_history": "1ac05b44b6d88d47bf17992af56ca08e409a503c",
+      "public_history": "1ed73231a59149966441273b49260937e0f89456",
+      "subject": "docs(handoff): R02 güncel yönlendirme politikası doğrulandı"
+    },
+    {
+      "original_private_history": "d1d657ec5c5fdf3ed43162e7da621d83035da692",
+      "public_history": "35913cc6f7b8f5db2a3fe6566677b215b072b22a",
+      "subject": "docs: record R02 judge completion and second-line training"
+    },
+    {
+      "original_private_history": "12ada3c1fbee26cc351c20188bae11308a46ffb5",
+      "public_history": "e6f4cf8d5e331dc0eabc7189ec76a27ed26b3cea",
+      "subject": "docs: record completed second line and stopped raw continuation"
+    },
+    {
+      "original_private_history": "c2c510d2860832080a2e6ade5c18bad5030f5ca2",
+      "public_history": "30dc285940927590d61f35b4f0055b161948ce9f",
+      "subject": "fix: scope multi-batch training identities and reject duplicate source documents"
+    },
+    {
+      "original_private_history": "61b9847834d79d4d87723961f49d84d4c3cff947",
+      "public_history": "9fa8475d9bd492affb0b6c196c5621a392728685",
+      "subject": "docs: record resumed M002 raw and remaining R02 expert review"
+    },
+    {
+      "original_private_history": "b9c322b413351f74770fb9b44e237594bb076d6b",
+      "public_history": "eb38060f6f2ff112d041715fec3476073cd1e674",
+      "subject": "docs: hand off completed raw candidate and remaining R02 expert review"
+    },
+    {
+      "original_private_history": "f682a22943036f9796a42750b5498ca0e87310f3",
+      "public_history": "70957cd9fec6c3f258de14b99a3cb8cbf23d0d2e",
+      "subject": "docs: consolidate completed work and Claude takeover instructions"
+    }
+  ]
+}

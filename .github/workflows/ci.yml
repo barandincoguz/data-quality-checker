@@ -49,6 +49,6 @@ jobs:
           --batch-id ci_batch_001 \
           --hmac-key-file sample_data/sample_hmac.key
         dqcheck --config configs/presets/sample_data.json process \
-          --prepared-batch ci_batch_001 --fake-backend
+          --prepared-batch ci_batch_001 --generation G0 --fake-backend
         dqcheck --config configs/presets/sample_data.json status \
           --batch-id ci_batch_001

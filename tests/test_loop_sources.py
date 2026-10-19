@@ -108,6 +108,7 @@ def test_an_exemplar_outside_train_is_refused(tmp_path):
         loop_sources.validate_loop_sources(config)
 
 
+@pytest.mark.private_data
 def test_the_preset_carries_the_real_seals():
     config = load_config(PRESET)
 
@@ -120,6 +121,7 @@ def test_the_preset_carries_the_real_seals():
 LAW_ARTICLE_PRESET = REPO / "configs" / "presets" / "gt750_law_article_loop.json"
 
 
+@pytest.mark.private_data
 def test_the_law_article_loop_reads_gt_v8_with_every_quote_and_no_paragraph_field():
     """The loop since 2 Oct 2026: GT v8 (GT v7 with the fixes of its audit), sealed;
     the same SPLIT.json as v6; every reference a law and an article, each

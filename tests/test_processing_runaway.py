@@ -213,7 +213,6 @@ def _backend(monkeypatch, chunks: list[str], finish_reason: str, module) -> obje
             last = index == len(chunks)
             yield _StubResponse(chunk, index, finish_reason if last else None)
 
-    monkeypatch.setattr("mlx_lm.stream_generate", fake_stream_generate, raising=False)
     import sys
     import types
 

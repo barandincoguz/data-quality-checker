@@ -10,3 +10,5 @@ Güncel kod, [devir özeti](HANDOFF.md), [CLI](docs/CLI_REFERENCE.md), testler v
 19 Ekim 2026 eşitlemesinde yayımlanmamış 160 commitin sırası, yazar bilgileri ve mesajları korundu; kapalı GT v6–v9 dosyaları kamuya açık geçmişten çıkarıldı. Önceden kamuya açık GT v3 değişmedi. Bilimsel koşuların orijinal commitleri özel Git bundle yedeğinde ve yerel frozen ağaçlarda korunur.
 
 Kapalı test cevapları, anahtarlar, canlı veritabanları ve model ağırlıkları kamuya açık gönderime dahil değildir. Test açılışı veya model/etiket kararı yapılmadı. Özel depodaki bağlantılar yetkili GitHub hesabıyla görüntülenir.
+
+Gönderimden sonra eski CI stil kapıları düzeltildi: kaynak modüllerinin AST’leri ve testlerin executable AST’leri korunarak import sırası/biçim güncellendi. Eğitimde kullanılan orijinal frozen kod ve bundle arşivi aynı kaldı.

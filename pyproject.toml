@@ -38,6 +38,7 @@ compute = [
 test = [
   "pytest>=9,<10",
   "pytest-cov>=4.1.0",
+  "huggingface-hub>=1.4",
 ]
 dev = [
   "ruff>=0.4.0",
@@ -57,6 +58,7 @@ pythonpath = ["src", "."]
 addopts = "-ra --strict-markers"
 markers = [
   "compute: requires MLX and the pinned local model",
+  "private_data: requires the private, sealed DQ-Loop dataset",
 ]
 
 [tool.ruff]

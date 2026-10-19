@@ -502,7 +502,9 @@ def test_local_gemma_is_registered_as_an_mlx_provider() -> None:
     assert judge_model_providers()[JUDGE_MODEL_KEY] == "mlx"
 
 
-def test_resolve_returns_the_mlx_provider_not_an_ollama_fallthrough(monkeypatch) -> None:
+def test_resolve_returns_the_mlx_provider_not_an_ollama_fallthrough(
+    monkeypatch, judge_snapshot_stub
+) -> None:
     """Regression: dispatch fell through to Ollama for every non-gemini kind."""
     from data_quality_checker.constants import JUDGE_MODEL_KEY
     from data_quality_checker.judges import MlxJudgeProvider, resolve_judge_provider
@@ -514,7 +516,7 @@ def test_resolve_returns_the_mlx_provider_not_an_ollama_fallthrough(monkeypatch)
     assert isinstance(provider, MlxJudgeProvider)
 
 
-def test_constructing_the_mlx_provider_does_not_load_weights() -> None:
+def test_constructing_the_mlx_provider_does_not_load_weights(judge_snapshot_stub) -> None:
     """A 21 GB load in __init__ would make every test that builds a provider unusable."""
     from data_quality_checker.judges import MlxJudgeProvider
 
@@ -523,7 +525,9 @@ def test_constructing_the_mlx_provider_does_not_load_weights() -> None:
     assert provider._tokenizer is None
 
 
-def test_mlx_provider_strips_a_code_fence_before_returning(monkeypatch) -> None:
+def test_mlx_provider_strips_a_code_fence_before_returning(
+    monkeypatch, judge_snapshot_stub
+) -> None:
     """Ollama and Gemini enforce JSON server-side; a local model has no such gate."""
     from data_quality_checker.judges import MlxJudgeProvider
 

@@ -173,6 +173,17 @@ def test_execute_true_reaches_run_development_with_the_injected_fake_runner(
         return {"status": "fake_completed", "run_id": kwargs["run_id"]}
 
     monkeypatch.setattr("data_quality_checker.loop_train.run_development", fake_run_development)
+    from data_quality_checker import loop_train
+
+    real_environment = loop_train.environment_preflight
+
+    def fake_environment(config):
+        environment = real_environment(config)
+        environment["mlx_lm_version_ok"] = True
+        environment["packages"]["mlx-lm"] = config.model.minimum_mlx_lm
+        return environment
+
+    monkeypatch.setattr(loop_train, "environment_preflight", fake_environment)
 
     def fake_worker_runner(**kwargs):  # pragma: no cover - never actually called
         raise AssertionError("real compute must never run from a test")

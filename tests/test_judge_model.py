@@ -32,6 +32,7 @@ def test_non_empty_thought_channel_is_rejected() -> None:
         )
 
 
+@pytest.mark.compute
 def test_snapshot_resolves_from_the_lab_cache() -> None:
     snapshot = resolve_judge_snapshot()
     assert snapshot.is_dir()

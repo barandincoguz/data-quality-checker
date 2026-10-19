@@ -60,11 +60,17 @@ def test_a_config_chooses_the_prompt_and_an_unknown_one_is_refused() -> None:
     assert row["messages"][0]["content"] == PROMPTS["law-article-p6-minimal"]
 
 
-def test_the_elimination_sample_is_fixed_training_only_and_never_an_exemplar() -> None:
-    split = json.loads(
-        (ROOT / "data/ground_truth/gt_v7_gt750_law_article_2026-10-01/SPLIT.json").read_text()
-    )
-    split = {"train": [int(d) for d in split["train"]]}
+@pytest.mark.parametrize(
+    "source", ["synthetic", pytest.param("private", marks=pytest.mark.private_data)]
+)
+def test_the_elimination_sample_is_fixed_training_only_and_never_an_exemplar(source) -> None:
+    if source == "private":
+        split = json.loads(
+            (ROOT / "data/ground_truth/gt_v7_gt750_law_article_2026-10-01/SPLIT.json").read_text()
+        )
+        split = {"train": [int(d) for d in split["train"]]}
+    else:
+        split = {"train": list(range(1, 501))}
     sample = screen_documents(split)
     assert len(sample) == 100 and sample == screen_documents(split)
     assert set(sample) <= set(split["train"]) and not set(sample) & EXEMPLAR_DOC_IDS

@@ -96,6 +96,7 @@ def test_default_pilot_is_the_local_judge() -> None:
 
 def test_every_default_judge_resolves_without_any_cloud_key(
     monkeypatch: pytest.MonkeyPatch,
+    judge_snapshot_stub,
 ) -> None:
     """The default pilot must be runnable on this machine with no credentials.
 

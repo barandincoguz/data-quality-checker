@@ -31,14 +31,21 @@ def counts(reference, candidate, context_lists=()) -> tuple[int, int, int]:
 # 1. LAW NAME & NUMBER FALLBACK
 # ==============================================================================
 
+
 def test_numbered_vs_named_fallback_for_canonical_laws():
     """Laws in CANONICAL_LAW_BY_NO: GVK (193), VUK (213), KVK (5520), KDVK (3065), etc."""
     assert counts([ref("193", "", "94")], [ref("", "Gelir Vergisi Kanunu", "94")]) == (1, 0, 0)
     assert counts([ref("213", "", "5")], [ref("", "Vergi Usul Kanunu", "5")]) == (1, 0, 0)
     assert counts([ref("3065", "", "1")], [ref("", "Katma Değer Vergisi Kanunu", "1")]) == (1, 0, 0)
     assert counts([ref("488", "", "1")], [ref("", "Damga Vergisi Kanunu", "1")]) == (1, 0, 0)
-    assert counts([ref("4760", "", "1")], [ref("", "Özel Tüketim Vergisi Kanunu", "1")]) == (1, 0, 0)
-    assert counts([ref("6183", "", "1")], [ref("", "Amme Alacaklarının Tahsil Usulü Hakkında Kanun", "1")]) == (1, 0, 0)
+    assert counts([ref("4760", "", "1")], [ref("", "Özel Tüketim Vergisi Kanunu", "1")]) == (
+        1,
+        0,
+        0,
+    )
+    assert counts(
+        [ref("6183", "", "1")], [ref("", "Amme Alacaklarının Tahsil Usulü Hakkında Kanun", "1")]
+    ) == (1, 0, 0)
 
 
 def test_alias_abbreviations():
@@ -53,9 +60,14 @@ def test_alias_abbreviations():
 def test_ambiguous_laws_not_resolved():
     """Kurumlar Vergisi Kanunu (5422 vs 5520) must NOT resolve to either number if both are in ruling."""
     # When both only name Kurumlar Vergisi Kanunu, they match by name
-    assert counts([ref("", "Kurumlar Vergisi Kanunu", "14")], [ref("", "Kurumlar Vergisi Kanunu", "14")]) == (1, 0, 0)
+    assert counts(
+        [ref("", "Kurumlar Vergisi Kanunu", "14")], [ref("", "Kurumlar Vergisi Kanunu", "14")]
+    ) == (1, 0, 0)
     # When both 5422 and 5520 are in the ruling context, the name-only row cannot be guessed
-    gold = [ref("5422", "Kurumlar Vergisi Kanunu", ""), ref("5520", "Kurumlar Vergisi Kanunu", "14")]
+    gold = [
+        ref("5422", "Kurumlar Vergisi Kanunu", ""),
+        ref("5520", "Kurumlar Vergisi Kanunu", "14"),
+    ]
     cand = [ref("", "Kurumlar Vergisi Kanunu", "14"), ref("5422", "", "")]
     tp, fp, fn = counts(gold, cand)
     assert (tp, fp, fn) == (1, 1, 1)
@@ -64,7 +76,11 @@ def test_ambiguous_laws_not_resolved():
 def test_number_prefix_in_name_field():
     """'6183 sayılı Kanun' in the name field carries the number."""
     assert counts([ref("6183", "", "5")], [ref("", "6183 sayılı Kanun", "5")]) == (1, 0, 0)
-    assert counts([ref("6183", "", "5")], [ref("", "6183 sayılı Amme Alacakları Kanunu", "5")]) == (1, 0, 0)
+    assert counts([ref("6183", "", "5")], [ref("", "6183 sayılı Amme Alacakları Kanunu", "5")]) == (
+        1,
+        0,
+        0,
+    )
 
 
 def test_name_written_in_number_field():
@@ -79,12 +95,17 @@ def test_leading_zeros_and_empty_numbers():
     assert counts([ref("193", "", "94")], [ref("00193", "", "94")]) == (1, 0, 0)
     # Words meaning 'no number'
     for empty in ["null", "none", "nan", "yok", "-", "—", "n/a"]:
-        assert counts([ref("193", "", "94")], [ref(empty, "Gelir Vergisi Kanunu", "94")]) == (1, 0, 0)
+        assert counts([ref("193", "", "94")], [ref(empty, "Gelir Vergisi Kanunu", "94")]) == (
+            1,
+            0,
+            0,
+        )
 
 
 # ==============================================================================
 # 2. ARTICLE (MADDE) NORMALIZATION & VARIATIONS
 # ==============================================================================
+
 
 def test_article_basic_and_ordinals():
     assert counts([ref("193", "", "94")], [ref("193", "", "94.")]) == (1, 0, 0)
@@ -150,6 +171,7 @@ def test_bare_paragraph_number_never_becomes_law_level():
 # 3. SUBSUMPTION (LAW-ONLY ROW BESIDE ARTICLE IN SAME LIST)
 # ==============================================================================
 
+
 def test_law_only_row_beside_article_excused():
     gold = [ref("193", "", "94")]
     cand = [ref("193", "", ""), ref("193", "", "94")]
@@ -185,6 +207,7 @@ def test_duplicate_law_level_subsumed():
 # ==============================================================================
 # 4. DEDUPLICATION & PERMUTATION INVARIANCE
 # ==============================================================================
+
 
 def test_deduplication_exact_and_spelling():
     gold = [ref("193", "", "94")]
@@ -224,6 +247,7 @@ def test_permutation_invariance_stress():
 # 5. MULTI-LIST DOCUMENT CONTEXT & TRANSITIVITY
 # ==============================================================================
 
+
 def test_context_lists_align_law_names_transitively():
     """If Rater C connects 492 with 'Harçlar Kanunu', pairwise A and B benefit."""
     rater_a = [ref("492", "", "57")]
@@ -237,6 +261,7 @@ def test_context_lists_align_law_names_transitively():
 # ==============================================================================
 # 6. FUZZING, MALFORMED INPUTS & SCALE STRESS
 # ==============================================================================
+
 
 def test_malformed_and_extreme_inputs():
     """Empty, None, unicode garbage, whitespace, huge text."""
@@ -256,7 +281,9 @@ def test_malformed_and_extreme_inputs():
 def test_large_scale_stress():
     """Document with 50 gold references and 60 candidate references."""
     gold = [ref("193", "", str(i)) for i in range(1, 51)]
-    cand = [ref("193", "", str(i)) for i in range(1, 41)] + [ref("213", "", str(i)) for i in range(1, 21)]
+    cand = [ref("193", "", str(i)) for i in range(1, 41)] + [
+        ref("213", "", str(i)) for i in range(1, 21)
+    ]
     res = compare_reference_lists(gold, cand)
     assert res.tp == 40
     assert res.fn == 10
@@ -266,6 +293,7 @@ def test_large_scale_stress():
 # ==============================================================================
 # 7. ENGINE HARDENING REGRESSION TESTS (AUDIT GAPS RESOLVED)
 # ==============================================================================
+
 
 def test_expanded_canonical_laws_direct_fallback():
     """All 14 newly added canonical laws and aliases resolve without ruling context."""
@@ -281,13 +309,25 @@ def test_expanded_canonical_laws_direct_fallback():
     assert counts([ref("1319", "", "8")], [ref("", "Emlak Vergisi Kanunu", "8")]) == (1, 0, 0)
 
     # 2464 Belediye Gelirleri Kanunu (34 refs)
-    assert counts([ref("2464", "", "12")], [ref("", "Belediye Gelirleri Kanunu", "12")]) == (1, 0, 0)
+    assert counts([ref("2464", "", "12")], [ref("", "Belediye Gelirleri Kanunu", "12")]) == (
+        1,
+        0,
+        0,
+    )
 
     # 7338 Veraset ve İntikal Vergisi Kanunu (18 refs)
-    assert counts([ref("7338", "", "4")], [ref("", "Veraset ve İntikal Vergisi Kanunu", "4")]) == (1, 0, 0)
+    assert counts([ref("7338", "", "4")], [ref("", "Veraset ve İntikal Vergisi Kanunu", "4")]) == (
+        1,
+        0,
+        0,
+    )
 
     # 197 Motorlu Taşıtlar Vergisi Kanunu
-    assert counts([ref("197", "", "5")], [ref("", "Motorlu Taşıtlar Vergisi Kanunu", "5")]) == (1, 0, 0)
+    assert counts([ref("197", "", "5")], [ref("", "Motorlu Taşıtlar Vergisi Kanunu", "5")]) == (
+        1,
+        0,
+        0,
+    )
     assert counts([ref("197", "", "5")], [ref("", "MTVK", "5")]) == (1, 0, 0)
 
     # 6102 Türk Ticaret Kanunu & TTK
@@ -295,7 +335,9 @@ def test_expanded_canonical_laws_direct_fallback():
     assert counts([ref("6102", "", "18")], [ref("", "TTK", "18")]) == (1, 0, 0)
 
     # 5510 Sosyal Sigortalar ve Genel Sağlık Sigortası Kanunu & SSGSK
-    assert counts([ref("5510", "", "4")], [ref("", "Sosyal Sigortalar ve Genel Sağlık Sigortası Kanunu", "4")]) == (1, 0, 0)
+    assert counts(
+        [ref("5510", "", "4")], [ref("", "Sosyal Sigortalar ve Genel Sağlık Sigortası Kanunu", "4")]
+    ) == (1, 0, 0)
     assert counts([ref("5510", "", "4")], [ref("", "SSGSK", "4")]) == (1, 0, 0)
 
     # 4721 Türk Medeni Kanunu & TMK
@@ -336,7 +378,11 @@ def test_qualified_article_ranges():
     assert counts([ref("193", "", "geçici 1 ila 3")], [ref("193", "", "geçici 1-3")]) == (1, 0, 0)
     assert counts([ref("193", "", "geçici 1 ila 3")], [ref("193", "", "geçici 1 – 3")]) == (1, 0, 0)
     assert counts([ref("193", "", "geçici 1 ila 3")], [ref("193", "", "geçici 1 — 3")]) == (1, 0, 0)
-    assert counts([ref("193", "", "geçici 1 ila 3")], [ref("193", "", "geçici 1 ila 3")]) == (1, 0, 0)
+    assert counts([ref("193", "", "geçici 1 ila 3")], [ref("193", "", "geçici 1 ila 3")]) == (
+        1,
+        0,
+        0,
+    )
 
 
 def test_article_prefix_colons_and_hyphens():
@@ -374,4 +420,3 @@ def test_subsumption_with_expanded_canonical_law():
     cand = [ref("", "Harçlar Kanunu", ""), ref("492", "", "57")]
     # Extra law-only is excused, article matches
     assert counts(gold, cand) == (1, 0, 0)
-

@@ -44,8 +44,14 @@ def test_a_named_row_is_the_numbered_row_of_its_law_in_the_same_list() -> None:
 
 def test_the_references_claimed_never_change() -> None:
     rng = random.Random(7)
-    pool = [ref("193", "", "94"), ref("193", "", ""), ref("5520", "", "10"), ref("", "Gelir Vergisi Kanunu", "94"),
-            ref("213", "", "359"), ref("3065", "", "")]
+    pool = [
+        ref("193", "", "94"),
+        ref("193", "", ""),
+        ref("5520", "", "10"),
+        ref("", "Gelir Vergisi Kanunu", "94"),
+        ref("213", "", "359"),
+        ref("3065", "", ""),
+    ]
     for _ in range(200):
         rows = [rng.choice(pool) for _ in range(rng.randint(0, 8))]
         kept = [rows[i] for i in distinct_rows(rows)]

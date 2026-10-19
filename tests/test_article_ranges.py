@@ -41,7 +41,12 @@ def test_anything_else_is_not_a_range() -> None:
 
 def test_expanding_a_list_keeps_order_fields_and_where_each_row_came_from() -> None:
     rows = expand_ranges([ref("6102", "473 ila 475", "q"), ref("193", "94")])
-    assert [(r["kanun_no"], r["madde"]) for r in rows] == [("6102", "473"), ("6102", "474"), ("6102", "475"), ("193", "94")]
+    assert [(r["kanun_no"], r["madde"]) for r in rows] == [
+        ("6102", "473"),
+        ("6102", "474"),
+        ("6102", "475"),
+        ("193", "94"),
+    ]
     assert rows[0]["source_text"] == "q" and rows[0]["expanded_from"] == "473 ila 475"
     assert "expanded_from" not in rows[3]
 
@@ -57,5 +62,9 @@ def test_the_engine_compares_a_range_with_its_articles() -> None:
 
 def test_the_screen_shows_a_range_as_its_articles() -> None:
     rows = ab_diff([ref("6102", "473 ila 475")], [ref("6102", "473"), ref("6102", "474")])
-    assert [(r["core"]["madde"], r["status"]) for r in rows] == [("473", "same"), ("474", "same"), ("475", "only_a")]
+    assert [(r["core"]["madde"], r["status"]) for r in rows] == [
+        ("473", "same"),
+        ("474", "same"),
+        ("475", "only_a"),
+    ]
     assert rows[2]["a"][0]["expanded_from"] == "473 ila 475"

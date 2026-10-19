@@ -104,9 +104,7 @@ def _source_row(user: str, references: list[dict[str, str]]) -> dict[str, object
     }
 
 
-def test_every_training_user_turn_is_real_document_text(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_every_training_user_turn_is_real_document_text(tmp_path: Path, monkeypatch) -> None:
     """The trainee is served document prose or nothing.
 
     The document below is long enough to be windowed and carries two

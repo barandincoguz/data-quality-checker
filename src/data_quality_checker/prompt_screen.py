@@ -45,29 +45,42 @@ def screen_documents(split: dict[str, list[int]], *, size: int = SAMPLE_SIZE) ->
     """A fixed sample of training documents, chosen by hash, never by content."""
 
     pool = [doc_id for doc_id in split["train"] if doc_id not in EXEMPLAR_DOC_IDS]
-    ranked = sorted(pool, key=lambda d: hashlib.sha256(f"{SAMPLE_NAMESPACE}:{d}".encode()).hexdigest())
+    ranked = sorted(
+        pool, key=lambda d: hashlib.sha256(f"{SAMPLE_NAMESPACE}:{d}".encode()).hexdigest()
+    )
     return sorted(ranked[:size])
 
 
-def _rows(documents: dict[int, dict[str, Any]], doc_ids: list[int], system_prompt: str) -> list[dict[str, Any]]:
+def _rows(
+    documents: dict[int, dict[str, Any]], doc_ids: list[int], system_prompt: str
+) -> list[dict[str, Any]]:
     rows = []
     for doc_id in doc_ids:
         target = [
             {field: reference.get(field, "") for field in ("kanun_no", "kanun_ad", "madde")}
             for reference in documents[doc_id]["references"]
         ]
-        rows.append({"messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": documents[doc_id]["text"]},
-            {"role": "assistant", "content": json.dumps(target, ensure_ascii=False, separators=(",", ":"))},
-        ]})
+        rows.append(
+            {
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": documents[doc_id]["text"]},
+                    {
+                        "role": "assistant",
+                        "content": json.dumps(target, ensure_ascii=False, separators=(",", ":")),
+                    },
+                ]
+            }
+        )
     return rows
 
 
 def rank(results: dict[str, dict[str, Any]]) -> list[str]:
     """Best first: F1, then recall, then the shorter prompt."""
 
-    return sorted(results, key=lambda v: (-results[v]["f1"], -results[v]["recall"], len(PROMPTS[v])))
+    return sorted(
+        results, key=lambda v: (-results[v]["f1"], -results[v]["recall"], len(PROMPTS[v]))
+    )
 
 
 def stage_one(config: Any, *, base_run_id: str, worker=None, evaluator=None) -> dict[str, Any]:
@@ -125,10 +138,20 @@ def stage_one(config: Any, *, base_run_id: str, worker=None, evaluator=None) -> 
             config_fingerprint=str(getattr(config, "fingerprint", "")),
         ).start(stage=variant)
         try:
-            produced = worker(compute_root=out, stage=f"screen_{variant}", request=request, lease=lease,
-                              timeout_seconds=14_400)
-            report = evaluator(config=config, predictions_path=Path(produced["predictions_path"]),
-                               doc_ids_path=ids, output_dir=out, expected_doc_count=len(doc_ids))
+            produced = worker(
+                compute_root=out,
+                stage=f"screen_{variant}",
+                request=request,
+                lease=lease,
+                timeout_seconds=14_400,
+            )
+            report = evaluator(
+                config=config,
+                predictions_path=Path(produced["predictions_path"]),
+                doc_ids_path=ids,
+                output_dir=out,
+                expected_doc_count=len(doc_ids),
+            )
         except BaseException as exc:
             lease.finish(status="failed", error=str(exc))
             raise
@@ -204,7 +227,9 @@ def _curve(candidate_root: Path) -> dict[int, dict[str, Any]]:
     return curve
 
 
-def stage_two(runs: dict[str, Path], *, output: Path, at: int = SHORT_RUN_UPDATES) -> dict[str, Any]:
+def stage_two(
+    runs: dict[str, Path], *, output: Path, at: int = SHORT_RUN_UPDATES
+) -> dict[str, Any]:
     """Compare the stage-two runs at update `at` (pre-registered) and pick the winner.
 
     `runs` maps each prompt variant to its run's candidate root (the current
@@ -227,14 +252,20 @@ def stage_two(runs: dict[str, Path], *, output: Path, at: int = SHORT_RUN_UPDATE
             "f1": curve[at]["f1"],
             "recall": curve[at]["recall"],
             "best_f1_up_to": max(point["f1"] for update, point in curve.items() if update <= at),
-            "curve": {update: round(point["f1"], 4) for update, point in sorted(curve.items()) if update <= at},
+            "curve": {
+                update: round(point["f1"], 4)
+                for update, point in sorted(curve.items())
+                if update <= at
+            },
         }
         for variant, curve in curves.items()
     }
     current = curves[PROMPT_VARIANT][at]["per_document"]
     for variant in results:
         if variant != PROMPT_VARIANT:
-            results[variant]["vs_current"] = paired_delta(current, curves[variant][at]["per_document"])
+            results[variant]["vs_current"] = paired_delta(
+                current, curves[variant][at]["per_document"]
+            )
     order = rank(results)
     payload = {
         "schema_version": 1,

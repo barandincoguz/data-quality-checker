@@ -51,12 +51,24 @@ def test_attention_comes_before_information() -> None:
 
 
 def test_quote_and_paragraph_fields_are_not_shown() -> None:
-    assert explain_warnings([null("source_text", 0), null("fikra", 0), null("bent", 1),
-                             {"code": "source_text_not_in_selected_channel", "reference_index": 0}], HUMAN) == []
+    assert (
+        explain_warnings(
+            [
+                null("source_text", 0),
+                null("fikra", 0),
+                null("bent", 1),
+                {"code": "source_text_not_in_selected_channel", "reference_index": 0},
+            ],
+            HUMAN,
+        )
+        == []
+    )
 
 
 def test_a_missing_field_reads_like_a_null_one() -> None:
-    [note] = explain_warnings([{"code": "reference_missing_field", "field": "madde", "reference_index": 0}], HUMAN)
+    [note] = explain_warnings(
+        [{"code": "reference_missing_field", "field": "madde", "reference_index": 0}], HUMAN
+    )
     assert note["level"] == "attention" and "1. satır" in note["text"]
 
 

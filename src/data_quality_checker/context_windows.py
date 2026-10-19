@@ -151,19 +151,13 @@ def _token_span_for_chars(
         max(0, len(offsets) - 1),
     )
     end = next(
-        (
-            index + 1
-            for index in range(len(offsets) - 1, -1, -1)
-            if offsets[index][0] < char_end
-        ),
+        (index + 1 for index in range(len(offsets) - 1, -1, -1) if offsets[index][0] < char_end),
         start + 1,
     )
     return start, max(end, start + 1)
 
 
-def _expanded_interval(
-    start: int, end: int, total: int, minimum_tokens: int
-) -> tuple[int, int]:
+def _expanded_interval(start: int, end: int, total: int, minimum_tokens: int) -> tuple[int, int]:
     """Grow a token interval to a minimum width, inside the body, still
     containing the interval it was given."""
 
@@ -282,8 +276,7 @@ def _dense_replay_rows(
         row, tokens = render(pack)
         if tokens > max_sequence_length:
             raise ContractError(
-                f"dense replay row tokens={tokens} exceed "
-                f"max_sequence_length={max_sequence_length}"
+                f"dense replay row tokens={tokens} exceed max_sequence_length={max_sequence_length}"
             )
         cursor = index + 1
         while cursor < len(located) and len(pack) < DENSE_REPLAY_MAX_REFERENCES:

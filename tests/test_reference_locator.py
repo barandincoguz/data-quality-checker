@@ -215,8 +215,17 @@ def test_an_article_without_its_qualifier_is_a_different_article() -> None:
 from data_quality_checker.reference_locator import place_reference  # noqa: E402
 
 
-def _full(kanun_no: str, madde: str, fikra: str = "", bent: str = "", kanun_ad: str = "") -> dict[str, str]:
-    return {"kanun_no": kanun_no, "kanun_ad": kanun_ad, "madde": madde, "fikra": fikra, "bent": bent, "source_text": ""}
+def _full(
+    kanun_no: str, madde: str, fikra: str = "", bent: str = "", kanun_ad: str = ""
+) -> dict[str, str]:
+    return {
+        "kanun_no": kanun_no,
+        "kanun_ad": kanun_ad,
+        "madde": madde,
+        "fikra": fikra,
+        "bent": bent,
+        "source_text": "",
+    }
 
 
 def test_a_law_title_may_carry_its_acronym_in_parentheses() -> None:
@@ -264,8 +273,16 @@ def test_words_before_a_short_law_name_do_not_hide_it() -> None:
     """GT750 doc_561 ("Ayrıca, KDV Kanununun") and doc_225 ("… A.Ş’ye KDV Kanununun"):
     a sentence opener or a company name glued before the title is not part of it."""
     for text, madde, bent in (
-        ("%8 oranında KDV uygulanması öngörülmüştür. Ayrıca, KDV Kanununun 13 üncü maddesinin (l) bendiyle; Sağlık", "13", "l"),
-        ("Avrasya Tüneli İşletme İnşaat ve Yatırım A.Ş’ye KDV Kanununun geçici 29 uncu maddesi uyarınca KDV", "geçici 29", ""),
+        (
+            "%8 oranında KDV uygulanması öngörülmüştür. Ayrıca, KDV Kanununun 13 üncü maddesinin (l) bendiyle; Sağlık",
+            "13",
+            "l",
+        ),
+        (
+            "Avrasya Tüneli İşletme İnşaat ve Yatırım A.Ş’ye KDV Kanununun geçici 29 uncu maddesi uyarınca KDV",
+            "geçici 29",
+            "",
+        ),
     ):
         placement = place_reference(text, _full("3065", madde, bent=bent))
         assert placement is not None and placement.law == 0, text

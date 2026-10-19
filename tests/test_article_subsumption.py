@@ -52,8 +52,13 @@ class TestOneRowPerProvision:
         assert len(compact_references(rows)) == 1
 
     def test_different_articles_and_laws_stay_apart(self) -> None:
-        rows = [_reference("193", "37"), _reference("193", "51"), _reference("6102", "51"), _reference("5520", "32/A"),
-                _reference("5520", "32")]
+        rows = [
+            _reference("193", "37"),
+            _reference("193", "51"),
+            _reference("6102", "51"),
+            _reference("5520", "32/A"),
+            _reference("5520", "32"),
+        ]
         assert len(compact_references(rows)) == 5
 
     def test_the_law_level_rule_still_applies(self) -> None:
@@ -71,14 +76,23 @@ class TestRobustness:
     """
 
     CASES = [
-        [_reference("193", "51"), _reference("193", "51", fikra="1", bent="8"), _reference("193", "37")],
+        [
+            _reference("193", "51"),
+            _reference("193", "51", fikra="1", bent="8"),
+            _reference("193", "37"),
+        ],
         [
             _reference("3065", "17", fikra="4", bent="l"),
             _reference("3065", "17"),
             _reference("3065", "17/2-b"),
             _reference("3065", ""),
         ],
-        [_reference("193", ""), _reference("193", "51"), _reference("5520", "32/A"), _reference("5520", "32/a")],
+        [
+            _reference("193", ""),
+            _reference("193", "51"),
+            _reference("5520", "32/A"),
+            _reference("5520", "32/a"),
+        ],
     ]
 
     @pytest.mark.parametrize("rows", CASES)

@@ -280,9 +280,13 @@ def train_loop_candidate(
             # set is checked against the release by
             # `check_raw_candidate_against_release`.
             if ROUND_STAGES.index(stage) < ROUND_STAGES.index("routed"):
-                raise GateBlocked(f"round {round_index} is at {stage!r}; the raw arm needs it routed")
+                raise GateBlocked(
+                    f"round {round_index} is at {stage!r}; the raw arm needs it routed"
+                )
         elif ROUND_STAGES.index(stage) < ROUND_STAGES.index("adjudicated"):
-            raise GateBlocked(f"round {round_index} is at {stage!r}; run loop-mark --stage adjudicated first")
+            raise GateBlocked(
+                f"round {round_index} is at {stage!r}; run loop-mark --stage adjudicated first"
+            )
     mode = training_view_mode(config, view)
     trained = _train_and_select(
         config, round_index=round_index, resume=resume, view=mode, stop_at=stop_at, labels=labels
@@ -293,9 +297,17 @@ def train_loop_candidate(
         adapter_path=Path(trained["selection"]["adapter_path"]),
         max_sequence_length=int(context["run_config"]["selected_sequence_length"]),
     )
-    record = {"schema_version": 1, "round": round_index, "generation": round_label(round_index),
-              "training_view_mode": mode, "label_source": labels, "sealed": False,
-              "stopped_at_update": stop_at, **trained, "registry": registry}
+    record = {
+        "schema_version": 1,
+        "round": round_index,
+        "generation": round_label(round_index),
+        "training_view_mode": mode,
+        "label_source": labels,
+        "sealed": False,
+        "stopped_at_update": stop_at,
+        **trained,
+        "registry": registry,
+    }
     path = _candidate_path(config, round_index, mode, labels)
     write_json_atomic(path, record)
     write_json_atomic(path.with_name(f"{path.stem}_registry.json"), registry, mode=0o644)
@@ -311,11 +323,13 @@ def check_raw_candidate_against_release(config: Any, *, round_index: int) -> dic
     trained; a run whose documents differ is not `M_k_raw` and is trained again
     on the release (pre-registered). Ids and counts only.
     """
-    record = json.loads(_candidate_path(config, round_index, "windows", "raw").read_text(encoding="utf-8"))
+    record = json.loads(
+        _candidate_path(config, round_index, "windows", "raw").read_text(encoding="utf-8")
+    )
     run_ids = json.loads(
-        (Path(config.sensitive_root) / "loop" / record["run_id"] / "data" / "train_doc_ids.json").read_text(
-            encoding="utf-8"
-        )
+        (
+            Path(config.sensitive_root) / "loop" / record["run_id"] / "data" / "train_doc_ids.json"
+        ).read_text(encoding="utf-8")
     )
     # A canonical document keeps its integer id; a round's documents are strings.
     in_run = {doc_id for doc_id in run_ids if isinstance(doc_id, str)}
@@ -532,8 +546,12 @@ def compare_views(config: Any, *, round_index: int) -> dict[str, Any]:
             raise ContractError("the two lines were validated on different documents")
         universe = doc_ids
         if run["selected_update"] not in scored:
-            raise GateBlocked(f"{run['run_id']} has no validation predictions for its selected update")
-        curves[view] = [{"update": update, **_line_summary(scored[update])} for update in sorted(scored)]
+            raise GateBlocked(
+                f"{run['run_id']} has no validation predictions for its selected update"
+            )
+        curves[view] = [
+            {"update": update, **_line_summary(scored[update])} for update in sorted(scored)
+        ]
         run["last_update"] = max(scored)
         selected[view] = scored[run["selected_update"]]
     payload: dict[str, Any] = {
@@ -658,8 +676,16 @@ def batch_trend(config: Any) -> dict[str, Any]:
                 change: dict[str, Any] = {}
                 for name in table["sources"]:
                     for level in ("core",):
-                        a = {d: dict(zip(("tp", "fp", "fn"), v[name][level])) for d, v in after.items() if name in v}
-                        b = {d: dict(zip(("tp", "fp", "fn"), v[name][level])) for d, v in before.items() if name in v}
+                        a = {
+                            d: dict(zip(("tp", "fp", "fn"), v[name][level]))
+                            for d, v in after.items()
+                            if name in v
+                        }
+                        b = {
+                            d: dict(zip(("tp", "fp", "fn"), v[name][level]))
+                            for d, v in before.items()
+                            if name in v
+                        }
                         if a and b:
                             change.setdefault(name, {})[level] = unpaired_f1_delta(b, a)
                 summary["vs_previous_batch"] = change
@@ -677,10 +703,14 @@ def batch_trend(config: Any) -> dict[str, Any]:
         }
         second = _candidate_path(config, index, SECOND_LINE_VIEW)
         if second.is_file():
-            row["full_documents_core_f1"] = json.loads(second.read_text(encoding="utf-8"))["selection"]["core_f1"]
+            row["full_documents_core_f1"] = json.loads(second.read_text(encoding="utf-8"))[
+                "selection"
+            ]["core_f1"]
         ablation = _loop_dir(config) / "candidates" / f"round_{index:03d}_ablation.json"
         if ablation.is_file():
-            gains = json.loads(ablation.read_text(encoding="utf-8")).get("paired_bootstrap_vs_previous_round")
+            gains = json.loads(ablation.read_text(encoding="utf-8")).get(
+                "paired_bootstrap_vs_previous_round"
+            )
             if gains:
                 row["paired_vs_previous_round"] = gains
         validation.append(row)

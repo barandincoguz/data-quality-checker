@@ -22,7 +22,11 @@ from data_quality_checker.storage import Store
 
 playwright = pytest.importorskip("playwright.sync_api")
 _CHROMIUM = sorted(
-    glob.glob(os.path.expanduser("~/Library/Caches/ms-playwright/chromium_headless_shell-*/*/chrome-headless-shell"))
+    glob.glob(
+        os.path.expanduser(
+            "~/Library/Caches/ms-playwright/chromium_headless_shell-*/*/chrome-headless-shell"
+        )
+    )
 )
 pytestmark = pytest.mark.skipif(not _CHROMIUM, reason="no Chromium build for Playwright")
 
@@ -54,7 +58,12 @@ def page(ui):
 
 
 def _row(page, kanun_no: str, madde: str):
-    return page.locator("table.cmp tbody tr[data-row]").filter(has_text=kanun_no).filter(has_text=f"madde {madde}").first
+    return (
+        page.locator("table.cmp tbody tr[data-row]")
+        .filter(has_text=kanun_no)
+        .filter(has_text=f"madde {madde}")
+        .first
+    )
 
 
 def test_only_differences_can_be_shown(page) -> None:
@@ -112,15 +121,22 @@ def test_a_revision_can_be_composed_from_the_table_and_saves_as_composed(ui, pag
     assert page.locator("#revision-panel").get_attribute("open") is not None
     cells = page.locator("#ref-rows tr")
     assert cells.count() == 2
-    picked = {(cells.nth(i).locator("input[data-field=kanun_no]").input_value(),
-               cells.nth(i).locator("input[data-field=madde]").input_value()) for i in range(2)}
+    picked = {
+        (
+            cells.nth(i).locator("input[data-field=kanun_no]").input_value(),
+            cells.nth(i).locator("input[data-field=madde]").input_value(),
+        )
+        for i in range(2)
+    }
     assert picked == {("213", "mükerrer 257"), ("7194", "geçici 1")}
     page.click("button[value=revise]")
     page.wait_for_function("!location.pathname.endsWith('d000004')")
     with Store(config.database_path) as store:
         review = store.get_review("batch", "d000004")
     assert review["action"] == "revise"
-    assert {(r["kanun_no"], r["madde"]) for r in json.loads(review["final_references_json"])} == picked
+    assert {
+        (r["kanun_no"], r["madde"]) for r in json.loads(review["final_references_json"])
+    } == picked
 
 
 def test_preparation_warnings_are_explained_not_dumped(page) -> None:
@@ -163,17 +179,30 @@ def test_a_range_row_in_the_revision_table_expands_to_one_row_per_article(ui, pa
     page.click("#fill-a")
     rows = page.locator("#ref-rows tr")
     before = rows.count()
-    index = next(i for i in range(before) if rows.nth(i).locator("input[data-field=madde]").input_value() == "620 ila 645")
+    index = next(
+        i
+        for i in range(before)
+        if rows.nth(i).locator("input[data-field=madde]").input_value() == "620 ila 645"
+    )
     assert rows.nth(index).locator("button.expand-range").count() == 1
     rows.nth(index).locator("button.expand-range").click()
     assert rows.count() == before - 1 + 26
-    maddes = [rows.nth(i).locator("input[data-field=madde]").input_value() for i in range(rows.count())]
-    assert [m for m in maddes if m.isdigit() and 620 <= int(m) <= 645] == [str(n) for n in range(620, 646)]
-    assert all(rows.nth(i).locator("input[data-field=kanun_no]").input_value() == "6098"
-               for i in range(rows.count()) if maddes[i].isdigit() and 620 <= int(maddes[i]) <= 645)
+    maddes = [
+        rows.nth(i).locator("input[data-field=madde]").input_value() for i in range(rows.count())
+    ]
+    assert [m for m in maddes if m.isdigit() and 620 <= int(m) <= 645] == [
+        str(n) for n in range(620, 646)
+    ]
+    assert all(
+        rows.nth(i).locator("input[data-field=kanun_no]").input_value() == "6098"
+        for i in range(rows.count())
+        if maddes[i].isdigit() and 620 <= int(maddes[i]) <= 645
+    )
     assert page.locator("button.expand-range").count() == 0
     page.click("button[value=revise]")
     page.wait_for_function("!location.pathname.endsWith('d000004')")
     with Store(config.database_path) as store:
         final = json.loads(store.get_review("batch", "d000004")["final_references_json"])
-    assert {r["madde"] for r in final if r["kanun_no"] == "6098"} == {str(n) for n in range(620, 646)}
+    assert {r["madde"] for r in final if r["kanun_no"] == "6098"} == {
+        str(n) for n in range(620, 646)
+    }

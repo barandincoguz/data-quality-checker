@@ -859,7 +859,6 @@ def test_paired_delta_a_small_noisy_difference_is_inconclusive_not_improved() ->
     assert result["verdict"] != "improved"
 
 
-
 def test_an_empty_document_left_empty_beats_a_spurious_row_in_the_document_count() -> None:
     """Validation doc 262 has no gold reference: leaving it empty is a win over
     writing a row there, not a tie (engine audit, 2 Oct 2026)."""

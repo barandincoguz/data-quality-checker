@@ -569,7 +569,11 @@ def test_review_page_renders_diff_table_progress_and_editor(tmp_path) -> None:
     # Highlighting: the document text renders with <mark> spans and a legend;
     # every compared reference is marked where it is cited, coloured by its
     # comparison status (6 Oct 2026; before, only the annotator's quote).
-    assert "İki tarafta da" in html and "Yalnız insan anotasyonunda" in html and "Yalnız modelde" in html
+    assert (
+        "İki tarafta da" in html
+        and "Yalnız insan anotasyonunda" in html
+        and "Yalnız modelde" in html
+    )
     assert '<mark class="ev' in html
     assert 'class="doctext"' in html
     assert '<details class="technical">' in html
@@ -729,11 +733,18 @@ def test_page_time_reaches_the_round_workload(tmp_path) -> None:
         version = client.get(f"/api/documents/{doc_id}").get_json()["row_version"]
         client.post(
             f"/review/{doc_id}",
-            data={"csrf_token": csrf, "row_version": str(version), "action": action,
-                  "reason": reason, "opened_at": str(time.time() - 30)},
+            data={
+                "csrf_token": csrf,
+                "row_version": str(version),
+                "action": action,
+                "reason": reason,
+                "opened_at": str(time.time() - 30),
+            },
         )
     with Store(config.database_path) as store:
-        records = round_records(config, store, batch_id="batch", generation="G0", judge_model="none")
+        records = round_records(
+            config, store, batch_id="batch", generation="G0", judge_model="none"
+        )
     assert 59 <= records[0]["seconds_on_page"] < 70
     assert 59 <= expert_workload(records)["expert_seconds_total"] < 70
 
@@ -770,7 +781,9 @@ def test_an_empty_queue_shows_a_finished_page(tmp_path) -> None:
     client = app.test_client()
     csrf = authenticated(client)
     doc_id = client.get("/api/queue").get_json()["queue"][0]["internal_doc_id"]
-    client.post(f"/review/{doc_id}", data={"csrf_token": csrf, "row_version": "0", "action": "accept_human"})
+    client.post(
+        f"/review/{doc_id}", data={"csrf_token": csrf, "row_version": "0", "action": "accept_human"}
+    )
     done = client.get("/review/next")
     assert done.status_code == 200
     assert "tamamlandı" in done.get_data(as_text=True)

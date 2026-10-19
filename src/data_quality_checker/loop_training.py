@@ -118,7 +118,11 @@ def sealed_release_dir(config: Any, batch_id: str) -> Path:
 
 def training_document_id(batch_id: str, doc_id: str, batch_ids: Sequence[str]) -> str:
     """Preserve historical single-batch IDs; scope multi-batch training IDs."""
-    return json.dumps([batch_id, doc_id], ensure_ascii=False, separators=(",", ":")) if len(batch_ids) > 1 else doc_id
+    return (
+        json.dumps([batch_id, doc_id], ensure_ascii=False, separators=(",", ":"))
+        if len(batch_ids) > 1
+        else doc_id
+    )
 
 
 def _released_rows(config: Any, batch_ids: Sequence[str]) -> dict[str, dict[str, Any]]:
@@ -165,13 +169,22 @@ def _released_rows(config: Any, batch_ids: Sequence[str]) -> dict[str, dict[str,
                         f"batch {batch_id!r}'s release"
                     )
                 raw_id = row.get("raw_document_id")
-                source_id = ("raw", raw_id) if isinstance(raw_id, str) and raw_id else ("legacy", doc_id)
+                source_id = (
+                    ("raw", raw_id) if isinstance(raw_id, str) and raw_id else ("legacy", doc_id)
+                )
                 if source_id in source_documents:
-                    raise ContractError(f"source document is duplicated while assembling batch {batch_id!r}")
+                    raise ContractError(
+                        f"source document is duplicated while assembling batch {batch_id!r}"
+                    )
                 source_documents.add(source_id)
-                documents[training_id] = {"batch_id": batch_id, "internal_doc_id": doc_id,
-                                          "raw_document_id": raw_id, "tier": name,
-                                          "text": text, "references": references}
+                documents[training_id] = {
+                    "batch_id": batch_id,
+                    "internal_doc_id": doc_id,
+                    "raw_document_id": raw_id,
+                    "tier": name,
+                    "text": text,
+                    "references": references,
+                }
                 batch_document_count += 1
         if not found:
             raise ContractError(f"no release found for batch {batch_id!r} under {directory}")
@@ -219,13 +232,19 @@ def round_training_documents(config: Any, *, batch_ids: Sequence[str]) -> dict[s
     documents: dict[str, dict[str, Any]] = {}
     for doc_id, row in _released_rows(config, batch_ids).items():
         if not all(isinstance(reference, dict) for reference in row["references"]):
-            raise ContractError(f"released document {doc_id!r} has a reference that is not an object")
-        released = apply_corrections(row["references"], corrections[row["batch_id"]].get(row["internal_doc_id"], []))
+            raise ContractError(
+                f"released document {doc_id!r} has a reference that is not an object"
+            )
+        released = apply_corrections(
+            row["references"], corrections[row["batch_id"]].get(row["internal_doc_id"], [])
+        )
         # An article range is every article in it (7 Oct 2026).
         references = _without_range_marks(expand_ranges(released))
         documents[doc_id] = {
             "text": row["text"],
-            "references": [{**references[index], "source_text": ""} for index in distinct_rows(references)],
+            "references": [
+                {**references[index], "source_text": ""} for index in distinct_rows(references)
+            ],
         }
     documents, refusals = attach_mention_spans(documents)
     if refusals:
@@ -275,7 +294,10 @@ def _annotator_lists(database_path: Path, batch_id: str) -> dict[str, dict[str, 
 
 def _without_range_marks(references: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Training targets carry the decision fields only, not where a row was expanded from."""
-    return [{key: value for key, value in reference.items() if key != "expanded_from"} for reference in references]
+    return [
+        {key: value for key, value in reference.items() if key != "expanded_from"}
+        for reference in references
+    ]
 
 
 def gold_training_references(references: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -286,7 +308,9 @@ def gold_training_references(references: list[dict[str, Any]]) -> list[dict[str,
     for group in row_groups(expanded):
         quotes: list[str] = []
         for index in group:
-            for quote in expanded[index].get("source_texts") or [expanded[index].get("source_text") or ""]:
+            for quote in expanded[index].get("source_texts") or [
+                expanded[index].get("source_text") or ""
+            ]:
                 if quote and quote not in quotes:
                     quotes.append(quote)
         first = dict(expanded[group[0]])
@@ -300,7 +324,9 @@ def gold_training_references(references: list[dict[str, Any]]) -> list[dict[str,
 
 def _has_sealed_release(config: Any, batch_id: str) -> bool:
     parent = Path(config.sensitive_root) / "releases" / batch_id
-    return parent.is_dir() and any((path / "manifest.json").is_file() for path in parent.glob("release_*"))
+    return parent.is_dir() and any(
+        (path / "manifest.json").is_file() for path in parent.glob("release_*")
+    )
 
 
 def round_raw_training_documents(
@@ -351,7 +377,9 @@ def round_raw_training_documents(
                         f"released document {doc_id!r} differs from the text prepared in batch {batch_id!r}"
                     )
                 if row["raw_document_id"] and row["raw_document_id"] != prepared["raw_document_id"]:
-                    raise ContractError(f"released source document {doc_id!r} differs from batch {batch_id!r}")
+                    raise ContractError(
+                        f"released source document {doc_id!r} differs from batch {batch_id!r}"
+                    )
             ids = sorted(_released_rows(config, [batch_id]))
             documents_from[batch_id] = "release"
         else:
@@ -364,30 +392,39 @@ def round_raw_training_documents(
         for doc_id in ids:
             training_id = training_document_id(batch_id, doc_id, batch_ids)
             if training_id in batch_of:
-                raise ContractError(
-                    f"document {doc_id!r} is repeated in batch {batch_id!r}"
-                )
+                raise ContractError(f"document {doc_id!r} is repeated in batch {batch_id!r}")
             raw_id = annotator[doc_id]["raw_document_id"]
             if raw_id in source_documents:
-                raise ContractError(f"source document is duplicated while assembling batch {batch_id!r}")
+                raise ContractError(
+                    f"source document is duplicated while assembling batch {batch_id!r}"
+                )
             source_documents.add(raw_id)
             batch_of[training_id] = batch_id
             prepared_texts[training_id] = annotator[doc_id]
-            source_mapping[training_id] = {"batch_id": batch_id, "internal_doc_id": doc_id,
-                                            "raw_document_id": raw_id}
+            source_mapping[training_id] = {
+                "batch_id": batch_id,
+                "internal_doc_id": doc_id,
+                "raw_document_id": raw_id,
+            }
     quotes: dict[str, list[list[str]]] = {}
     written: dict[str, int] = {}
     unplaced: dict[str, dict[str, Any]] = {}
     for doc_id, prepared in prepared_texts.items():
         references, _ = apply_reference_policy(prepared["references"])
-        references = _without_range_marks(expand_ranges(references))  # every article of a range (7 Oct 2026)
+        references = _without_range_marks(
+            expand_ranges(references)
+        )  # every article of a range (7 Oct 2026)
         # Each reference once (5 Oct 2026), as in the clean arm; the quotes of
         # every row that writes it may place it, as GT v7 kept every quote of
         # the rows it merged.
         groups = row_groups(references)
         written[doc_id] = len(references)
         quotes[doc_id] = [
-            [quote for index in group if (quote := str(references[index].get("source_text") or "").strip())]
+            [
+                quote
+                for index in group
+                if (quote := str(references[index].get("source_text") or "").strip())
+            ]
             for group in groups
         ]
         unplaced[doc_id] = {
@@ -443,7 +480,8 @@ def round_raw_training_documents(
         "placement_rule": RAW_PLACEMENT_RULE,
         "batches": batches,
         "documents_by_batch": {
-            batch_id: [doc_id for doc_id in documents if batch_of[doc_id] == batch_id] for batch_id in batch_ids
+            batch_id: [doc_id for doc_id in documents if batch_of[doc_id] == batch_id]
+            for batch_id in batch_ids
         },
         "dropped": dropped,
     }

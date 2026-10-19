@@ -931,7 +931,11 @@ def _run_locked_judge_coverage(
         # A judge fixed in advance (no pilot) must judge every document the expert
         # reviews, the GREEN audit sample included, or its errors there go unmeasured.
         audit = (
-            set(ensure_green_audit_plan(config=config, store=store, batch_id=batch_id)["sample_internal_doc_ids"])
+            set(
+                ensure_green_audit_plan(config=config, store=store, batch_id=batch_id)[
+                    "sample_internal_doc_ids"
+                ]
+            )
             if include_green_audit
             else set()
         )
@@ -1144,8 +1148,6 @@ def run_judge_pilot(
     except BaseException as exc:
         lease.finish(status="failed", error=str(exc))
         raise
-
-
 
 
 def _resolve_verdict(verdict: str | None, blind_mapping: str) -> str:

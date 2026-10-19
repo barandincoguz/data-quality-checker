@@ -28,7 +28,13 @@ from data_quality_checker.normalization import compact_references, core_identity
 def _row(kanun_no: str, kanun_ad: str, madde: str, **legacy: str) -> dict[str, str]:
     """A reference; `legacy` adds the paragraph fields a list stored before
     1 Oct 2026 still carries, which both engines must read past."""
-    return {"kanun_no": kanun_no, "kanun_ad": kanun_ad, "madde": madde, "source_text": "s", **legacy}
+    return {
+        "kanun_no": kanun_no,
+        "kanun_ad": kanun_ad,
+        "madde": madde,
+        "source_text": "s",
+        **legacy,
+    }
 
 
 def _loop_engine_says_same(left: dict[str, str], right: dict[str, str]) -> bool:
@@ -133,31 +139,71 @@ CASES = [
     ("parenthesised paragraph", _row("213", "", "10 (2)"), _row("213", "", "10"), True),
     ("dashed item", _row("5510", "", "4-a"), _row("5510", "", "4"), True),
     ("item of an inserted article", _row("5520", "", "5/A-1"), _row("5520", "", "5/A"), True),
-    ("stored paragraph fields", _row("193", "", "94", fikra="1", bent="a"), _row("193", "", "94"), True),
-    ("inserted pair stays", _row("193", "", "mükerrer 20/A-B"), _row("193", "", "mükerrer 20"), False),
+    (
+        "stored paragraph fields",
+        _row("193", "", "94", fikra="1", bent="a"),
+        _row("193", "", "94"),
+        True,
+    ),
+    (
+        "inserted pair stays",
+        _row("193", "", "mükerrer 20/A-B"),
+        _row("193", "", "mükerrer 20"),
+        False,
+    ),
     ("list mark before the article", _row("3065", "", "-1/1"), _row("3065", "", "1"), True),
     ("en-dash list mark", _row("3065", "", "– 13"), _row("3065", "", "13"), True),
     # -- engine audit (2 Oct 2026): spellings a model writes, read alike --
     ("apostrophe ordinal", _row("193", "", "94'üncü"), _row("193", "", "94"), True),
-    ("curly apostrophe ordinal", _row("193", "", "41’inci maddesinde"), _row("193", "", "41"), True),
-    ("apostrophe after geçici N", _row("193", "", "geçici 9'uncu"), _row("193", "", "geçici 9"), True),
+    (
+        "curly apostrophe ordinal",
+        _row("193", "", "41’inci maddesinde"),
+        _row("193", "", "41"),
+        True,
+    ),
+    (
+        "apostrophe after geçici N",
+        _row("193", "", "geçici 9'uncu"),
+        _row("193", "", "geçici 9"),
+        True,
+    ),
     ("madde N", _row("193", "", "madde 94"), _row("193", "", "94"), True),
     ("N. madde", _row("193", "", "94. madde"), _row("193", "", "94"), True),
     ("md. N", _row("193", "", "md. 94"), _row("193", "", "94"), True),
     ("N md.", _row("193", "", "94 md."), _row("193", "", "94"), True),
     ("KDV bracketed article", _row("3065", "", "(17/4-r)"), _row("3065", "", "17"), True),
-    ("bracketed article and its word", _row("4760", "", "(1/1-b) maddesinde"), _row("4760", "", "1"), True),
+    (
+        "bracketed article and its word",
+        _row("4760", "", "(1/1-b) maddesinde"),
+        _row("4760", "", "1"),
+        True,
+    ),
     ("spaced inserted letter", _row("5520", "", "32 / A"), _row("5520", "", "32/A"), True),
     ("Mük. N", _row("213", "", "Mük. 298"), _row("213", "", "mükerrer 298"), True),
     ("a dashed part is not a span", _row("213", "", "17-4-r"), _row("213", "", "17"), True),
     ("N sayılı in the number field", _row("193 sayılı", "", "94"), _row("193", "", "94"), True),
     ("No: in the number field", _row("No:193", "", "94"), _row("193", "", "94"), True),
     ("number only in the name", _row("", "6183 sayılı Kanun", "48"), _row("6183", "", "48"), True),
-    ("name in the number field", _row("Gelir Vergisi Kanunu", "", "94"), _row("193", "Gelir Vergisi Kanunu", "94"), True),
-    ("dotted abbreviation", _row("", "G.V.K.", "94"), _row("193", "Gelir Vergisi Kanunu", "94"), True),
+    (
+        "name in the number field",
+        _row("Gelir Vergisi Kanunu", "", "94"),
+        _row("193", "Gelir Vergisi Kanunu", "94"),
+        True,
+    ),
+    (
+        "dotted abbreviation",
+        _row("", "G.V.K.", "94"),
+        _row("193", "Gelir Vergisi Kanunu", "94"),
+        True,
+    ),
     ("two decrees are two", _row("2004/6887", "", "1"), _row("2004/8301", "", "1"), False),
     ("a decree is not the year's law", _row("2007/13033", "", "1"), _row("2007", "", "1"), False),
-    ("a bracketed number is not that article", _row("193", "", "(94)"), _row("193", "", "94"), False),
+    (
+        "a bracketed number is not that article",
+        _row("193", "", "(94)"),
+        _row("193", "", "94"),
+        False,
+    ),
     # -- and the provisions that must stay apart --
     ("geçici N is not article N", _row("193", "", "geçici 3"), _row("193", "", "3"), False),
     ("ek N is not article N", _row("213", "", "ek 3"), _row("213", "", "3"), False),
@@ -213,18 +259,38 @@ def test_both_engines_keep_an_inserted_article_through_a_second_pass() -> None:
     for madde in ("32/A", "mükerrer 20/A-B", "geçici 1/A"):
         once = normalize_reference(_row("5520", "", madde))
         assert normalize_reference(once) == once, madde
-        prepared = canonicalize_reference(annotator_normalize(dict(_row("5520", "", madde), type="kanun_madde_referansi")))
+        prepared = canonicalize_reference(
+            annotator_normalize(dict(_row("5520", "", madde), type="kanun_madde_referansi"))
+        )
         assert canonicalize_reference(prepared) == prepared, madde
         assert canonical_article_key(prepared) != canonical_article_key(
-            canonicalize_reference(annotator_normalize(dict(_row("5520", "", "32"), type="kanun_madde_referansi")))
+            canonicalize_reference(
+                annotator_normalize(dict(_row("5520", "", "32"), type="kanun_madde_referansi"))
+            )
         )
 
 
 #: Every spelling above and the forms the stored predictions carried (2 Oct 2026).
-FORMS = sorted({row["madde"] for _, left, right, _ in CASES for row in (left, right)} | {
-    "(II/B-10)", "II/B-5.1", "I/A-1", "(17)", "(1)", "ekli (1) sayılı tablo", "null", "mükerrer", "VIII.",
-    "(2) sayılı tarifede yazılı olanları", "30 Seri No.lu (D)", "-", "", "Geçici Madde 9", "20/A-B",
-})
+FORMS = sorted(
+    {row["madde"] for _, left, right, _ in CASES for row in (left, right)}
+    | {
+        "(II/B-10)",
+        "II/B-5.1",
+        "I/A-1",
+        "(17)",
+        "(1)",
+        "ekli (1) sayılı tablo",
+        "null",
+        "mükerrer",
+        "VIII.",
+        "(2) sayılı tarifede yazılı olanları",
+        "30 Seri No.lu (D)",
+        "-",
+        "",
+        "Geçici Madde 9",
+        "20/A-B",
+    }
+)
 
 
 @pytest.mark.parametrize("madde", FORMS)
@@ -234,12 +300,14 @@ def test_both_engines_are_a_fixed_point(madde: str) -> None:
     once = normalize_reference(_row("213", "", madde))
     assert normalize_reference(once) == once, madde
     assert normalize_article(once["madde"]) == once["madde"], madde
-    prepared = canonicalize_reference(annotator_normalize(dict(_row("213", "", madde), type="kanun_madde_referansi")))
+    prepared = canonicalize_reference(
+        annotator_normalize(dict(_row("213", "", madde), type="kanun_madde_referansi"))
+    )
     assert canonicalize_reference(prepared) == prepared, madde
 
 
 def test_an_unreadable_article_is_never_a_law_level_row() -> None:
-    """"(17)" (a paragraph number) once normalized to an empty article in both
+    """ "(17)" (a paragraph number) once normalized to an empty article in both
     engines: the row became a law-level claim and could match a law-level gold
     row of its law (engine audit, 2 Oct 2026)."""
     from benchmark.reference.matching import evaluate_doc_optimal
@@ -260,17 +328,27 @@ def test_the_reference_policy_is_removed_from_both_sides(tmp_path) -> None:
 
     from benchmark.reference.evaluate import evaluate_prediction_file, parse_ignored_law_articles
 
-    gold = {1: [annotator_normalize(_row("213", "Vergi Usul Kanunu", "413")),
-                annotator_normalize(_row("193", "", "94"))]}
+    gold = {
+        1: [
+            annotator_normalize(_row("213", "Vergi Usul Kanunu", "413")),
+            annotator_normalize(_row("193", "", "94")),
+        ]
+    }
     predictions = tmp_path / "p.json"
-    for refs, expected in (([_row("213", "", "413 üncü maddesi"), _row("193", "", "94")], (1, 0, 0)),
-                           ([_row("193", "", "94")], (1, 0, 0)),
-                           ([_row("", "Vergi Usul Kanunu", "413"), _row("193", "", "94")], (1, 0, 0))):
+    for refs, expected in (
+        ([_row("213", "", "413 üncü maddesi"), _row("193", "", "94")], (1, 0, 0)),
+        ([_row("193", "", "94")], (1, 0, 0)),
+        ([_row("", "Vergi Usul Kanunu", "413"), _row("193", "", "94")], (1, 0, 0)),
+    ):
         predictions.write_text(json.dumps([{"doc_id": 1, "status": "success", "references": refs}]))
-        result = evaluate_prediction_file(predictions, gold, None, ignore_law_articles=parse_ignored_law_articles(["213:413"]))
+        result = evaluate_prediction_file(
+            predictions, gold, None, ignore_law_articles=parse_ignored_law_articles(["213:413"])
+        )
         core = result["core_law_article_strict"]
         assert (core["tp"], core["fp"], core["fn"]) == expected
         assert result["ignored_law_articles"]["gold_rows_removed"] == 1
-    predictions.write_text(json.dumps([{"doc_id": 1, "status": "success", "references": [_row("193", "", "94")]}]))
+    predictions.write_text(
+        json.dumps([{"doc_id": 1, "status": "success", "references": [_row("193", "", "94")]}])
+    )
     plain = evaluate_prediction_file(predictions, gold, None)
     assert "ignored_law_articles" not in plain and plain["core_law_article_strict"]["fn"] == 1

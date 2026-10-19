@@ -602,11 +602,17 @@ def ab_diff(
     comparison = compare_reference_lists(candidate_a, candidate_b)
     only_in_a = set(comparison.missed_identities)
     only_in_b = set(comparison.extra_identities)
-    excused = {context.identity(row) for row in (*comparison.excused_reference, *comparison.excused_candidate)}
+    excused = {
+        context.identity(row)
+        for row in (*comparison.excused_reference, *comparison.excused_candidate)
+    }
 
     order: list[tuple[str, str, str, str]] = []
     groups: dict[tuple[str, str, str, str], dict[str, list[dict[str, Any]]]] = {}
-    for label, references, canonical in (("a", candidate_a, canonical_a), ("b", candidate_b, canonical_b)):
+    for label, references, canonical in (
+        ("a", candidate_a, canonical_a),
+        ("b", candidate_b, canonical_b),
+    ):
         for reference, row in zip(references, canonical, strict=True):
             key = context.identity(row)
             if key not in groups:
@@ -912,10 +918,15 @@ def row_highlights(text: str, rows: list[dict[str, Any]]) -> tuple[list[dict[str
     for index, row in enumerate(rows):
         placed: set[tuple[int, int]] = set()
         for reference in (*row["a"], *row["b"]):
-            bare = {field: str(reference.get(field, "") or "") for field in ("kanun_no", "kanun_ad", "madde")}
+            bare = {
+                field: str(reference.get(field, "") or "")
+                for field in ("kanun_no", "kanun_ad", "madde")
+            }
             try:
                 placed.update(mention_offsets(text, {**bare, "source_text": ""}))
-            except Exception:  # a highlight is a help: a reference the locator chokes on stays unmarked
+            except (
+                Exception
+            ):  # a highlight is a help: a reference the locator chokes on stays unmarked
                 continue
         located = len(placed)
         for reference in row["a"]:
@@ -925,7 +936,9 @@ def row_highlights(text: str, rows: list[dict[str, Any]]) -> tuple[list[dict[str
                 placed.add((start, start + len(quote)))
                 start = text.find(quote, start + 1)
         counts.append(located)
-        spans.extend({"start": start, "end": end, "candidate": str(index)} for start, end in sorted(placed))
+        spans.extend(
+            {"start": start, "end": end, "candidate": str(index)} for start, end in sorted(placed)
+        )
     return sorted(spans, key=lambda item: (item["start"], item["end"], item["candidate"])), counts
 
 
@@ -958,11 +971,17 @@ def _ordinals(indices: list[int]) -> str:
 
 
 def _reference_label(reference: dict[str, Any]) -> str:
-    law = str(reference.get("kanun_no") or "").strip() or str(reference.get("kanun_ad") or "").strip() or "kanun belirtilmemiş"
+    law = (
+        str(reference.get("kanun_no") or "").strip()
+        or str(reference.get("kanun_ad") or "").strip()
+        or "kanun belirtilmemiş"
+    )
     return f"{law} · madde {str(reference.get('madde') or '').strip() or '—'}"
 
 
-def explain_warnings(warnings: list[dict[str, Any]], human: list[dict[str, Any]]) -> list[dict[str, str]]:
+def explain_warnings(
+    warnings: list[dict[str, Any]], human: list[dict[str, Any]]
+) -> list[dict[str, str]]:
     """Preparation warnings as sentences the expert can act on, attention first.
 
     `human` is the annotator's list as prepared (before the 213/413 policy), the
@@ -983,27 +1002,52 @@ def explain_warnings(warnings: list[dict[str, Any]], human: list[dict[str, Any]]
                 grouped.setdefault(field, []).append(int(warning.get("reference_index", 0)))
             continue
         if code == "annotation_incomplete":
-            notes.append({"level": "attention", "text": "Bursiyer bu belgeyi platformda “tamamlandı” olarak işaretlememiş; "
-                          "listesi yarım kalmış olabilir."})
+            notes.append(
+                {
+                    "level": "attention",
+                    "text": "Bursiyer bu belgeyi platformda “tamamlandı” olarak işaretlememiş; "
+                    "listesi yarım kalmış olabilir.",
+                }
+            )
         elif code == "current_references_missing_or_null":
-            notes.append({"level": "attention", "text": "Bursiyer bu belge için referans listesi göndermemiş (platformda "
-                          "liste yok); insan anotasyonu boş görünür."})
+            notes.append(
+                {
+                    "level": "attention",
+                    "text": "Bursiyer bu belge için referans listesi göndermemiş (platformda "
+                    "liste yok); insan anotasyonu boş görünür.",
+                }
+            )
         else:
             detail = ", ".join(f"{key}: {value}" for key, value in warning.items() if key != "code")
-            notes.append({"level": "info", "text": f"Hazırlama notu ({code}){': ' + detail if detail else ''}."})
+            notes.append(
+                {
+                    "level": "info",
+                    "text": f"Hazırlama notu ({code}){': ' + detail if detail else ''}.",
+                }
+            )
     for field, (level, explanation) in _EMPTY_FIELD_NOTES.items():
         indices = sorted(set(grouped.get(field, [])))
         if not indices:
             continue
-        labels = "; ".join(_reference_label(human[index]) for index in indices if 0 <= index < len(human))
-        notes.append({"level": level, "text": f"Bursiyer listesinin {_ordinals(indices)}"
-                      f"{f' ({labels})' if labels else ''} {explanation}"})
+        labels = "; ".join(
+            _reference_label(human[index]) for index in indices if 0 <= index < len(human)
+        )
+        notes.append(
+            {
+                "level": level,
+                "text": f"Bursiyer listesinin {_ordinals(indices)}"
+                f"{f' ({labels})' if labels else ''} {explanation}",
+            }
+        )
     return sorted(notes, key=lambda note: note["level"] != "attention")
 
 
 def _row_label(row: dict[str, Any]) -> str:
     core = row["core"]
-    law = " ".join(part for part in (core["kanun_no"], core["kanun_ad"]) if part) or "Kanun belirtilmemiş"
+    law = (
+        " ".join(part for part in (core["kanun_no"], core["kanun_ad"]) if part)
+        or "Kanun belirtilmemiş"
+    )
     return f"{law} · madde {core['madde'] or '—'}"
 
 
@@ -1015,7 +1059,11 @@ def display_status(row: dict[str, Any]) -> str:
     When only one side wrote it, calling it "Aynı" or colouring it as cited by
     both sides would mislead the expert; it is shown as "Fark sayılmaz".
     """
-    if row["status"] == "same" and not (row["a"] and row["b"]) and (row["subsumed"]["a"] or row["subsumed"]["b"]):
+    if (
+        row["status"] == "same"
+        and not (row["a"] and row["b"])
+        and (row["subsumed"]["a"] or row["subsumed"]["b"])
+    ):
         return "excused"
     return row["status"]
 
@@ -1334,7 +1382,9 @@ def create_hitl_app(
         for segment in segments:
             cited = [diff[int(candidate)] for candidate in segment["candidates"]]
             segment["kind"] = segment_kind([row["display"] for row in cited]) if cited else ""
-            segment["title"] = " | ".join(f"{row['label']} — {row['status_label'].split(' · ')[0]}" for row in cited)
+            segment["title"] = " | ".join(
+                f"{row['label']} — {row['status_label'].split(' · ')[0]}" for row in cited
+            )
         displays = [row["display"] for row in diff]
         legend_counts = {
             "both": displays.count("same"),

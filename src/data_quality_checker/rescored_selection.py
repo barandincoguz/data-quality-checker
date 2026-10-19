@@ -40,8 +40,13 @@ def rebuilt_summary(
     stored = json.loads((directory / "summary.json").read_text(encoding="utf-8"))
     manifest_sha256 = sha256_file(manifest_path)
     if manifest_sha256 != stored["validation_manifest_sha256"]:
-        raise IntegrityError(f"{name}: the validation record differs from the one its summary sealed")
-    validation = {**json.loads(manifest_path.read_text(encoding="utf-8")), "manifest_sha256": manifest_sha256}
+        raise IntegrityError(
+            f"{name}: the validation record differs from the one its summary sealed"
+        )
+    validation = {
+        **json.loads(manifest_path.read_text(encoding="utf-8")),
+        "manifest_sha256": manifest_sha256,
+    }
     checkpoint_manifest = json.loads((checkpoint / "manifest.json").read_text(encoding="utf-8"))
     return _validation_summary(
         update=update,
@@ -72,7 +77,9 @@ def select_rescored_checkpoint(config: Any, *, run_id: str, label: str) -> dict[
     rescored = Path(config.public_root) / "loop" / "rescored" / label
     summary = json.loads((rescored / "summary.json").read_text(encoding="utf-8"))
     if summary.get("run_id") != run_id:
-        raise IntegrityError(f"rescore {label!r} is of run {summary.get('run_id')!r}, not {run_id!r}")
+        raise IntegrityError(
+            f"rescore {label!r} is of run {summary.get('run_id')!r}, not {run_id!r}"
+        )
     rows = {row["checkpoint"]: row for row in summary["rows"]}
     points = sorted(path.name for path in candidate_root.glob("validation/update_*"))
     if not points:
@@ -85,7 +92,9 @@ def select_rescored_checkpoint(config: Any, *, run_id: str, label: str) -> dict[
     for name in points:
         predictions = candidate_root / "validation" / name / "predictions.json"
         if sha256_file(predictions) != rows[name]["predictions_sha256"]:
-            raise IntegrityError(f"{name}: rescore {label!r} scored other predictions than the run's")
+            raise IntegrityError(
+                f"{name}: rescore {label!r} scored other predictions than the run's"
+            )
         evaluation_path = rescored / name / "evaluation.json"
         rebuilt.append(
             rebuilt_summary(
@@ -98,11 +107,15 @@ def select_rescored_checkpoint(config: Any, *, run_id: str, label: str) -> dict[
     selected = select_checkpoint([_candidate(s) for s in rebuilt if s["eligible"] is True])
     # The run's own choice, by the same rule on the summaries it wrote while training.
     stored = [
-        json.loads((candidate_root / "validation" / name / "summary.json").read_text(encoding="utf-8"))
+        json.loads(
+            (candidate_root / "validation" / name / "summary.json").read_text(encoding="utf-8")
+        )
         for name in points
     ]
     try:
-        in_run: int | None = select_checkpoint([_candidate(s) for s in stored if s.get("eligible") is True]).update
+        in_run: int | None = select_checkpoint(
+            [_candidate(s) for s in stored if s.get("eligible") is True]
+        ).update
     except GateBlocked:
         in_run = None
     selection = {
@@ -118,9 +131,13 @@ def select_rescored_checkpoint(config: Any, *, run_id: str, label: str) -> dict[
         "adapter_path": str(candidate_root / "checkpoints" / f"update_{selected.update:07d}"),
         "in_run_selected_update": in_run,
         "points": [
-            {"checkpoint": f"update_{int(s['update']):07d}", "eligible": s["eligible"],
-             "core_f1": s["core_law_article_strict"]["f1"], "recall": s["core_law_article_strict"]["recall"],
-             "docwise_accuracy": s["docwise_core_accuracy"]["accuracy"]}
+            {
+                "checkpoint": f"update_{int(s['update']):07d}",
+                "eligible": s["eligible"],
+                "core_f1": s["core_law_article_strict"]["f1"],
+                "recall": s["core_law_article_strict"]["recall"],
+                "docwise_accuracy": s["docwise_core_accuracy"]["accuracy"],
+            }
             for s in rebuilt
         ],
     }

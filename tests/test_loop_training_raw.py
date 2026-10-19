@@ -60,7 +60,9 @@ def _prepare(root: Path, batch_id: str, documents: dict[str, tuple[str, list[dic
             )
 
 
-def test_the_raw_arm_reads_the_released_documents_with_the_annotator_s_lists(tmp_path: Path) -> None:
+def test_the_raw_arm_reads_the_released_documents_with_the_annotator_s_lists(
+    tmp_path: Path,
+) -> None:
     _prepare(
         tmp_path,
         "R01",
@@ -91,10 +93,18 @@ def test_the_raw_arm_applies_the_release_s_reference_policy(tmp_path: Path) -> N
     _prepare(
         tmp_path,
         "R01",
-        {"d1": (text, [_reference("213", "413", "413 üncü maddesi"), _reference("193", "94", "x")])},
+        {
+            "d1": (
+                text,
+                [_reference("213", "413", "413 üncü maddesi"), _reference("193", "94", "x")],
+            )
+        },
     )
     write_sealed_release(
-        tmp_path, "R01", expert=[{"internal_doc_id": "d1", "text": text, "references": []}], consensus=[]
+        tmp_path,
+        "R01",
+        expert=[{"internal_doc_id": "d1", "text": text, "references": []}],
+        consensus=[],
     )
     documents, _ = round_raw_training_documents(_Cfg(tmp_path), batch_ids=["R01"])
     assert [(r["kanun_no"], r["madde"]) for r in documents["d1"]["references"]] == [("193", "94")]
@@ -104,7 +114,10 @@ def test_the_locator_places_a_raw_reference_before_the_annotator_s_quote(tmp_pat
     """Both arms place a locatable reference the same way."""
     _prepare(tmp_path, "R01", {"d1": (LOCATABLE, [_reference("193", "94", "sayılı")])})
     write_sealed_release(
-        tmp_path, "R01", expert=[{"internal_doc_id": "d1", "text": LOCATABLE, "references": []}], consensus=[]
+        tmp_path,
+        "R01",
+        expert=[{"internal_doc_id": "d1", "text": LOCATABLE, "references": []}],
+        consensus=[],
     )
     documents, audit = round_raw_training_documents(_Cfg(tmp_path), batch_ids=["R01"])
     placed = documents["d1"]["references"][0]["source_text"]
@@ -113,12 +126,17 @@ def test_the_locator_places_a_raw_reference_before_the_annotator_s_quote(tmp_pat
     assert audit["batches"]["R01"]["placed_by_annotator_quote"] == 0
 
 
-def test_an_unlocatable_reference_is_placed_by_the_annotator_s_verbatim_quote(tmp_path: Path) -> None:
+def test_an_unlocatable_reference_is_placed_by_the_annotator_s_verbatim_quote(
+    tmp_path: Path,
+) -> None:
     text = "Ödeme, ilgili düzenlemenin onuncu hükmü gereğince yapılır."
     quote = "onuncu hükmü gereğince"
     _prepare(tmp_path, "R01", {"d1": (text, [_reference("5520", "10", f"  {quote} ")])})
     write_sealed_release(
-        tmp_path, "R01", expert=[{"internal_doc_id": "d1", "text": text, "references": []}], consensus=[]
+        tmp_path,
+        "R01",
+        expert=[{"internal_doc_id": "d1", "text": text, "references": []}],
+        consensus=[],
     )
     documents, audit = round_raw_training_documents(_Cfg(tmp_path), batch_ids=["R01"])
     [reference] = documents["d1"]["references"]
@@ -137,13 +155,18 @@ def test_a_reference_neither_the_locator_nor_the_quote_can_place_is_dropped_and_
         {
             "d1": (
                 text,
-                [_reference("5520", "10", "metinde olmayan alıntı", "Kurumlar Vergisi Kanunu"),
-                 _reference("193", "94", "")],
+                [
+                    _reference("5520", "10", "metinde olmayan alıntı", "Kurumlar Vergisi Kanunu"),
+                    _reference("193", "94", ""),
+                ],
             )
         },
     )
     write_sealed_release(
-        tmp_path, "R01", expert=[{"internal_doc_id": "d1", "text": text, "references": []}], consensus=[]
+        tmp_path,
+        "R01",
+        expert=[{"internal_doc_id": "d1", "text": text, "references": []}],
+        consensus=[],
     )
     documents, audit = round_raw_training_documents(_Cfg(tmp_path), batch_ids=["R01"])
     assert [r["kanun_no"] for r in documents["d1"]["references"]] == ["193"]
@@ -157,15 +180,23 @@ def test_a_reference_neither_the_locator_nor_the_quote_can_place_is_dropped_and_
         "dropped_unplaceable": 1,
     }
     assert audit["dropped"] == [
-        {"batch_id": "R01", "doc_id": "d1", "kanun_no": "5520",
-         "kanun_ad": "Kurumlar Vergisi Kanunu", "madde": "10"}
+        {
+            "batch_id": "R01",
+            "doc_id": "d1",
+            "kanun_no": "5520",
+            "kanun_ad": "Kurumlar Vergisi Kanunu",
+            "madde": "10",
+        }
     ]
 
 
 def test_a_released_text_that_differs_from_the_prepared_text_is_refused(tmp_path: Path) -> None:
     _prepare(tmp_path, "R01", {"d1": (LOCATABLE, [])})
     write_sealed_release(
-        tmp_path, "R01", expert=[{"internal_doc_id": "d1", "text": "başka", "references": []}], consensus=[]
+        tmp_path,
+        "R01",
+        expert=[{"internal_doc_id": "d1", "text": "başka", "references": []}],
+        consensus=[],
     )
     with pytest.raises(ContractError, match="d1"):
         round_raw_training_documents(_Cfg(tmp_path), batch_ids=["R01"])
@@ -176,8 +207,10 @@ def test_a_released_document_missing_from_the_batch_is_refused(tmp_path: Path) -
     write_sealed_release(
         tmp_path,
         "R01",
-        expert=[{"internal_doc_id": "d1", "text": LOCATABLE, "references": []},
-                {"internal_doc_id": "d9", "text": "dokuz", "references": []}],
+        expert=[
+            {"internal_doc_id": "d1", "text": LOCATABLE, "references": []},
+            {"internal_doc_id": "d9", "text": "dokuz", "references": []},
+        ],
         consensus=[],
     )
     with pytest.raises(ContractError, match="d9"):
@@ -187,13 +220,19 @@ def test_a_released_document_missing_from_the_batch_is_refused(tmp_path: Path) -
 def test_reading_the_raw_labels_never_writes_the_loop_database(tmp_path: Path) -> None:
     _prepare(tmp_path, "R01", {"d1": (LOCATABLE, [_reference("193", "94", "")])})
     write_sealed_release(
-        tmp_path, "R01", expert=[{"internal_doc_id": "d1", "text": LOCATABLE, "references": []}], consensus=[]
+        tmp_path,
+        "R01",
+        expert=[{"internal_doc_id": "d1", "text": LOCATABLE, "references": []}],
+        consensus=[],
     )
     database = tmp_path / "dqcheck.sqlite3"
     before = hashlib.sha256(database.read_bytes()).hexdigest()
     round_raw_training_documents(_Cfg(tmp_path), batch_ids=["R01"])
     assert hashlib.sha256(database.read_bytes()).hexdigest() == before
-    assert not (tmp_path / "dqcheck.sqlite3-wal").exists() or (tmp_path / "dqcheck.sqlite3-wal").stat().st_size == 0
+    assert (
+        not (tmp_path / "dqcheck.sqlite3-wal").exists()
+        or (tmp_path / "dqcheck.sqlite3-wal").stat().st_size == 0
+    )
 
 
 def test_the_raw_arm_never_reads_the_cleaned_references(tmp_path: Path) -> None:
@@ -202,8 +241,13 @@ def test_the_raw_arm_never_reads_the_cleaned_references(tmp_path: Path) -> None:
     write_sealed_release(
         tmp_path,
         "R01",
-        expert=[{"internal_doc_id": "d1", "text": LOCATABLE,
-                 "references": [_reference("193", "94", "")]}],
+        expert=[
+            {
+                "internal_doc_id": "d1",
+                "text": LOCATABLE,
+                "references": [_reference("193", "94", "")],
+            }
+        ],
         consensus=[],
     )
     documents, _ = round_raw_training_documents(_Cfg(tmp_path), batch_ids=["R01"])
@@ -231,7 +275,9 @@ def test_the_raw_arm_is_a_different_run_on_the_same_documents(tmp_path: Path) ->
     config = canonical_fixture(tmp_path)
     _round1(config)
     clean = train_round(config, generation="M001", split=SPLIT, cleaned_batch_ids=["round1"])
-    raw = train_round(config, generation="M001", split=SPLIT, cleaned_batch_ids=["round1"], labels="raw")
+    raw = train_round(
+        config, generation="M001", split=SPLIT, cleaned_batch_ids=["round1"], labels="raw"
+    )
     assert raw["run_id"] != clean["run_id"]
     assert raw["training_documents"] == clean["training_documents"] == 5
     assert raw["label_source"] == "raw" and clean["label_source"] == "clean"
@@ -241,7 +287,9 @@ def test_the_raw_arm_is_a_different_run_on_the_same_documents(tmp_path: Path) ->
 def test_the_raw_run_records_its_label_source_and_audit(tmp_path: Path) -> None:
     config = canonical_fixture(tmp_path)
     _round1(config)
-    raw = train_round(config, generation="M001", split=SPLIT, cleaned_batch_ids=["round1"], labels="raw")
+    raw = train_round(
+        config, generation="M001", split=SPLIT, cleaned_batch_ids=["round1"], labels="raw"
+    )
     run_config = json.loads(Path(raw["run_config_path"]).read_text(encoding="utf-8"))
     assert run_config["label_source"] == "raw"
     audit = json.loads((Path(raw["data_dir"]) / "raw_label_audit.json").read_text(encoding="utf-8"))
@@ -255,7 +303,9 @@ def test_the_clean_run_carries_no_label_source(tmp_path: Path) -> None:
     config = canonical_fixture(tmp_path)
     _round1(config)
     default = train_round(config, generation="M001", split=SPLIT, cleaned_batch_ids=["round1"])
-    explicit = train_round(config, generation="M001", split=SPLIT, cleaned_batch_ids=["round1"], labels="clean")
+    explicit = train_round(
+        config, generation="M001", split=SPLIT, cleaned_batch_ids=["round1"], labels="clean"
+    )
     assert default["run_id"] == explicit["run_id"]
     run_config = json.loads(Path(default["run_config_path"]).read_text(encoding="utf-8"))
     assert "label_source" not in run_config
@@ -311,18 +361,24 @@ def test_an_empty_batch_is_refused(tmp_path: Path) -> None:
         round_raw_training_documents(_Cfg(tmp_path), batch_ids=["R02"])
 
 
-def test_a_raw_run_before_the_release_is_the_run_after_it_when_the_documents_agree(tmp_path: Path) -> None:
+def test_a_raw_run_before_the_release_is_the_run_after_it_when_the_documents_agree(
+    tmp_path: Path,
+) -> None:
     config = canonical_fixture(tmp_path)
     root = Path(config.sensitive_root)
     _prepare(root, "round1", {"d1": (LOCATABLE, [_reference("193", "94", "")]), "d2": ("iki", [])})
-    before = train_round(config, generation="M001", split=SPLIT, cleaned_batch_ids=["round1"], labels="raw")
+    before = train_round(
+        config, generation="M001", split=SPLIT, cleaned_batch_ids=["round1"], labels="raw"
+    )
     write_sealed_release(
         root,
         "round1",
         [{"internal_doc_id": "d2", "text": "iki", "references": []}],
         [{"internal_doc_id": "d1", "text": LOCATABLE, "references": []}],
     )
-    after = train_round(config, generation="M001", split=SPLIT, cleaned_batch_ids=["round1"], labels="raw")
+    after = train_round(
+        config, generation="M001", split=SPLIT, cleaned_batch_ids=["round1"], labels="raw"
+    )
     assert before["run_id"] == after["run_id"]
     assert before["training_documents"] == 5
 
@@ -331,19 +387,36 @@ def test_a_release_with_other_documents_is_another_raw_run(tmp_path: Path) -> No
     config = canonical_fixture(tmp_path)
     root = Path(config.sensitive_root)
     _prepare(root, "round1", {"d1": (LOCATABLE, []), "d2": ("iki", []), "d3": ("uc", [])})
-    before = train_round(config, generation="M001", split=SPLIT, cleaned_batch_ids=["round1"], labels="raw")
+    before = train_round(
+        config, generation="M001", split=SPLIT, cleaned_batch_ids=["round1"], labels="raw"
+    )
     write_sealed_release(
         root,
         "round1",
         [{"internal_doc_id": "d2", "text": "iki", "references": []}],
-        [{"internal_doc_id": "d3", "text": "uc", "references": []},
-         {"internal_doc_id": "d4", "text": "dort", "references": []}],
+        [
+            {"internal_doc_id": "d3", "text": "uc", "references": []},
+            {"internal_doc_id": "d4", "text": "dort", "references": []},
+        ],
     )
     with Store(root / "dqcheck.sqlite3") as store:
-        store.add_document("round1", {"internal_doc_id": "d4", "public_doc_id": "p9", "raw_document_id": "r9",
-                                      "selected_channel": "html", "pdf_coverage": 1.0, "html_coverage": 1.0,
-                                      "text": "dort", "text_sha256": "x", "human_references": []})
-    after = train_round(config, generation="M001", split=SPLIT, cleaned_batch_ids=["round1"], labels="raw")
+        store.add_document(
+            "round1",
+            {
+                "internal_doc_id": "d4",
+                "public_doc_id": "p9",
+                "raw_document_id": "r9",
+                "selected_channel": "html",
+                "pdf_coverage": 1.0,
+                "html_coverage": 1.0,
+                "text": "dort",
+                "text_sha256": "x",
+                "human_references": [],
+            },
+        )
+    after = train_round(
+        config, generation="M001", split=SPLIT, cleaned_batch_ids=["round1"], labels="raw"
+    )
     assert before["training_documents"] == 6 and after["training_documents"] == 6
     assert before["run_id"] != after["run_id"]
 
@@ -352,8 +425,20 @@ def test_a_release_with_other_documents_is_another_raw_run(tmp_path: Path) -> No
 
 
 def test_the_raw_arm_trains_each_reference_once(tmp_path: Path) -> None:
-    _prepare(tmp_path, "R01", {"d1": (LOCATABLE, [_reference("193", "94", ""), _reference("193", "94", ""),
-                                                  _reference("193", "", "")])})
+    _prepare(
+        tmp_path,
+        "R01",
+        {
+            "d1": (
+                LOCATABLE,
+                [
+                    _reference("193", "94", ""),
+                    _reference("193", "94", ""),
+                    _reference("193", "", ""),
+                ],
+            )
+        },
+    )
     documents, audit = round_raw_training_documents(_Cfg(tmp_path), batch_ids=["R01"])
     assert [(r["kanun_no"], r["madde"]) for r in documents["d1"]["references"]] == [("193", "94")]
     assert audit["batches"]["R01"]["references"] == 3
@@ -363,8 +448,16 @@ def test_the_raw_arm_trains_each_reference_once(tmp_path: Path) -> None:
 
 def test_any_quote_of_a_repeated_reference_may_place_it(tmp_path: Path) -> None:
     text = "Ödeme, ilgili düzenlemenin onuncu hükmü gereğince yapılır."
-    _prepare(tmp_path, "R01", {"d1": (text, [_reference("5520", "10", "metinde yok"),
-                                             _reference("5520", "10", "onuncu hükmü")])})
+    _prepare(
+        tmp_path,
+        "R01",
+        {
+            "d1": (
+                text,
+                [_reference("5520", "10", "metinde yok"), _reference("5520", "10", "onuncu hükmü")],
+            )
+        },
+    )
     documents, audit = round_raw_training_documents(_Cfg(tmp_path), batch_ids=["R01"])
     [reference] = documents["d1"]["references"]
     assert reference["source_text"] == "onuncu hükmü"
@@ -372,8 +465,10 @@ def test_any_quote_of_a_repeated_reference_may_place_it(tmp_path: Path) -> None:
 
 
 def test_a_raw_reference_carries_every_mention_as_a_quote(tmp_path: Path) -> None:
-    text = ("193 sayılı Gelir Vergisi Kanununun 94 üncü maddesinde tevkifat düzenlenmiştir. "
-            "Ödemeler bakımından aynı Kanunun 94 üncü maddesi uygulanır.")
+    text = (
+        "193 sayılı Gelir Vergisi Kanununun 94 üncü maddesinde tevkifat düzenlenmiştir. "
+        "Ödemeler bakımından aynı Kanunun 94 üncü maddesi uygulanır."
+    )
     _prepare(tmp_path, "R01", {"d1": (text, [_reference("193", "94", "")])})
     documents, audit = round_raw_training_documents(_Cfg(tmp_path), batch_ids=["R01"])
     [reference] = documents["d1"]["references"]
@@ -392,10 +487,15 @@ def test_gold_ranges_are_expanded_from_round_one_but_not_in_m000(tmp_path: Path)
     """M000 is sealed and keeps its run id; M001 on trains gold ranges as articles."""
     config = canonical_fixture(tmp_path)
     m000 = train_round(config, generation="M000", split=SPLIT, cleaned_batch_ids=[])
-    assert "article_ranges" not in json.loads(Path(m000["run_config_path"]).read_text(encoding="utf-8"))
+    assert "article_ranges" not in json.loads(
+        Path(m000["run_config_path"]).read_text(encoding="utf-8")
+    )
     _round1(config)
     m001 = train_round(config, generation="M001", split=SPLIT, cleaned_batch_ids=["round1"])
-    assert json.loads(Path(m001["run_config_path"]).read_text(encoding="utf-8"))["article_ranges"] == "expanded_v1"
+    assert (
+        json.loads(Path(m001["run_config_path"]).read_text(encoding="utf-8"))["article_ranges"]
+        == "expanded_v1"
+    )
 
 
 def test_truth_corrections_are_a_new_clean_run_and_leave_the_raw_run_alone(tmp_path: Path) -> None:
@@ -406,17 +506,31 @@ def test_truth_corrections_are_a_new_clean_run_and_leave_the_raw_run_alone(tmp_p
     text = "6098 sayılı Türk Borçlar Kanununun 620 ila 645 inci maddeleri uygulanır."
     config = canonical_fixture(tmp_path)
     root = Path(config.sensitive_root)
-    _prepare(root, "round1", {"d1": (text, [_reference("6098", "620", ""), _reference("6098", "645", "")])})
+    _prepare(
+        root,
+        "round1",
+        {"d1": (text, [_reference("6098", "620", ""), _reference("6098", "645", "")])},
+    )
     write_sealed_release(
-        root, "round1",
-        [{"internal_doc_id": "d1", "text": text, "references": [_reference("6098", "620", ""),
-                                                                 _reference("6098", "645", "")]}],
+        root,
+        "round1",
+        [
+            {
+                "internal_doc_id": "d1",
+                "text": text,
+                "references": [_reference("6098", "620", ""), _reference("6098", "645", "")],
+            }
+        ],
         [],
     )
     clean_before = train_round(config, generation="M001", split=SPLIT, cleaned_batch_ids=["round1"])
-    raw_before = train_round(config, generation="M001", split=SPLIT, cleaned_batch_ids=["round1"], labels="raw")
+    raw_before = train_round(
+        config, generation="M001", split=SPLIT, cleaned_batch_ids=["round1"], labels="raw"
+    )
     write_range_corrections(config, batch_id="round1", decision="Kuralla düzelt (Önerilen)")
     clean_after = train_round(config, generation="M001", split=SPLIT, cleaned_batch_ids=["round1"])
-    raw_after = train_round(config, generation="M001", split=SPLIT, cleaned_batch_ids=["round1"], labels="raw")
+    raw_after = train_round(
+        config, generation="M001", split=SPLIT, cleaned_batch_ids=["round1"], labels="raw"
+    )
     assert clean_before["run_id"] != clean_after["run_id"]
     assert raw_before["run_id"] == raw_after["run_id"]

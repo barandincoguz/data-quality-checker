@@ -90,13 +90,11 @@ class TestExpertSubmissionAccepted:
         """A blank form row carries no claim at all, so there is nothing to
         lose by dropping it and nothing to gain by refusing the save.
         """
-        result = validate_final_references(
-            [ref("193", "Gelir Vergisi Kanunu", "51"), ref()]
-        )
+        result = validate_final_references([ref("193", "Gelir Vergisi Kanunu", "51"), ref()])
         assert len(result) == 1
 
     def test_an_empty_submission_is_accepted(self) -> None:
-        """"This ruling cites nothing" is a legitimate expert verdict."""
+        """ "This ruling cites nothing" is a legitimate expert verdict."""
         assert validate_final_references([]) == []
 
 
@@ -116,7 +114,10 @@ class TestConflictDetection:
         expert-validated documents in RED.
         """
         assert not conflicting_law_identity(
-            [ref("5422", "Kurumlar Vergisi Kanunu", "8"), ref("5520", "Kurumlar Vergisi Kanunu", "5")]
+            [
+                ref("5422", "Kurumlar Vergisi Kanunu", "8"),
+                ref("5520", "Kurumlar Vergisi Kanunu", "5"),
+            ]
         )
 
     def test_two_names_for_one_statute_number_is_still_a_conflict(self) -> None:
@@ -137,7 +138,9 @@ class TestConflictDetection:
             ]
         )
 
-    @pytest.mark.parametrize("degenerate", ["Kanun", "kanunu", "Bu Kanun", "mezkur kanun", "  KANUN "])
+    @pytest.mark.parametrize(
+        "degenerate", ["Kanun", "kanunu", "Bu Kanun", "mezkur kanun", "  KANUN "]
+    )
     def test_every_shape_of_a_contentless_name_is_ignored(self, degenerate: str) -> None:
         assert not conflicting_law_identity(
             [ref("2560", degenerate, "21"), ref("2560", "İstanbul Su Kanalizasyon Kanunu", "1")]

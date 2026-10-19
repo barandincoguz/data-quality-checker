@@ -36,7 +36,10 @@ def test_the_best_span_comes_first() -> None:
 def test_a_second_mention_of_the_same_law_and_article_is_kept() -> None:
     spans = locate_reference_spans(TEXT, ref("193", "94"))
     assert len(spans) == 2
-    assert any("aynı Kanunun 94 üncü maddesi" in TEXT[TEXT.find(s) - 20 : TEXT.find(s) + len(s)] for s in spans[1:])
+    assert any(
+        "aynı Kanunun 94 üncü maddesi" in TEXT[TEXT.find(s) - 20 : TEXT.find(s) + len(s)]
+        for s in spans[1:]
+    )
 
 
 def test_another_law_s_article_of_the_same_number_is_not_a_mention() -> None:
@@ -50,7 +53,9 @@ def test_an_unplaceable_reference_has_no_spans() -> None:
 
 
 def test_attach_fills_source_texts_and_keeps_the_best_as_source_text() -> None:
-    located, refusals = attach_mention_spans({"d1": {"text": TEXT, "references": [ref("193", "94"), ref("5520", "10")]}})
+    located, refusals = attach_mention_spans(
+        {"d1": {"text": TEXT, "references": [ref("193", "94"), ref("5520", "10")]}}
+    )
     first, second = located["d1"]["references"]
     assert first["source_text"] == first["source_texts"][0] and len(first["source_texts"]) == 2
     assert second["source_text"] == "" and "source_texts" not in second

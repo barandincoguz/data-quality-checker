@@ -543,7 +543,9 @@ def canonical_evaluate(
         # audit, 2 Oct 2026), not only from the prediction file above.
         from .reference_policy import reference_policy_spec
 
-        for identity in reference_policy_spec(reference_policy)["ignored_normalized_core_identities"]:
+        for identity in reference_policy_spec(reference_policy)[
+            "ignored_normalized_core_identities"
+        ]:
             command += ["--ignore-law-article", f"{identity['kanun_no']}:{identity['madde']}"]
     completed = subprocess.run(
         command,
@@ -552,7 +554,13 @@ def canonical_evaluate(
             **os.environ,
             # The evaluator's matcher is the package's own (`reference_matching`).
             "PYTHONPATH": os.pathsep.join(
-                part for part in (str(repo_root), str(repo_root / "src"), os.environ.get("PYTHONPATH", "")) if part
+                part
+                for part in (
+                    str(repo_root),
+                    str(repo_root / "src"),
+                    os.environ.get("PYTHONPATH", ""),
+                )
+                if part
             ),
         },
         text=True,
@@ -926,9 +934,7 @@ def run_development(
             if update in summary_by_update:
                 existing_summary = summary_by_update[update]
                 if _collapsed(existing_summary):
-                    raise GateBlocked(
-                        f"validation at update={update} collapsed to empty answers"
-                    )
+                    raise GateBlocked(f"validation at update={update} collapsed to empty answers")
                 summary_checkpoint = Path(existing_summary["checkpoint"])
                 verify_checkpoint(summary_checkpoint)
                 verified_checkpoints[update] = summary_checkpoint
@@ -1012,9 +1018,7 @@ def run_development(
             )
             write_json_atomic(validation_dir / "summary.json", summary)
             if _collapsed(summary):
-                raise GateBlocked(
-                    f"validation at update={update} collapsed to empty answers"
-                )
+                raise GateBlocked(f"validation at update={update} collapsed to empty answers")
             summary_by_update[update] = summary
             summaries = [summary_by_update[key] for key in sorted(summary_by_update)]
             best = _best_summary(summaries)

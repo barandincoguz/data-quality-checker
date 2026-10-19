@@ -557,14 +557,26 @@ def test_a_reference_cited_in_two_places_is_in_both_windows(tmp_path: Path, monk
     monkeypatch.setattr(context_windows, "FALLBACK_OVERLAP_TOKENS", 1)
     monkeypatch.setattr(context_windows, "_include_dense_replay", lambda _: False)
     source, doc_ids = tmp_path / "train.jsonl", tmp_path / "train_doc_ids.json"
-    reference = {"kanun_no": "193", "kanun_ad": "", "madde": "94", "source_text": "w1 w2",
-                 "source_texts": ["w1 w2", "w5 w6"]}
-    source.write_text(json.dumps(_row("w0 w1 w2 w3 w4 w5 w6 w7", [reference])) + "\n", encoding="utf-8")
+    reference = {
+        "kanun_no": "193",
+        "kanun_ad": "",
+        "madde": "94",
+        "source_text": "w1 w2",
+        "source_texts": ["w1 w2", "w5 w6"],
+    }
+    source.write_text(
+        json.dumps(_row("w0 w1 w2 w3 w4 w5 w6 w7", [reference])) + "\n", encoding="utf-8"
+    )
     doc_ids.write_text("[1]\n", encoding="utf-8")
     build_context_window_view(
-        source_path=source, source_doc_ids_path=doc_ids, output_path=tmp_path / "out.jsonl",
-        output_doc_ids_path=tmp_path / "out_ids.json", manifest_path=tmp_path / "manifest.json",
-        tokenizer=_Tokenizer(), model_fingerprint="a" * 64, max_sequence_length=8,
+        source_path=source,
+        source_doc_ids_path=doc_ids,
+        output_path=tmp_path / "out.jsonl",
+        output_doc_ids_path=tmp_path / "out_ids.json",
+        manifest_path=tmp_path / "manifest.json",
+        tokenizer=_Tokenizer(),
+        model_fingerprint="a" * 64,
+        max_sequence_length=8,
     )
     rows = [json.loads(line) for line in (tmp_path / "out.jsonl").read_text().splitlines()]
     targets = [json.loads(row["messages"][-1]["content"]) for row in rows]

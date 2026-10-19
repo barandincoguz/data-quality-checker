@@ -315,7 +315,9 @@ def test_full_epoch_horizon_is_derived_from_the_training_view(tmp_path):
     assert full_epoch_updates(view, gradient_accumulation=4) == 549
 
 
-def test_the_loop_trains_windows_unless_whole_documents_are_asked_for(tmp_path: Path, monkeypatch) -> None:
+def test_the_loop_trains_windows_unless_whole_documents_are_asked_for(
+    tmp_path: Path, monkeypatch
+) -> None:
     """Decision (28 Sep 2026): both views were trained for M000; the windowed one
     won on validation (0.927 vs 0.920, not significant) and the loop continues
     windowed, so M001+ train exactly as M000 did. Whole documents stay available,
@@ -328,10 +330,14 @@ def test_the_loop_trains_windows_unless_whole_documents_are_asked_for(tmp_path: 
     windowed = train_round(config, generation="M000", split=SPLIT, cleaned_batch_ids=[])
     source = validate_canonical_sources(config)
     monkeypatch.setattr(loop_train, "has_loop_settings", lambda config: True)
-    monkeypatch.setattr(loop_train, "validate_loop_sources", lambda config: {**source, "split": SPLIT})
+    monkeypatch.setattr(
+        loop_train, "validate_loop_sources", lambda config: {**source, "split": SPLIT}
+    )
     monkeypatch.setattr(loop_train, "loop_split_policy", lambda config: "loop-test")
     looped = loop_train.train_round(config, generation="M000", split=SPLIT, cleaned_batch_ids=[])
-    assert json.loads(Path(looped["run_config_path"]).read_text())["training_view_mode"] == "windows"
+    assert (
+        json.loads(Path(looped["run_config_path"]).read_text())["training_view_mode"] == "windows"
+    )
     assert looped["run_id"] == windowed["run_id"]
 
     whole = loop_train.train_round(
@@ -350,7 +356,10 @@ def test_whole_documents_are_asked_for_explicitly(tmp_path: Path) -> None:
     from data_quality_checker.loop_train import training_view_mode
 
     assert training_view_mode(SimpleNamespace(raw={"loop": {}})) == "windows"
-    assert training_view_mode(SimpleNamespace(raw={"loop": {"training_view": "full_documents"}})) == "full_documents"
+    assert (
+        training_view_mode(SimpleNamespace(raw={"loop": {"training_view": "full_documents"}}))
+        == "full_documents"
+    )
     assert training_view_mode(SimpleNamespace(raw={})) == "windows"
     assert training_view_mode(SimpleNamespace(raw={}), "full_documents") == "full_documents"
     with pytest.raises(ContractError):

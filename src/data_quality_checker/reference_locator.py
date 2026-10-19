@@ -382,7 +382,9 @@ def _amends(text: str, end: int) -> bool:
     if _AMEND_WITH.match(text, end):
         return True
     word = re.search(r"\S+$", text[max(0, end - 40) : end])
-    return bool(word and _INSTRUMENTAL_LAW.search(word.group(0)) and _AMEND_VERB_AT.match(text, end))
+    return bool(
+        word and _INSTRUMENTAL_LAW.search(word.group(0)) and _AMEND_VERB_AT.match(text, end)
+    )
 
 
 @lru_cache(maxsize=32)
@@ -422,9 +424,7 @@ def _law_mentions(text: str) -> tuple[_LawMention, ...]:
         if stem and len(re.findall(r"(?i:kanun|yasa)", title)) == 1:
             aliases.setdefault(stem, number)
         kind = "decree" if "/" in match.group("no") else "numbered"
-        found.append(
-            (match.start(), end, "amending" if _amends(text, end) else kind, number, stem)
-        )
+        found.append((match.start(), end, "amending" if _amends(text, end) else kind, number, stem))
     covered = [(start, end) for start, end, *_ in found]
     covered += [
         (match.start(), (_law_end(text, match.end()) or match.end()))
@@ -458,7 +458,14 @@ def _law_mentions(text: str) -> tuple[_LawMention, ...]:
         number = number or _title_number(stem, aliases)
         mentions.append(
             _LawMention(
-                start, end, number, stem, True, kind == "amending", written_number, decree,
+                start,
+                end,
+                number,
+                stem,
+                True,
+                kind == "amending",
+                written_number,
+                decree,
                 _amending_reach(text, end),
             )
         )
@@ -497,9 +504,9 @@ def _law_agrees(mention: _LawMention, number: str, stems: set[str]) -> bool | No
 
 
 def _canonical_madde(value: str) -> str:
-    return normalize_reference(
-        {"kanun_no": "", "kanun_ad": "", "madde": value, "source_text": ""}
-    )["madde"]
+    return normalize_reference({"kanun_no": "", "kanun_ad": "", "madde": value, "source_text": ""})[
+        "madde"
+    ]
 
 
 def _item_rest(match: re.Match[str], madde: str, inherited: str | None = None) -> str | None:
@@ -640,7 +647,8 @@ def _law_rank_and_mention(
     # A decree owns only the articles written right after it (above); so does a
     # law amending by one of its articles, up to its amending verb.
     preceding = [
-        m for m in mentions
+        m
+        for m in mentions
         if m.start < start and not m.decree and not (m.reach is not None and m.reach <= start)
     ]
     if not preceding:

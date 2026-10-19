@@ -24,13 +24,23 @@ from data_quality_checker.rescored_selection import select_rescored_checkpoint
 CANDIDATE = "loop-lr2.5e-5-full-epoch"
 
 
-def _evaluation(f1: float, *, recall: float | None = None, docwise: float = 0.7, empty_docs: int = 0) -> dict:
-    per_doc = [{"tp": 0, "fp": 0, "fn": 1}] * empty_docs + [{"tp": 1, "fp": 0, "fn": 0}] * (50 - empty_docs)
+def _evaluation(
+    f1: float, *, recall: float | None = None, docwise: float = 0.7, empty_docs: int = 0
+) -> dict:
+    per_doc = [{"tp": 0, "fp": 0, "fn": 1}] * empty_docs + [{"tp": 1, "fp": 0, "fn": 0}] * (
+        50 - empty_docs
+    )
     return {
         "results": [
             {
-                "core_law_article_strict": {"f1": f1, "recall": f1 if recall is None else recall,
-                                            "precision": f1, "tp": 1, "fp": 0, "fn": 0},
+                "core_law_article_strict": {
+                    "f1": f1,
+                    "recall": f1 if recall is None else recall,
+                    "precision": f1,
+                    "tp": 1,
+                    "fp": 0,
+                    "fn": 0,
+                },
                 "docwise_core_accuracy": {"accuracy": docwise},
                 "core_per_doc_metrics": per_doc,
             }
@@ -42,29 +52,41 @@ def _config(tmp_path: Path) -> SimpleNamespace:
     return SimpleNamespace(public_root=tmp_path / "public", training_runs_root=tmp_path / "runs")
 
 
-def _run(tmp_path: Path, points: dict[int, dict], *, coverage: dict[int, int] | None = None) -> Path:
+def _run(
+    tmp_path: Path, points: dict[int, dict], *, coverage: dict[int, int] | None = None
+) -> Path:
     """A finished run: per update a checkpoint, the worker's validation record, its evaluation and summary."""
     candidate = tmp_path / "runs" / "dqcheck_loop_r" / "development" / CANDIDATE
     for update, evaluation in points.items():
         checkpoint = candidate / "checkpoints" / f"update_{update:07d}"
         checkpoint.mkdir(parents=True)
-        (checkpoint / "manifest.json").write_text(json.dumps({"trainer_state_fingerprint": f"t{update}"}))
+        (checkpoint / "manifest.json").write_text(
+            json.dumps({"trainer_state_fingerprint": f"t{update}"})
+        )
         directory = candidate / "validation" / f"update_{update:07d}"
         directory.mkdir(parents=True)
         predictions = directory / "predictions.json"
         predictions.write_text(json.dumps([{"doc_id": update}]))
         validation = {
-            "coverage_count": (coverage or {}).get(update, 50), "parse_count": 50, "empty_output_count": 0,
-            "zero_reference_output_count": 0, "predicted_reference_count": 9, "runaway_output_count": 0,
-            "validation_loss": 1.0 / update, "predictions_path": str(predictions),
+            "coverage_count": (coverage or {}).get(update, 50),
+            "parse_count": 50,
+            "empty_output_count": 0,
+            "zero_reference_output_count": 0,
+            "predicted_reference_count": 9,
+            "runaway_output_count": 0,
+            "validation_loss": 1.0 / update,
+            "predictions_path": str(predictions),
             "predictions_sha256": sha256_file(predictions),
         }
         (directory / "manifest.json").write_text(json.dumps(validation))
         (directory / "evaluation.json").write_text(json.dumps(evaluation))
         summary = _validation_summary(
-            update=update, checkpoint=checkpoint, checkpoint_manifest={"trainer_state_fingerprint": f"t{update}"},
+            update=update,
+            checkpoint=checkpoint,
+            checkpoint_manifest={"trainer_state_fingerprint": f"t{update}"},
             validation={**validation, "manifest_sha256": sha256_file(directory / "manifest.json")},
-            evaluation=evaluation, evaluation_sha256=sha256_file(directory / "evaluation.json"),
+            evaluation=evaluation,
+            evaluation_sha256=sha256_file(directory / "evaluation.json"),
         )
         (directory / "summary.json").write_text(json.dumps(summary))
     return candidate
@@ -78,10 +100,24 @@ def _rescore(tmp_path: Path, label: str, candidate: Path, points: dict[int, dict
         name = f"update_{update:07d}"
         (out / name).mkdir(parents=True)
         (out / name / "evaluation.json").write_text(json.dumps(evaluation))
-        rows.append({"checkpoint": name,
-                     "predictions_sha256": sha256_file(candidate / "validation" / name / "predictions.json")})
-    (out / "summary.json").write_text(json.dumps({"run_id": "dqcheck_loop_r", "label": label,
-                                                  "evaluator_commit": "abc1234", "rows": rows}))
+        rows.append(
+            {
+                "checkpoint": name,
+                "predictions_sha256": sha256_file(
+                    candidate / "validation" / name / "predictions.json"
+                ),
+            }
+        )
+    (out / "summary.json").write_text(
+        json.dumps(
+            {
+                "run_id": "dqcheck_loop_r",
+                "label": label,
+                "evaluator_commit": "abc1234",
+                "rows": rows,
+            }
+        )
+    )
     return out
 
 
@@ -106,22 +142,44 @@ def test_the_selection_is_written_beside_the_rescore(tmp_path: Path) -> None:
 def test_the_trainer_s_tie_break_order_is_kept(tmp_path: Path) -> None:
     """Equal F1: docwise accuracy decides before recall (g0.CHECKPOINT_TIE_BREAK_ORDER)."""
     candidate = _run(tmp_path, {25: _evaluation(0.9), 50: _evaluation(0.9)})
-    _rescore(tmp_path, "L", candidate, {25: _evaluation(0.9, recall=0.99, docwise=0.6),
-                                         50: _evaluation(0.9, recall=0.80, docwise=0.8)})
-    assert select_rescored_checkpoint(_config(tmp_path), run_id="dqcheck_loop_r", label="L")["selected_update"] == 50
+    _rescore(
+        tmp_path,
+        "L",
+        candidate,
+        {
+            25: _evaluation(0.9, recall=0.99, docwise=0.6),
+            50: _evaluation(0.9, recall=0.80, docwise=0.8),
+        },
+    )
+    assert (
+        select_rescored_checkpoint(_config(tmp_path), run_id="dqcheck_loop_r", label="L")[
+            "selected_update"
+        ]
+        == 50
+    )
 
 
 def test_an_ineligible_point_stays_ineligible(tmp_path: Path) -> None:
     candidate = _run(tmp_path, {25: _evaluation(0.80), 50: _evaluation(0.70)}, coverage={25: 49})
     _rescore(tmp_path, "L", candidate, {25: _evaluation(0.99), 50: _evaluation(0.70)})
-    assert select_rescored_checkpoint(_config(tmp_path), run_id="dqcheck_loop_r", label="L")["selected_update"] == 50
+    assert (
+        select_rescored_checkpoint(_config(tmp_path), run_id="dqcheck_loop_r", label="L")[
+            "selected_update"
+        ]
+        == 50
+    )
 
 
 def test_eligibility_is_recomputed_on_the_rescored_evaluation(tmp_path: Path) -> None:
     """The collapse gate reads the evaluation: it is applied to the rescored one."""
     candidate = _run(tmp_path, {25: _evaluation(0.80), 50: _evaluation(0.70)})
     _rescore(tmp_path, "L", candidate, {25: _evaluation(0.95, empty_docs=5), 50: _evaluation(0.70)})
-    assert select_rescored_checkpoint(_config(tmp_path), run_id="dqcheck_loop_r", label="L")["selected_update"] == 50
+    assert (
+        select_rescored_checkpoint(_config(tmp_path), run_id="dqcheck_loop_r", label="L")[
+            "selected_update"
+        ]
+        == 50
+    )
 
 
 def test_a_point_missing_from_the_rescore_is_refused(tmp_path: Path) -> None:
@@ -164,8 +222,12 @@ def test_rebuilding_with_the_run_s_own_evaluation_reproduces_its_summaries(tmp_p
     candidate = _run(tmp_path, {25: _evaluation(0.80, empty_docs=1)})
     directory = candidate / "validation" / "update_0000025"
     stored = json.loads((directory / "summary.json").read_text())
-    rebuilt = rebuilt_summary(candidate, 25, json.loads((directory / "evaluation.json").read_text()),
-                              evaluation_sha256=stored["evaluation_sha256"])
+    rebuilt = rebuilt_summary(
+        candidate,
+        25,
+        json.loads((directory / "evaluation.json").read_text()),
+        evaluation_sha256=stored["evaluation_sha256"],
+    )
     assert {k: v for k, v in rebuilt.items() if k != "generated_at"} == {
         k: v for k, v in stored.items() if k != "generated_at"
     }
@@ -175,10 +237,15 @@ def test_loop_select_rescored_is_a_command(monkeypatch):
     from data_quality_checker import commands, rescored_selection
     from data_quality_checker.cli import build_parser
 
-    args = build_parser().parse_args(["loop-select-rescored", "--run-id", "dqcheck_loop_r", "--label", "L"])
+    args = build_parser().parse_args(
+        ["loop-select-rescored", "--run-id", "dqcheck_loop_r", "--label", "L"]
+    )
     seen = []
-    monkeypatch.setattr(rescored_selection, "select_rescored_checkpoint",
-                        lambda config, **kw: seen.append(kw) or {"selected_update": 25, "points": []})
+    monkeypatch.setattr(
+        rescored_selection,
+        "select_rescored_checkpoint",
+        lambda config, **kw: seen.append(kw) or {"selected_update": 25, "points": []},
+    )
     assert args.handler is commands.loop_select_rescored
     assert args.handler(args, None) == 0
     assert seen == [{"run_id": "dqcheck_loop_r", "label": "L"}]

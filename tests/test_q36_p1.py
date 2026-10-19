@@ -37,7 +37,9 @@ def test_q36_prompt_and_training_recipe_are_byte_locked() -> None:
     # 1 Oct 2026 the prompt asks for the law and the article only, so the lock
     # no longer matches and `q36_preflight` refuses to run (archived at git tag
     # archive/gt750-v1-fikra-bent). The lock itself is unchanged.
-    assert LOCKED_PROMPT_SHA256 == "d09a70ad36d8be30e49fc04cfbc3be7d0ef55d15ed38c612de7b3e9e9b86f882"
+    assert (
+        LOCKED_PROMPT_SHA256 == "d09a70ad36d8be30e49fc04cfbc3be7d0ef55d15ed38c612de7b3e9e9b86f882"
+    )
     assert sha256_text(SYSTEM_PROMPT) != LOCKED_PROMPT_SHA256
     contract = Q36TrainingContract()
     assert contract.optimizer_updates(3399) == 850

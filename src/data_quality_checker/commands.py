@@ -282,9 +282,19 @@ def loop_train(args: Namespace, config: AppConfig) -> int:
     stop_at = getattr(args, "stop_at", None)
     # The raw-label arm (`M_k_raw`, noisy-vs-clean ablation) is never sealed either.
     labels = getattr(args, "labels", "clean")
-    if getattr(args, "no_seal", False) or view == "full_documents" or stop_at is not None or labels != "clean":
+    if (
+        getattr(args, "no_seal", False)
+        or view == "full_documents"
+        or stop_at is not None
+        or labels != "clean"
+    ):
         # A run stopped short is a candidate too: it is never sealed.
-        kwargs = {"round_index": args.round, "resume": args.resume, "view": view, "stop_at": stop_at}
+        kwargs = {
+            "round_index": args.round,
+            "resume": args.resume,
+            "view": view,
+            "stop_at": stop_at,
+        }
         if labels != "clean":
             kwargs["labels"] = labels
         return _print_json(train_loop_candidate(config, **kwargs))
@@ -321,7 +331,11 @@ def loop_correct_rows(args: Namespace, config: AppConfig) -> int:
         raise ContractError("--write records a user decision: quote it with --decision")
     fixes = json.loads(Path(args.fixes).read_text(encoding="utf-8"))
     payload = write_row_fixes(
-        config, batch_id=batch_id_for(args.round), decision=args.decision or "", fixes=fixes, dry_run=not args.write
+        config,
+        batch_id=batch_id_for(args.round),
+        decision=args.decision or "",
+        fixes=fixes,
+        dry_run=not args.write,
     )
     return _print_json({"written": args.write, **payload})
 
@@ -329,7 +343,9 @@ def loop_correct_rows(args: Namespace, config: AppConfig) -> int:
 def loop_select_rescored(args: Namespace, config: AppConfig) -> int:
     from . import rescored_selection
 
-    selection = rescored_selection.select_rescored_checkpoint(config, run_id=args.run_id, label=args.label)
+    selection = rescored_selection.select_rescored_checkpoint(
+        config, run_id=args.run_id, label=args.label
+    )
     return _print_json({key: value for key, value in selection.items() if key != "points"})
 
 
@@ -381,8 +397,15 @@ def loop_rescore(args: Namespace, config: AppConfig) -> int:
     from .rescore import rescore_run
 
     summary = rescore_run(config, run_id=args.run_id, label=args.label, reason=args.reason)
-    return _print_json({k: v for k, v in summary.items() if k != "rows"}
-                       | {"rows": [(r["checkpoint"], round(r["old_f1"], 4), round(r["new_f1"], 4)) for r in summary["rows"]]})
+    return _print_json(
+        {k: v for k, v in summary.items() if k != "rows"}
+        | {
+            "rows": [
+                (r["checkpoint"], round(r["old_f1"], 4), round(r["new_f1"], 4))
+                for r in summary["rows"]
+            ]
+        }
+    )
 
 
 def loop_prompt_screen(args: Namespace, config: AppConfig) -> int:
@@ -396,20 +419,46 @@ def loop_prompt_screen(args: Namespace, config: AppConfig) -> int:
         from .g0 import PROMPT_VARIANT, loop_prompt
         from .loop_ops import LOOP_CANDIDATE
 
-        runs = {PROMPT_VARIANT: _Path(config.training_runs_root) / args.base_run_id / "development" / LOOP_CANDIDATE}
+        runs = {
+            PROMPT_VARIANT: _Path(config.training_runs_root)
+            / args.base_run_id
+            / "development"
+            / LOOP_CANDIDATE
+        }
         for path in args.candidate_config or []:
             candidate = load_config(path)
-            record = _json.loads((_Path(candidate.public_root) / "loop" / "candidates" / "round_000_windows.json").read_text())
-            runs[loop_prompt(candidate)[0]] = _Path(candidate.training_runs_root) / record["run_id"] / "development" / LOOP_CANDIDATE
+            record = _json.loads(
+                (
+                    _Path(candidate.public_root) / "loop" / "candidates" / "round_000_windows.json"
+                ).read_text()
+            )
+            runs[loop_prompt(candidate)[0]] = (
+                _Path(candidate.training_runs_root)
+                / record["run_id"]
+                / "development"
+                / LOOP_CANDIDATE
+            )
         output = _Path(config.public_root) / "loop" / "prompt_screen" / "stage2" / "selection.json"
         result = stage_two(runs, output=output)
-        return _print_json({"winner": result["winner"],
-                            "ranking": [(r["variant"], round(r["f1"], 4), round(r["best_f1_up_to"], 4)) for r in result["ranking"]],
-                            "output": str(output)})
+        return _print_json(
+            {
+                "winner": result["winner"],
+                "ranking": [
+                    (r["variant"], round(r["f1"], 4), round(r["best_f1_up_to"], 4))
+                    for r in result["ranking"]
+                ],
+                "output": str(output),
+            }
+        )
     selection = stage_one(config, base_run_id=args.base_run_id)
     configs = write_stage_two_configs(args.config, selection)
-    return _print_json({"ranking": [(r["variant"], round(r["f1"], 4)) for r in selection["ranking"]],
-                        "to_stage_two": selection["to_stage_two"], "configs": [str(p) for p in configs]})
+    return _print_json(
+        {
+            "ranking": [(r["variant"], round(r["f1"], 4)) for r in selection["ranking"]],
+            "to_stage_two": selection["to_stage_two"],
+            "configs": [str(p) for p in configs],
+        }
+    )
 
 
 def loop_report(args: Namespace, config: AppConfig) -> int:

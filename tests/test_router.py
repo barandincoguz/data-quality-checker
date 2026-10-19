@@ -17,7 +17,9 @@ def ref(**updates):
 
 
 def test_alias_and_article_normalization() -> None:
-    normalized = normalize_reference(ref(kanun_no="", kanun_ad="VUK", madde="Mükerrer 20 inci maddesi"))
+    normalized = normalize_reference(
+        ref(kanun_no="", kanun_ad="VUK", madde="Mükerrer 20 inci maddesi")
+    )
     assert normalized["kanun_no"] == "213"
     assert normalized["kanun_ad"] == "Vergi Usul Kanunu"
     assert normalized["madde"] == "mükerrer 20"

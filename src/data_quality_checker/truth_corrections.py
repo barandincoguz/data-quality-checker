@@ -72,11 +72,14 @@ def endpoint_only_ranges(text: str, references: list[dict[str, Any]]) -> list[di
         seen.add((low, high))
         interior = {str(n) for n in range(low + 1, high)}
         laws = [
-            law for law, held in sorted(articles.items())
+            law
+            for law, held in sorted(articles.items())
             if {str(low), str(high)} <= held and not interior & held
         ]
         if len(laws) == 1:
-            found.append({"kanun_no": laws[0], "low": low, "high": high, "text_writes": f"{low} ila {high}"})
+            found.append(
+                {"kanun_no": laws[0], "low": low, "high": high, "text_writes": f"{low} ila {high}"}
+            )
     return found
 
 
@@ -89,7 +92,10 @@ def _apply_range(rows: list[dict[str, Any]], correction: dict[str, Any]) -> list
     law, low, high = str(correction["kanun_no"]), int(correction["low"]), int(correction["high"])
     canonical = [canonical_reference(r) for r in rows]
     index = {
-        end: next((i for i, r in enumerate(canonical) if r["kanun_no"] == law and r["madde"] == str(end)), None)
+        end: next(
+            (i for i, r in enumerate(canonical) if r["kanun_no"] == law and r["madde"] == str(end)),
+            None,
+        )
         for end in (low, high)
     }
     if index[low] is None or index[high] is None:
@@ -98,7 +104,12 @@ def _apply_range(rows: list[dict[str, Any]], correction: dict[str, Any]) -> list
         )
     held = {r["madde"] for r in canonical if r["kanun_no"] == law}
     added = [
-        {"kanun_no": law, "kanun_ad": canonical[index[low]]["kanun_ad"], "madde": str(n), "source_text": ""}
+        {
+            "kanun_no": law,
+            "kanun_ad": canonical[index[low]]["kanun_ad"],
+            "madde": str(n),
+            "source_text": "",
+        }
         for n in range(low + 1, high)
         if str(n) not in held
     ]
@@ -109,7 +120,9 @@ def _apply_row_fix(rows: list[dict[str, Any]], correction: dict[str, Any]) -> li
     target = (str(correction["row"]["kanun_no"]), str(correction["row"]["madde"]))
     hits = [i for i, row in enumerate(rows) if _key(row) == target]
     if not hits:
-        raise ContractError(f"truth correction {correction['kind']} {target} no longer applies: the list lacks it")
+        raise ContractError(
+            f"truth correction {correction['kind']} {target} no longer applies: the list lacks it"
+        )
     kept = [row for i, row in enumerate(rows) if i not in hits]
     if correction["kind"] == "replace":
         new = {**{"kanun_ad": ""}, **correction["with"], "source_text": ""}
@@ -118,7 +131,9 @@ def _apply_row_fix(rows: list[dict[str, Any]], correction: dict[str, Any]) -> li
     return kept
 
 
-def apply_corrections(references: list[dict[str, Any]], corrections: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def apply_corrections(
+    references: list[dict[str, Any]], corrections: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
     """The list with each correction applied in order; the input is never changed.
 
     A range adds the articles in between after its first endpoint; a replace puts
@@ -174,7 +189,9 @@ def load_corrections(config: Any, batch_id: str) -> dict[str, list[dict[str, Any
     return dict(by_document)
 
 
-def _record(config: Any, batch_id: str, release_id: str, decision: dict[str, Any]) -> dict[str, Any]:
+def _record(
+    config: Any, batch_id: str, release_id: str, decision: dict[str, Any]
+) -> dict[str, Any]:
     """Add one decision to the batch's file; the same decision again changes nothing, another
     one under the same rule is refused -- a decision is never overwritten."""
     path = corrections_path(config, batch_id)
@@ -187,9 +204,14 @@ def _record(config: Any, batch_id: str, release_id: str, decision: dict[str, Any
     for existing in payload["decisions"]:
         if existing["rule"] != decision["rule"]:
             continue
-        if (existing["quote"], existing["corrections"]) == (decision["quote"], decision["corrections"]):
+        if (existing["quote"], existing["corrections"]) == (
+            decision["quote"],
+            decision["corrections"],
+        ):
             return payload
-        raise ContractError(f"{path} already records another {decision['rule']} decision; it is never overwritten")
+        raise ContractError(
+            f"{path} already records another {decision['rule']} decision; it is never overwritten"
+        )
     payload["decisions"].append({**decision, "written_at": datetime.now(UTC).isoformat()})
     write_json_atomic(path, payload)
     return payload
@@ -203,25 +225,38 @@ def propose_range_corrections(config: Any, batch_id: str) -> dict[str, Any]:
     corrections, not_corrected = [], []
     for doc_id, row in sorted(_released_rows(config, [batch_id]).items()):
         for found in endpoint_only_ranges(row["text"], row["references"]):
-            entry = {"internal_doc_id": doc_id, "kind": "range", **found,
-                     "rows_added": found["high"] - found["low"] - 1}
+            entry = {
+                "internal_doc_id": doc_id,
+                "kind": "range",
+                **found,
+                "rows_added": found["high"] - found["low"] - 1,
+            }
             # The decision is about the expert's lists. A consensus document's truth is the
             # annotator's list, scored as a source too: it is listed, never corrected here.
             (corrections if row["tier"] == "expert_adjudicated" else not_corrected).append(entry)
-    return {"release_id": release_id, "corrections": corrections, "consensus_documents_not_corrected": not_corrected}
+    return {
+        "release_id": release_id,
+        "corrections": corrections,
+        "consensus_documents_not_corrected": not_corrected,
+    }
 
 
 def write_range_corrections(config: Any, *, batch_id: str, decision: str) -> dict[str, Any]:
     """Record the user's decision to correct every endpoint-only range of a released batch."""
     proposal = propose_range_corrections(config, batch_id)
-    return _record(config, batch_id, proposal["release_id"], {
-        "rule": RANGE_RULE,
-        "by": "user",
-        "quote": decision,
-        "rule_text": '"473 ila 475" = 473, 474 ve 475; her madde ayrı satır (kullanıcı, 7 Ekim 2026)',
-        "corrections": proposal["corrections"],
-        "consensus_documents_not_corrected": proposal["consensus_documents_not_corrected"],
-    })
+    return _record(
+        config,
+        batch_id,
+        proposal["release_id"],
+        {
+            "rule": RANGE_RULE,
+            "by": "user",
+            "quote": decision,
+            "rule_text": '"473 ila 475" = 473, 474 ve 475; her madde ayrı satır (kullanıcı, 7 Ekim 2026)',
+            "corrections": proposal["corrections"],
+            "consensus_documents_not_corrected": proposal["consensus_documents_not_corrected"],
+        },
+    )
 
 
 def write_row_fixes(
@@ -239,7 +274,9 @@ def write_row_fixes(
     corrections = []
     for fix in fixes:
         doc_id = str(fix["internal_doc_id"])
-        if fix.get("kind") not in ("replace", "remove") or ("with" in fix) != (fix["kind"] == "replace"):
+        if fix.get("kind") not in ("replace", "remove") or ("with" in fix) != (
+            fix["kind"] == "replace"
+        ):
             raise ContractError(f"a row fix is a replace with `with` or a remove without it: {fix}")
         if doc_id not in released or released[doc_id]["tier"] != "expert_adjudicated":
             raise ContractError(f"{doc_id!r} is not an expert-adjudicated document of {batch_id!r}")
@@ -259,12 +296,17 @@ def write_row_fixes(
         )
     if dry_run:
         return {"release_id": release_id, "corrections": corrections}
-    return _record(config, batch_id, release_id, {
-        "rule": ROW_FIX_RULE,
-        "by": "user",
-        "quote": decision,
-        "corrections": corrections,
-    })
+    return _record(
+        config,
+        batch_id,
+        release_id,
+        {
+            "rule": ROW_FIX_RULE,
+            "by": "user",
+            "quote": decision,
+            "corrections": corrections,
+        },
+    )
 
 
 def corrections_summary(config: Any, batch_id: str) -> dict[str, Any] | None:
@@ -282,7 +324,9 @@ def corrections_summary(config: Any, batch_id: str) -> dict[str, Any] | None:
                 "quote": decision["quote"],
                 "documents": sorted({c["internal_doc_id"] for c in decision["corrections"]}),
                 "corrections": len(decision["corrections"]),
-                "kinds": dict(sorted(_count(c.get("kind", "range") for c in decision["corrections"]).items())),
+                "kinds": dict(
+                    sorted(_count(c.get("kind", "range") for c in decision["corrections"]).items())
+                ),
             }
             for decision in payload["decisions"]
         ],

@@ -33,8 +33,22 @@ def _story():
     annotator = [r("193", "94"), r("213", "30"), r("213", "31"), r("213", "413")]
     model = [r("193", "94/1"), r("213", "30", fikra="2")]
     return [
-        {"doc_id": "d1", "truth": expert, "truth_source": "expert", "annotator": annotator, "model": model, "judge": expert},
-        {"doc_id": "d2", "truth": [], "truth_source": "expert", "annotator": [], "model": [r("5520", "10")], "judge": None},
+        {
+            "doc_id": "d1",
+            "truth": expert,
+            "truth_source": "expert",
+            "annotator": annotator,
+            "model": model,
+            "judge": expert,
+        },
+        {
+            "doc_id": "d2",
+            "truth": [],
+            "truth_source": "expert",
+            "annotator": [],
+            "model": [r("5520", "10")],
+            "judge": None,
+        },
     ]
 
 
@@ -60,7 +74,11 @@ def test_each_source_counts_what_it_found_and_what_it_got_wrong() -> None:
     judge = table["sources"]["judge"]
     assert judge["documents"] == 1 and judge["core"]["fp"] == 0 and judge["core"]["fn"] == 0
     for source in table["sources"].values():
-        assert "full" not in source and "detail_errors" not in source and "written_provisions" not in source
+        assert (
+            "full" not in source
+            and "detail_errors" not in source
+            and "written_provisions" not in source
+        )
 
 
 def test_every_f1_carries_a_document_bootstrap_interval() -> None:
@@ -73,8 +91,17 @@ def test_every_f1_carries_a_document_bootstrap_interval() -> None:
 
 def _record(doc_id, bucket, status, *, final=None, audit=False):
     refs = [r("193", "94")]
-    return {"internal_doc_id": doc_id, "router_bucket": bucket, "status": status, "escalated": False,
-            "in_green_audit_sample": audit, "final": final, "annotator": refs, "model": refs, "judge": refs}
+    return {
+        "internal_doc_id": doc_id,
+        "router_bucket": bucket,
+        "status": status,
+        "escalated": False,
+        "in_green_audit_sample": audit,
+        "final": final,
+        "annotator": refs,
+        "model": refs,
+        "judge": refs,
+    }
 
 
 def test_the_batch_scope_takes_the_agreed_list_only_where_the_green_audit_passed() -> None:
@@ -88,7 +115,10 @@ def test_the_batch_scope_takes_the_agreed_list_only_where_the_green_audit_passed
     assert [x["doc_id"] for x in reviewed["records"]] == ["red", "audit"]
     batch = scoped_truth_records(records, scope="batch")
     assert {x["doc_id"]: x["truth_source"] for x in batch["records"]} == {
-        "red": "expert", "audit": "expert", "green": "consensus"}
+        "red": "expert",
+        "audit": "expert",
+        "green": "consensus",
+    }
     assert batch["documents_without_truth"] == ["pending-red"]
 
     unfinished = [*records[:1], _record("audit", "GREEN", "pending", audit=True), *records[2:]]
@@ -125,11 +155,24 @@ def test_the_round_error_report_carries_the_table_in_both_scopes(tmp_path) -> No
         for doc_id in ids[1:]:
             store.set_router_bucket("batch", doc_id, "GREEN")
         review = store.get_review("batch", ids[0])
-        store.update_review(batch_id="batch", internal_doc_id=ids[0], expected_version=review["row_version"],
-                            status="finalized", action="revise", final_references=[r("193", "94"), r("213", "30")],
-                            reason=None, reviewer="fixture")
-    report = write_error_report(config, round_index=1, batch_id="batch", generation="G0",
-                                judge_model=JUDGE_MODEL_KEY, path=tmp_path / "e.json")
+        store.update_review(
+            batch_id="batch",
+            internal_doc_id=ids[0],
+            expected_version=review["row_version"],
+            status="finalized",
+            action="revise",
+            final_references=[r("193", "94"), r("213", "30")],
+            reason=None,
+            reviewer="fixture",
+        )
+    report = write_error_report(
+        config,
+        round_index=1,
+        batch_id="batch",
+        generation="G0",
+        judge_model=JUDGE_MODEL_KEY,
+        path=tmp_path / "e.json",
+    )
     table = report["reference_table"]
     assert table["reviewed"]["documents"] == 1
     human = table["reviewed"]["sources"]["annotator"]
@@ -138,7 +181,10 @@ def test_the_round_error_report_carries_the_table_in_both_scopes(tmp_path) -> No
     # Two GREEN documents, neither in a (complete) audit sample here: the audit
     # plan decides whether they count; the table says which truth each row used.
     assert batch["documents"] + len(batch["documents_without_truth"]) == 3
-    assert json.loads((tmp_path / "e.json").read_text())["reference_table"]["reviewed"]["documents"] == 1
+    assert (
+        json.loads((tmp_path / "e.json").read_text())["reference_table"]["reviewed"]["documents"]
+        == 1
+    )
 
 
 def test_the_batch_trend_reads_every_round_and_compares_each_with_the_last(tmp_path) -> None:
@@ -151,26 +197,49 @@ def test_the_batch_trend_reads_every_round_and_compares_each_with_the_last(tmp_p
     rounds.mkdir(parents=True)
 
     def table(f1_tp, docs):
-        per_document = {f"d{i}": {"model": {"core": [f1_tp, 2 - f1_tp, 0]},
-                                  "annotator": {"core": [2, 0, 0]}} for i in range(docs)}
-        return {"documents": docs, "documents_without_truth": [], "documents_by_truth_source": {"expert": docs},
-                "sources": {"model": {"core": {"f1": 0.5}}, "annotator": {"core": {"f1": 1.0}}},
-                "per_document": per_document}
+        per_document = {
+            f"d{i}": {"model": {"core": [f1_tp, 2 - f1_tp, 0]}, "annotator": {"core": [2, 0, 0]}}
+            for i in range(docs)
+        }
+        return {
+            "documents": docs,
+            "documents_without_truth": [],
+            "documents_by_truth_source": {"expert": docs},
+            "sources": {"model": {"core": {"f1": 0.5}}, "annotator": {"core": {"f1": 1.0}}},
+            "per_document": per_document,
+        }
 
     for k, tp in ((1, 1), (2, 2)):
-        (rounds / f"round_{k:03d}_errors.json").write_text(json.dumps(
-            {"round": k, "batch_id": f"R0{k}", "generation": f"M00{k - 1}",
-             "reference_table": {"reviewed": table(tp, 30), "batch": table(tp, 30)}}))
+        (rounds / f"round_{k:03d}_errors.json").write_text(
+            json.dumps(
+                {
+                    "round": k,
+                    "batch_id": f"R0{k}",
+                    "generation": f"M00{k - 1}",
+                    "reference_table": {"reviewed": table(tp, 30), "batch": table(tp, 30)},
+                }
+            )
+        )
     for k, f1 in ((0, 0.90), (1, 0.93)):
-        (rounds / f"round_{k:03d}_model.json").write_text(json.dumps({"selection": {"core_f1": f1, "selected_update": 1}}))
-    config = SimpleNamespace(public_root=tmp_path / "public", sensitive_root=tmp_path / "s", raw={"loop": {}})
+        (rounds / f"round_{k:03d}_model.json").write_text(
+            json.dumps({"selection": {"core_f1": f1, "selected_update": 1}})
+        )
+    config = SimpleNamespace(
+        public_root=tmp_path / "public", sensitive_root=tmp_path / "s", raw={"loop": {}}
+    )
     trend = loop_ops.batch_trend(config)
     first, second = trend["batches"]
-    assert first["batch_id"] == "R01" and first["predicted_by"] == "M000" and "vs_previous_batch" not in first["reviewed"]
+    assert (
+        first["batch_id"] == "R01"
+        and first["predicted_by"] == "M000"
+        and "vs_previous_batch" not in first["reviewed"]
+    )
     change = second["reviewed"]["vs_previous_batch"]["model"]["core"]
     assert change["verdict"] == "improved" and change["delta"] > 0
-    assert trend["validation"] == [{"round": 0, "model": "M000", "windows_core_f1": 0.90},
-                                   {"round": 1, "model": "M001", "windows_core_f1": 0.93}]
+    assert trend["validation"] == [
+        {"round": 0, "model": "M000", "windows_core_f1": 0.90},
+        {"round": 1, "model": "M001", "windows_core_f1": 0.93},
+    ]
     assert json.loads((rounds / "batch_trend.json").read_text()) == trend
 
 
@@ -186,9 +255,23 @@ def test_rows_written_twice_and_rows_another_row_covers_are_counted_apart() -> N
     """R01 d000081: "Geçici 21" and "geçici 21" are one reference written twice,
     and so are "193/94" and "193/94" stored with a paragraph; a law-only "193"
     beside "193/94" is covered by the article row."""
-    annotator = [r("4447", "Geçici 21"), r("4447", "geçici 21"), r("193", "94"), r("193", "94", fikra="1"), r("193", "")]
-    records = [{"doc_id": "d", "truth": [r("4447", "geçici 21"), r("193", "94")], "truth_source": "expert",
-                "annotator": annotator, "model": [r("4447", "geçici 21")], "judge": None}]
+    annotator = [
+        r("4447", "Geçici 21"),
+        r("4447", "geçici 21"),
+        r("193", "94"),
+        r("193", "94", fikra="1"),
+        r("193", ""),
+    ]
+    records = [
+        {
+            "doc_id": "d",
+            "truth": [r("4447", "geçici 21"), r("193", "94")],
+            "truth_source": "expert",
+            "annotator": annotator,
+            "model": [r("4447", "geçici 21")],
+            "judge": None,
+        }
+    ]
     human = reference_table(records, samples=50)["sources"]["annotator"]
     assert (human["written_rows"], human["duplicate_rows"], human["subsumed_rows"]) == (5, 2, 1)
     assert human["written_references"] == 2 and human["core"]["fp"] == 0

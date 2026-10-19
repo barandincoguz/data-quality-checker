@@ -76,7 +76,16 @@ def test_a_number_written_into_the_name_is_the_law_number() -> None:
     # as the evaluator already read it.
     from data_quality_checker.normalization import core_identity, normalize_reference
 
-    numbered = core_identity(normalize_reference({"kanun_no": "1163", "kanun_ad": "Kooperatifler Kanunu", "madde": "1", "source_text": ""}))
+    numbered = core_identity(
+        normalize_reference(
+            {
+                "kanun_no": "1163",
+                "kanun_ad": "Kooperatifler Kanunu",
+                "madde": "1",
+                "source_text": "",
+            }
+        )
+    )
     assert _core("1163 sayılı Kooperatifler Kanunu") == numbered
 
 
@@ -146,7 +155,15 @@ def test_an_inserted_article_keeps_its_uppercase_letter() -> None:
 def test_normalizing_twice_changes_nothing() -> None:
     """The inserted-article letter stays upper case, so a normalized "32/A"
     is not read as a part of article 32 on a second pass (it was: "32/a")."""
-    for written in ("32/A", "Geçici 21", "mükerrer 20/A-B", "13/a", "466-469", "Ek 5", "229 ve müteakip"):
+    for written in (
+        "32/A",
+        "Geçici 21",
+        "mükerrer 20/A-B",
+        "13/a",
+        "466-469",
+        "Ek 5",
+        "229 ve müteakip",
+    ):
         once = normalize_article(written)
         assert normalize_article(once) == once, written
         reference = normalize_reference(_ref(madde=written))
@@ -165,9 +182,25 @@ def test_a_stored_row_with_paragraph_fields_is_read_as_its_law_and_article() -> 
 def test_uppercase_prefixed_law_with_embedded_part_matches_its_plain_twin() -> None:
     """One row combining every defect this plan fixes."""
     a = compact_references(
-        [{"kanun_no": "3065", "kanun_ad": "3065 SAYILI KATMA DEĞER VERGİSİ KANUNU", "madde": "6/b", "source_text": "x"}]
+        [
+            {
+                "kanun_no": "3065",
+                "kanun_ad": "3065 SAYILI KATMA DEĞER VERGİSİ KANUNU",
+                "madde": "6/b",
+                "source_text": "x",
+            }
+        ]
     )
-    b = compact_references([{"kanun_no": "3065", "kanun_ad": "Katma Değer Vergisi Kanunu", "madde": "6", "source_text": "y"}])
+    b = compact_references(
+        [
+            {
+                "kanun_no": "3065",
+                "kanun_ad": "Katma Değer Vergisi Kanunu",
+                "madde": "6",
+                "source_text": "y",
+            }
+        ]
+    )
     assert core_identity(a[0]) == core_identity(b[0])
 
 

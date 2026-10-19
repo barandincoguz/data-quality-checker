@@ -28,12 +28,16 @@ class _Tokenizer:
         return list(range(len(text.split())))
 
 
-def _backend(monkeypatch: pytest.MonkeyPatch, chunks: list[tuple[str, int, str | None]]) -> MlxG0Backend:
+def _backend(
+    monkeypatch: pytest.MonkeyPatch, chunks: list[tuple[str, int, str | None]]
+) -> MlxG0Backend:
     def stream_generate(*_: Any, **__: Any):
         for text, tokens, finish in chunks:
             yield types.SimpleNamespace(text=text, generation_tokens=tokens, finish_reason=finish)
 
-    monkeypatch.setitem(sys.modules, "mlx_lm", types.SimpleNamespace(stream_generate=stream_generate))
+    monkeypatch.setitem(
+        sys.modules, "mlx_lm", types.SimpleNamespace(stream_generate=stream_generate)
+    )
     backend = object.__new__(MlxG0Backend)
     backend.system_prompt = "sistem"
     backend.max_input_tokens = 100
@@ -43,7 +47,9 @@ def _backend(monkeypatch: pytest.MonkeyPatch, chunks: list[tuple[str, int, str |
     return backend
 
 
-def _fallback(monkeypatch: pytest.MonkeyPatch, result: dict[str, Any] | Exception) -> list[dict[str, Any]]:
+def _fallback(
+    monkeypatch: pytest.MonkeyPatch, result: dict[str, Any] | Exception
+) -> list[dict[str, Any]]:
     calls: list[dict[str, Any]] = []
 
     def fake(**kwargs: Any) -> dict[str, Any]:
@@ -59,7 +65,9 @@ def _fallback(monkeypatch: pytest.MonkeyPatch, result: dict[str, Any] | Exceptio
 def _recovered() -> dict[str, Any]:
     return {
         "raw_output": ANSWER,
-        "parsed_references": [{"kanun_no": "193", "kanun_ad": "Gelir Vergisi Kanunu", "madde": "94"}],
+        "parsed_references": [
+            {"kanun_no": "193", "kanun_ad": "Gelir Vergisi Kanunu", "madde": "94"}
+        ],
         "parse_ok": True,
         "parse_error": None,
         "input_tokens": 40,
@@ -78,7 +86,9 @@ def test_a_runaway_without_json_is_recovered_in_windows(monkeypatch: pytest.Monk
     calls = _fallback(monkeypatch, _recovered())
     result = backend.predict({"text": "metin"})
     assert result.status == "success" and result.error is None
-    assert result.references == [{"kanun_no": "193", "kanun_ad": "Gelir Vergisi Kanunu", "madde": "94"}]
+    assert result.references == [
+        {"kanun_no": "193", "kanun_ad": "Gelir Vergisi Kanunu", "madde": "94"}
+    ]
     fallback = result.operational["window_fallback"]
     assert fallback["recovered"] is True
     assert fallback["primary"]["finish_reason"] == "length"
@@ -87,7 +97,11 @@ def test_a_runaway_without_json_is_recovered_in_windows(monkeypatch: pytest.Monk
     assert result.operational["truncated"] is False
     assert result.operational["output_tokens"] == 80
     (call,) = calls
-    assert (call["window_tokens"], call["overlap_tokens"], call["max_generation_tokens"]) == (1024, 256, 1024)
+    assert (call["window_tokens"], call["overlap_tokens"], call["max_generation_tokens"]) == (
+        1024,
+        256,
+        1024,
+    )
     assert call["recover_repetition"] is True
     assert call["messages"][1] == {"role": "user", "content": "metin"}
 
@@ -105,8 +119,13 @@ def test_a_failed_fallback_keeps_the_primary_error_and_records_the_attempt(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     backend = _backend(monkeypatch, [("aaa " * 10, 50, "length")])
-    failed = {**_recovered(), "parse_ok": False, "parsed_references": [], "finish_reason": "length",
-              "parse_error": "window fallback failed at window=0: length"}
+    failed = {
+        **_recovered(),
+        "parse_ok": False,
+        "parsed_references": [],
+        "finish_reason": "length",
+        "parse_error": "window fallback failed at window=0: length",
+    }
     failed["fallback"] = {**failed["fallback"], "recovered": False}
     _fallback(monkeypatch, failed)
     result = backend.predict({"text": "metin"})

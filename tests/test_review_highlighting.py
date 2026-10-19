@@ -39,7 +39,10 @@ def test_a_reference_cited_nowhere_has_no_mentions() -> None:
 
 
 def test_a_row_only_the_model_has_is_highlighted() -> None:
-    rows = ab_diff([ref("193", "94", "193 sayılı Gelir Vergisi Kanununun 94 üncü maddesinde")], [ref("193", "94"), ref("193", "61")])
+    rows = ab_diff(
+        [ref("193", "94", "193 sayılı Gelir Vergisi Kanununun 94 üncü maddesinde")],
+        [ref("193", "94"), ref("193", "61")],
+    )
     spans, counts = row_highlights(TEXT, rows)
     model_only = next(i for i, r in enumerate(rows) if r["status"] == "only_b")
     assert counts[model_only] == 1
@@ -114,4 +117,6 @@ def test_a_locator_failure_costs_the_highlight_not_the_page(monkeypatch) -> None
     rows = ab_diff([ref("193", "94", "Ödemeler bakımından")], [ref("193", "61")])
     spans, counts = row_highlights(TEXT, rows)
     assert counts == [0, 0]
-    assert any(s["start"] == TEXT.index("Ödemeler bakımından") for s in spans)  # the quote still marks
+    assert any(
+        s["start"] == TEXT.index("Ödemeler bakımından") for s in spans
+    )  # the quote still marks

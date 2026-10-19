@@ -44,7 +44,13 @@ def test_every_decision_field_tuple_is_the_law_and_the_article() -> None:
     from data_quality_checker.constants import REFERENCE_FIELDS as DQ_FIELDS
     from data_quality_checker.processing import LEGAL_TUPLE_FIELDS
 
-    assert REFERENCE_DECISION_FIELDS == DECISION_FIELDS == LEGAL_TUPLE_FIELDS == CORE_FIELDS == PRIMARY_METRIC_FIELDS
+    assert (
+        REFERENCE_DECISION_FIELDS
+        == DECISION_FIELDS
+        == LEGAL_TUPLE_FIELDS
+        == CORE_FIELDS
+        == PRIMARY_METRIC_FIELDS
+    )
     assert DQ_FIELDS == (*DECISION_FIELDS, "source_text")
     assert REFERENCE_FIELDS == ("type", *DECISION_FIELDS, "source_text")
 
@@ -65,7 +71,9 @@ def test_no_code_reads_or_writes_a_paragraph_field(path: Path) -> None:
     hits = [
         node.lineno
         for node in ast.walk(tree)
-        if isinstance(node, ast.Constant) and isinstance(node.value, str) and node.value in {"fikra", "bent", "fıkra"}
+        if isinstance(node, ast.Constant)
+        and isinstance(node.value, str)
+        and node.value in {"fikra", "bent", "fıkra"}
     ]
     assert not hits, f"{path.name}: paragraph field named at lines {hits}"
 
@@ -83,23 +91,61 @@ def test_a_stored_paragraph_field_is_projected_away_on_every_path() -> None:
     from data_quality_checker.judges import blind_candidates
     from data_quality_checker.normalization import compact_references, normalize_reference
 
-    stored = {"kanun_no": "193", "kanun_ad": "", "madde": "94", "fikra": "1", "bent": "a", "source_text": "x"}
+    stored = {
+        "kanun_no": "193",
+        "kanun_ad": "",
+        "madde": "94",
+        "fikra": "1",
+        "bent": "a",
+        "source_text": "x",
+    }
     assert set(validate_reference_list([stored])[0]) == {*DECISION_FIELDS, "source_text"}
     assert set(normalize_reference(stored)) == {*DECISION_FIELDS, "source_text"}
     assert set(compact_references([stored])[0]) == {*DECISION_FIELDS, "source_text"}
     assert not {"fikra", "bent"} & set(canonicalize_reference(evaluator_normalize(stored)))
-    _, a, b = blind_candidates(batch_id="b", internal_doc_id="d", model="m", human_references=[stored],
-                               model_references=[stored])
+    _, a, b = blind_candidates(
+        batch_id="b",
+        internal_doc_id="d",
+        model="m",
+        human_references=[stored],
+        model_references=[stored],
+    )
     assert all(set(reference) == set(DECISION_FIELDS) for reference in [*a, *b])
 
 
 def test_the_evaluator_reports_no_paragraph_level(tmp_path: Path) -> None:
     from benchmark.reference.evaluate import evaluate_prediction_file
 
-    gold = {1: [{"kanun_no": "193", "kanun_ad": "Gelir Vergisi Kanunu", "madde": "94", "source_text": ""}]}
+    gold = {
+        1: [
+            {
+                "kanun_no": "193",
+                "kanun_ad": "Gelir Vergisi Kanunu",
+                "madde": "94",
+                "source_text": "",
+            }
+        ]
+    }
     predictions = tmp_path / "p.json"
-    predictions.write_text(json.dumps([{"doc_id": 1, "status": "success", "references": [
-        {"kanun_no": "193", "kanun_ad": "", "madde": "94/1", "fikra": "2", "bent": "b"}]}]))
+    predictions.write_text(
+        json.dumps(
+            [
+                {
+                    "doc_id": 1,
+                    "status": "success",
+                    "references": [
+                        {
+                            "kanun_no": "193",
+                            "kanun_ad": "",
+                            "madde": "94/1",
+                            "fikra": "2",
+                            "bent": "b",
+                        }
+                    ],
+                }
+            ]
+        )
+    )
     result = evaluate_prediction_file(predictions, gold, None, include_per_doc=True)
     assert result["core_law_article_strict"]["f1"] == 1.0
     flat = json.dumps(result)

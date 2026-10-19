@@ -245,7 +245,6 @@ def test_a_verdict_from_another_instrument_is_refused_on_resume(tmp_path) -> Non
     assert "different judge instrument" in str(excinfo.value)
 
 
-
 def test_a_verdict_written_before_provenance_existed_is_refused(tmp_path) -> None:
     """M01's 27 stored verdicts name no prediction at all. They must not be
     trusted silently just because the key matches.

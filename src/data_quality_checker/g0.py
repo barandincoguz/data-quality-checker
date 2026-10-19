@@ -177,7 +177,11 @@ def loop_prompt(config: Any) -> tuple[str, str]:
 
     raw = getattr(config, "raw", None)
     loop = raw.get("loop") if isinstance(raw, dict) else None
-    variant = (loop or {}).get("prompt_variant", PROMPT_VARIANT) if isinstance(loop, dict) else PROMPT_VARIANT
+    variant = (
+        (loop or {}).get("prompt_variant", PROMPT_VARIANT)
+        if isinstance(loop, dict)
+        else PROMPT_VARIANT
+    )
     if variant not in PROMPTS:
         raise ContractError(f"unknown prompt variant {variant!r}; registered: {sorted(PROMPTS)}")
     return variant, PROMPTS[variant]
@@ -358,7 +362,9 @@ def validate_canonical_sources(config: AppConfig) -> dict[str, Any]:
     }
 
 
-def _training_example(document: dict[str, Any], system_prompt: str = SYSTEM_PROMPT) -> dict[str, Any]:
+def _training_example(
+    document: dict[str, Any], system_prompt: str = SYSTEM_PROMPT
+) -> dict[str, Any]:
     # Keep source_text (and a GT v7 row's source_texts) in this flat
     # per-document row: context_windows.py reads them back from this same JSON
     # to locate each reference inside the ruling when it decides which passage

@@ -12,7 +12,12 @@ from data_quality_checker.loop_metrics import attribute_errors, rater_agreement
 
 
 def ref(madde: str, source: str = "") -> dict[str, str]:
-    return {"kanun_no": "193", "kanun_ad": "Gelir Vergisi Kanunu", "madde": madde, "source_text": source}
+    return {
+        "kanun_no": "193",
+        "kanun_ad": "Gelir Vergisi Kanunu",
+        "madde": madde,
+        "source_text": source,
+    }
 
 
 def test_the_expert_screen_never_reports_a_quote_difference() -> None:

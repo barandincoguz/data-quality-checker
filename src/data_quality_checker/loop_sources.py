@@ -64,8 +64,14 @@ def _with_quotes(references: list[dict[str, str]], raw: list[Any]) -> list[dict[
         if quotes is None:
             out.append(reference)
             continue
-        if not isinstance(quotes, list) or not quotes or not all(isinstance(q, str) and q.strip() for q in quotes):
-            raise ContractError(f"reference[{index}].source_texts must be a non-empty list of quotes")
+        if (
+            not isinstance(quotes, list)
+            or not quotes
+            or not all(isinstance(q, str) and q.strip() for q in quotes)
+        ):
+            raise ContractError(
+                f"reference[{index}].source_texts must be a non-empty list of quotes"
+            )
         out.append({**reference, "source_texts": list(quotes)})
     return out
 
@@ -79,7 +85,9 @@ def validate_loop_sources(config: AppConfig) -> dict[str, Any]:
         raise ContractError(f"loop GT must contain {expected} doc_*.json files, found {len(paths)}")
     digest = repository_manifest_sha256(gt_dir)
     if digest != settings["gt_manifest_sha256"]:
-        raise IntegrityError(f"loop GT manifest drift: expected {settings['gt_manifest_sha256']}, got {digest}")
+        raise IntegrityError(
+            f"loop GT manifest drift: expected {settings['gt_manifest_sha256']}, got {digest}"
+        )
 
     documents: dict[int, dict[str, Any]] = {}
     reference_count = 0
@@ -90,7 +98,9 @@ def validate_loop_sources(config: AppConfig) -> dict[str, Any]:
             raise ContractError(f"loop GT filename/doc_id mismatch in {path}")
         if not isinstance(payload.get("text"), str) or not payload["text"].strip():
             raise ContractError(f"loop GT document {doc_id} has no text")
-        references = _with_quotes(validate_reference_list(payload.get("references")), payload["references"])
+        references = _with_quotes(
+            validate_reference_list(payload.get("references")), payload["references"]
+        )
         reference_count += len(references)
         documents[doc_id] = {**payload, "references": references}
     if set(documents) != set(range(1, expected + 1)):

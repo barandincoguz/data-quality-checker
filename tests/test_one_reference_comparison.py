@@ -33,35 +33,60 @@ def counts(reference, candidate) -> tuple[int, int, int]:
 
 # -- the name fallback ---------------------------------------------------------
 
+
 def test_a_law_without_its_number_matches_by_name_and_article() -> None:
-    assert counts([ref("492", "Harçlar Kanunu", "57")], [ref("", "Harçlar Kanunu", "57")]) == (1, 0, 0)
-    assert counts([ref("", "Harçlar Kanunu", "57")], [ref("492", "Harçlar Kanunu", "57")]) == (1, 0, 0)
+    assert counts([ref("492", "Harçlar Kanunu", "57")], [ref("", "Harçlar Kanunu", "57")]) == (
+        1,
+        0,
+        0,
+    )
+    assert counts([ref("", "Harçlar Kanunu", "57")], [ref("492", "Harçlar Kanunu", "57")]) == (
+        1,
+        0,
+        0,
+    )
     assert counts([ref("", "İmar Kanunu", "18")], [ref("", "İMAR KANUNU", "18")]) == (1, 0, 0)
     assert counts([ref("193", "", "94")], [ref("", "Gelir Vergisi Kanunu", "94")]) == (1, 0, 0)
 
 
 def test_the_name_fallback_needs_the_same_article_and_the_same_law() -> None:
-    assert counts([ref("492", "Harçlar Kanunu", "57")], [ref("", "Harçlar Kanunu", "58")]) == (0, 1, 1)
-    assert counts([ref("492", "Harçlar Kanunu", "57")], [ref("", "Gelir Vergisi Kanunu", "57")]) == (0, 1, 1)
+    assert counts([ref("492", "Harçlar Kanunu", "57")], [ref("", "Harçlar Kanunu", "58")]) == (
+        0,
+        1,
+        1,
+    )
+    assert counts(
+        [ref("492", "Harçlar Kanunu", "57")], [ref("", "Gelir Vergisi Kanunu", "57")]
+    ) == (0, 1, 1)
     # A number with no name says nothing about a name-only row.
     assert counts([ref("6770", "", "1")], [ref("", "Harçlar Kanunu", "1")]) == (0, 1, 1)
 
 
 def test_a_name_two_laws_share_is_never_resolved_to_either() -> None:
     """5422 and its successor 5520 are both the Kurumlar Vergisi Kanunu."""
-    gold = [ref("5422", "Kurumlar Vergisi Kanunu", ""), ref("5520", "Kurumlar Vergisi Kanunu", "14")]
+    gold = [
+        ref("5422", "Kurumlar Vergisi Kanunu", ""),
+        ref("5520", "Kurumlar Vergisi Kanunu", "14"),
+    ]
     assert counts(gold, [ref("5520", "", "14"), ref("5422", "", "")]) == (2, 0, 0)
     tp, fp, fn = counts(gold, [ref("", "Kurumlar Vergisi Kanunu", "14"), ref("5422", "", "")])
     assert (tp, fp, fn) == (1, 1, 1)  # the name-only row is not guessed to be 5520
-    assert counts([ref("", "Kurumlar Vergisi Kanunu", "14")], [ref("", "Kurumlar Vergisi Kanunu", "14")]) == (1, 0, 0)
+    assert counts(
+        [ref("", "Kurumlar Vergisi Kanunu", "14")], [ref("", "Kurumlar Vergisi Kanunu", "14")]
+    ) == (1, 0, 0)
 
 
 def test_two_written_numbers_decide_alone() -> None:
-    assert counts([ref("213", "Vergi Usul Kanunu", "5")], [ref("213", "Gelir Vergisi Kanunu", "5")]) == (1, 0, 0)
-    assert counts([ref("213", "Vergi Usul Kanunu", "5")], [ref("193", "Vergi Usul Kanunu", "5")]) == (0, 1, 1)
+    assert counts(
+        [ref("213", "Vergi Usul Kanunu", "5")], [ref("213", "Gelir Vergisi Kanunu", "5")]
+    ) == (1, 0, 0)
+    assert counts(
+        [ref("213", "Vergi Usul Kanunu", "5")], [ref("193", "Vergi Usul Kanunu", "5")]
+    ) == (0, 1, 1)
 
 
 # -- a law-only row beside an article of its law -------------------------------
+
 
 def test_a_law_only_row_beside_its_article_in_the_same_list_is_extra_not_wrong() -> None:
     gold = [ref("193", "", "94")]
@@ -91,11 +116,16 @@ PAIRS = [
     ([ref("193", "", "94")], [ref("193"), ref("193", "", "94")]),
     ([ref("193"), ref("193", "", "94")], [ref("193", "", "94"), ref("213", "", "5")]),
     ([ref("193", "", "94")], [ref("193")]),
-    ([ref("3065", "", "17"), ref("3065", "", "1")], [ref("3065", "", "(17/4-r)"), ref("3065", "", "-1/1")]),
+    (
+        [ref("3065", "", "17"), ref("3065", "", "1")],
+        [ref("3065", "", "(17/4-r)"), ref("3065", "", "-1/1")],
+    ),
     ([ref("5520", "", "32/A")], [ref("5520", "", "32/a")]),
     ([ref("213", "", "413"), ref("193", "", "94")], [ref("193", "", "94")]),
-    ([ref("", "Kurumlar Vergisi Kanunu", "14"), ref("5422", "Kurumlar Vergisi Kanunu", "")],
-     [ref("5520", "Kurumlar Vergisi Kanunu", "14"), ref("5422", "", "")]),
+    (
+        [ref("", "Kurumlar Vergisi Kanunu", "14"), ref("5422", "Kurumlar Vergisi Kanunu", "")],
+        [ref("5520", "Kurumlar Vergisi Kanunu", "14"), ref("5422", "", "")],
+    ),
 ]
 
 
@@ -109,26 +139,49 @@ def test_every_module_counts_a_document_the_same(truth, candidate, tmp_path) -> 
     route = route_document(human_references=truth, model_references=candidate)
     assert (route.bucket == "GREEN") == expected.agree
 
-    errors = attribute_errors(expert=truth, annotator=candidate, model=None, judge=None)["annotator"]
+    errors = attribute_errors(expert=truth, annotator=candidate, model=None, judge=None)[
+        "annotator"
+    ]
     assert (len(errors["correct"]), len(errors["spurious"]), len(errors["missed"])) == (tp, fp, fn)
 
-    table = reference_table([{"doc_id": 1, "truth": truth, "truth_source": "expert",
-                              "annotator": candidate, "model": None, "judge": None}], samples=10)
+    table = reference_table(
+        [
+            {
+                "doc_id": 1,
+                "truth": truth,
+                "truth_source": "expert",
+                "annotator": candidate,
+                "model": None,
+                "judge": None,
+            }
+        ],
+        samples=10,
+    )
     core = table["sources"]["annotator"]["core"]
     assert (core["tp"], core["fp"], core["fn"]) == (tp, fp, fn)
 
     audit = triage_disagreement(expert=truth, candidate=candidate, document_text="")
-    assert (audit["candidate_matched_count"], audit["candidate_only_count"], audit["expert_only_count"]) == (tp, fp, fn)
+    assert (
+        audit["candidate_matched_count"],
+        audit["candidate_only_count"],
+        audit["expert_only_count"],
+    ) == (tp, fp, fn)
 
     rows = ab_diff(truth, candidate)
-    assert (not any(row["status"] != "same" for row in rows)) == compare_reference_lists(truth, candidate).agree
+    assert (not any(row["status"] != "same" for row in rows)) == compare_reference_lists(
+        truth, candidate
+    ).agree
 
     gold = {1: [dict(r, type="kanun_madde_referansi") for r in truth]}
     predictions = tmp_path / "p.json"
-    predictions.write_text(json.dumps([{"doc_id": 1, "status": "success", "references": candidate}]))
+    predictions.write_text(
+        json.dumps([{"doc_id": 1, "status": "success", "references": candidate}])
+    )
     from benchmark.reference.evaluate import parse_ignored_law_articles
 
-    result = evaluate_prediction_file(predictions, gold, None, ignore_law_articles=parse_ignored_law_articles(["213:413"]))
+    result = evaluate_prediction_file(
+        predictions, gold, None, ignore_law_articles=parse_ignored_law_articles(["213:413"])
+    )
     scored = result["core_law_article_strict"]
     assert (scored["tp"], scored["fp"], scored["fn"]) == (tp, fp, fn)
 
@@ -147,14 +200,34 @@ def test_found_plus_missed_is_the_truths_reference_count(truth, candidate) -> No
     from data_quality_checker.reference_matching import reference_identities
 
     comparison = compare_reference_lists(truth, candidate)
-    assert comparison.tp + comparison.fn == len(reference_identities(truth, context_lists=[candidate]))
+    assert comparison.tp + comparison.fn == len(
+        reference_identities(truth, context_lists=[candidate])
+    )
 
 
 def test_the_journal_tables_columns_add_up() -> None:
     truth = [ref("193", "", "94"), ref("6770")]
-    candidate = [ref("193"), ref("193", "", "94"), ref("6770"), ref("6770", "", "5"), ref("213", "", "5"), ref("213", "", "5")]
-    table = reference_table([{"doc_id": 1, "truth": truth, "truth_source": "expert",
-                              "annotator": candidate, "model": None, "judge": None}], samples=10)
+    candidate = [
+        ref("193"),
+        ref("193", "", "94"),
+        ref("6770"),
+        ref("6770", "", "5"),
+        ref("213", "", "5"),
+        ref("213", "", "5"),
+    ]
+    table = reference_table(
+        [
+            {
+                "doc_id": 1,
+                "truth": truth,
+                "truth_source": "expert",
+                "annotator": candidate,
+                "model": None,
+                "judge": None,
+            }
+        ],
+        samples=10,
+    )
     a = table["sources"]["annotator"]
     core = a["core"]
     assert (core["tp"], core["fp"], core["fn"]) == (2, 2, 0)

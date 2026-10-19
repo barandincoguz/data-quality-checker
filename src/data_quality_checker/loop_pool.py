@@ -60,7 +60,9 @@ def pool_strata(
         raise ContractError(f"{len(missing)} pool document(s) absent from the archives")
 
     lengths = {
-        oid: len(html_to_text(pool[oid].get("htmlText")) or normalize_text(pool[oid].get("pdfText")))
+        oid: len(
+            html_to_text(pool[oid].get("htmlText")) or normalize_text(pool[oid].get("pdfText"))
+        )
         for oid in wanted
     }
     cuts = statistics.quantiles(sorted(lengths.values()), n=4)
@@ -73,13 +75,15 @@ def pool_strata(
             "username", "unknown"
         )
         quartile = 1 + sum(lengths[oid] > cut for cut in cuts)
-        strata.append({
-            "doc_id": oid,
-            "length_quartile": f"Q{quartile}",
-            "text_channel": channel,
-            "annotator": annotator or "unknown",
-            "reference_count": len(references),
-        })
+        strata.append(
+            {
+                "doc_id": oid,
+                "length_quartile": f"Q{quartile}",
+                "text_channel": channel,
+                "annotator": annotator or "unknown",
+                "reference_count": len(references),
+            }
+        )
     return strata
 
 

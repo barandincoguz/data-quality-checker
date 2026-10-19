@@ -63,7 +63,9 @@ def _placements() -> dict[str, dict]:
         for reference in document["references"]:
             for quote in reference.get("source_texts") or []:
                 for match in re.finditer(re.escape(quote), text):
-                    gold.setdefault(core_identity(normalize_reference(_blind(reference))), []).append(match.span())
+                    gold.setdefault(
+                        core_identity(normalize_reference(_blind(reference))), []
+                    ).append(match.span())
         for index, reference in enumerate(document["references"]):
             placement = place_reference(text, _blind(reference))
             spans = gold.get(core_identity(normalize_reference(_blind(reference))), [])
@@ -94,8 +96,6 @@ def test_no_new_refusal() -> None:
     assert refused <= expected, f"newly refused: {sorted(refused - expected)[:10]}"
 
 
-
-
 def _respellings(reference: dict[str, str]) -> list[dict[str, str]]:
     """Deterministic re-spellings of one reference, each changing one field."""
     out = []
@@ -103,17 +103,30 @@ def _respellings(reference: dict[str, str]) -> list[dict[str, str]]:
     qualified = re.match(r"(?i)^(geçici|mükerrer|ek)\s+(.+)$", madde)
     if qualified:
         word, rest = qualified.groups()
-        variants = {"geçici": ("GEÇİCİ", "geçiçi", "Geçici Madde"), "mükerrer": ("MÜKERRER", "mukerrer"), "ek": ("EK", "Ek Madde")}
+        variants = {
+            "geçici": ("GEÇİCİ", "geçiçi", "Geçici Madde"),
+            "mükerrer": ("MÜKERRER", "mukerrer"),
+            "ek": ("EK", "Ek Madde"),
+        }
         out += [{**reference, "madde": f"{v} {rest}"} for v in variants.get(word.lower(), ())]
     elif madde.isdigit():
         out += [{**reference, "madde": f"{madde} ve izleyen"}, {**reference, "madde": f"{madde}."}]
     if reference["kanun_no"].isdigit():
         out.append({**reference, "kanun_no": f"{reference['kanun_no']} sayılı"})
     if reference["kanun_ad"]:
-        out.append({**reference, "kanun_ad": reference["kanun_ad"].replace("i", "İ").replace("ı", "I").upper()})
+        out.append(
+            {
+                **reference,
+                "kanun_ad": reference["kanun_ad"].replace("i", "İ").replace("ı", "I").upper(),
+            }
+        )
     if madde.isdigit():
         # A part of the article written into `madde` names the same article.
-        out += [{**reference, "madde": f"{madde}/1"}, {**reference, "madde": f"{madde}/2-a"}, {**reference, "madde": f"{madde} (1)"}]
+        out += [
+            {**reference, "madde": f"{madde}/1"},
+            {**reference, "madde": f"{madde}/2-a"},
+            {**reference, "madde": f"{madde} (1)"},
+        ]
     return out
 
 
@@ -123,7 +136,9 @@ def test_respelling_a_reference_never_moves_its_placement() -> None:
         base = row["placement"]
         for variant in _respellings(row["reference"]):
             again = place_reference(row["text"], variant)
-            if (base is None) != (again is None) or (base and (base.start, base.end) != (again.start, again.end)):
+            if (base is None) != (again is None) or (
+                base and (base.start, base.end) != (again.start, again.end)
+            ):
                 moved.append((key, {k: v for k, v in variant.items() if v != row["reference"][k]}))
     assert not moved, f"{len(moved)} re-spellings moved a placement, e.g. {moved[:5]}"
 

@@ -77,7 +77,9 @@ def _core_identity_set(
     if references is None:
         return None
     kept, _ = apply_reference_policy(list(references))
-    return reference_identities(kept, context_lists=[apply_reference_policy(list(rows))[0] for rows in context_lists])
+    return reference_identities(
+        kept, context_lists=[apply_reference_policy(list(rows))[0] for rows in context_lists]
+    )
 
 
 def attribute_errors(
@@ -124,7 +126,9 @@ def attribute_errors(
                 "spurious": None,
             }
             continue
-        comparison = compare_with_policy(list(expert), list(raw_by_rater[name]), context_lists=available)
+        comparison = compare_with_policy(
+            list(expert), list(raw_by_rater[name]), context_lists=available
+        )
         result[name] = {
             "available": True,
             "correct": sorted(comparison.matched_identities),
@@ -268,7 +272,10 @@ def rater_agreement(records: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         document_lists = [list(rows) for rows in document_lists if rows is not None]
         identity_sets = {
             "expert": _core_identity_set(record["expert"], context_lists=document_lists),
-            **{name: _core_identity_set(record.get(name), context_lists=document_lists) for name in _RATER_NAMES},
+            **{
+                name: _core_identity_set(record.get(name), context_lists=document_lists)
+                for name in _RATER_NAMES
+            },
         }
         universe: set[Identity] = set()
         for identity_set in identity_sets.values():
@@ -460,9 +467,16 @@ def complementarity(records: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
                 continue
             documents += 1
             att = attribute_errors(
-                expert=row["final"], annotator=row["annotator"], model=row["model"], judge=row.get("judge")
+                expert=row["final"],
+                annotator=row["annotator"],
+                model=row["model"],
+                judge=row.get("judge"),
             )
-            found = {name: {tuple(i) for i in att[name]["correct"]} for name in _RATER_NAMES if att[name]["available"]}
+            found = {
+                name: {tuple(i) for i in att[name]["correct"]}
+                for name in _RATER_NAMES
+                if att[name]["available"]
+            }
             truth = {tuple(i) for i in att["annotator"]["correct"] + att["annotator"]["missed"]}
             annotator, model, judge = found["annotator"], found["model"], found.get("judge", set())
             counts["truth_references"] += len(truth)
@@ -474,15 +488,27 @@ def complementarity(records: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
             counts["found_by_neither"] += len(truth - (annotator | model))
             counts["found_by_none_of_three"] += len(truth - (annotator | model | judge))
             counts["wrong_in_both"] += len(
-                {tuple(i) for i in att["annotator"]["spurious"]} & {tuple(i) for i in att["model"]["spurious"]}
+                {tuple(i) for i in att["annotator"]["spurious"]}
+                & {tuple(i) for i in att["model"]["spurious"]}
             )
-        keys = ("truth_references", "found_by_annotator", "found_by_model", "found_by_judge", "found_by_both",
-                "found_by_either", "found_by_neither", "found_by_none_of_three", "wrong_in_both")
+        keys = (
+            "truth_references",
+            "found_by_annotator",
+            "found_by_model",
+            "found_by_judge",
+            "found_by_both",
+            "found_by_either",
+            "found_by_neither",
+            "found_by_none_of_three",
+            "wrong_in_both",
+        )
         return {
             "documents": documents,
             "documents_without_both_sources": skipped,
             **{key: counts[key] for key in keys},
-            "union_recall": counts["found_by_either"] / counts["truth_references"] if counts["truth_references"] else None,
+            "union_recall": counts["found_by_either"] / counts["truth_references"]
+            if counts["truth_references"]
+            else None,
         }
 
     return {
@@ -492,7 +518,9 @@ def complementarity(records: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         # (R01: its "accept_model" took the earlier model), so the figures that
         # describe this loop's sources leave them out.
         "new_decisions": block([row for row in records if not row.get("carried")]),
-        "carried_documents": sum(1 for row in records if row.get("carried") and row.get("status") == "finalized"),
+        "carried_documents": sum(
+            1 for row in records if row.get("carried") and row.get("status") == "finalized"
+        ),
     }
 
 
@@ -669,12 +697,18 @@ def expert_workload(records: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         "seconds_to_decision_sample_count": len(decision_seconds),
         "carried_decision_count": carried_decisions,
         "seconds_to_decision_new_p50": (
-            round(_percentile(sorted(new_decision_seconds), 50), 4) if new_decision_seconds else None
+            round(_percentile(sorted(new_decision_seconds), 50), 4)
+            if new_decision_seconds
+            else None
         ),
         "seconds_to_decision_new_p95": (
-            round(_percentile(sorted(new_decision_seconds), 95), 4) if new_decision_seconds else None
+            round(_percentile(sorted(new_decision_seconds), 95), 4)
+            if new_decision_seconds
+            else None
         ),
-        "expert_seconds_new_total": round(sum(new_decision_seconds), 1) if new_decision_seconds else None,
+        "expert_seconds_new_total": round(sum(new_decision_seconds), 1)
+        if new_decision_seconds
+        else None,
         "expert_seconds_total": round(sum(decision_seconds), 1) if decision_seconds else None,
         "seconds_to_decision_p50": (
             round(_percentile(sorted_seconds, 50), 4) if sorted_seconds else None
@@ -1059,7 +1093,9 @@ def _claims(
     from .reference_matching import DocumentContext, canonical_reference
 
     canonical = [canonical_reference(reference) for reference in kept]
-    aligned = DocumentContext(canonical, *([canonical_reference(r) for r in rows_] for rows_ in other))
+    aligned = DocumentContext(
+        canonical, *([canonical_reference(r) for r in rows_] for rows_ in other)
+    )
     distinct = {aligned.identity(row) for row in canonical}
     return (len(kept), len(rows) - len(kept), claims, len(distinct))
 
@@ -1071,7 +1107,9 @@ def _table_prf(tp: int, fp: int, fn: int) -> tuple[float, float, float]:
     return precision, recall, f1
 
 
-def _table_bootstrap_f1(per_document: Sequence[tuple[int, int, int]], *, samples: int, seed: int) -> list[float]:
+def _table_bootstrap_f1(
+    per_document: Sequence[tuple[int, int, int]], *, samples: int, seed: int
+) -> list[float]:
     """F1 of summed tp/fp/fn over documents resampled with replacement (as `paired_delta`)."""
     if not per_document:
         return []
@@ -1079,7 +1117,9 @@ def _table_bootstrap_f1(per_document: Sequence[tuple[int, int, int]], *, samples
     values = []
     for _ in range(samples):
         draw = rng.choices(per_document, k=len(per_document))
-        values.append(_table_prf(sum(d[0] for d in draw), sum(d[1] for d in draw), sum(d[2] for d in draw))[2])
+        values.append(
+            _table_prf(sum(d[0] for d in draw), sum(d[1] for d in draw), sum(d[2] for d in draw))[2]
+        )
     return sorted(values)
 
 
@@ -1136,7 +1176,9 @@ def reference_table(
             # (found + wrong), the truth's references (found + missed), and the
             # law-only rows beside an article of their law that were not scored.
             totals.update(
-                written_rows=kept, policy_dropped=dropped, duplicate_rows=kept - distinct,
+                written_rows=kept,
+                policy_dropped=dropped,
+                duplicate_rows=kept - distinct,
                 subsumed_rows=len(comparison.excused_candidate),
                 written_references=comparison.tp + comparison.fp,
                 truth_references=comparison.tp + comparison.fn,
@@ -1145,21 +1187,36 @@ def reference_table(
         tp, fp, fn = (sum(row[i] for row in rows_core) for i in range(3))
         precision, recall, f1 = _table_prf(tp, fp, fn)
         level = {
-            "tp": tp, "fp": fp, "fn": fn, "precision": precision, "recall": recall, "f1": f1,
+            "tp": tp,
+            "fp": fp,
+            "fn": fn,
+            "precision": precision,
+            "recall": recall,
+            "f1": f1,
             "f1_ci95": _interval(_table_bootstrap_f1(rows_core, samples=samples, seed=seed)),
         }
         sources[name] = {
             "documents": documents,
-            **{key: totals.get(key, 0) for key in (
-                "written_rows", "policy_dropped", "duplicate_rows", "subsumed_rows",
-                "written_references", "truth_references")},
+            **{
+                key: totals.get(key, 0)
+                for key in (
+                    "written_rows",
+                    "policy_dropped",
+                    "duplicate_rows",
+                    "subsumed_rows",
+                    "written_references",
+                    "truth_references",
+                )
+            },
             "core": level,
             "wrong_references": fp,
             "missed_references": fn,
         }
     return {
         "documents": len(records),
-        "documents_by_truth_source": dict(Counter(str(record["truth_source"]) for record in records)),
+        "documents_by_truth_source": dict(
+            Counter(str(record["truth_source"]) for record in records)
+        ),
         "bootstrap": {"samples": samples, "seed": seed, "unit": "document"},
         "level": "law_article",
         "sources": sources,
@@ -1192,10 +1249,20 @@ def scoped_truth_records(records: Sequence[Mapping[str, Any]], *, scope: str) ->
             if scope == "batch":
                 without.append(doc_id)
             continue
-        out.append({"doc_id": doc_id, "truth": truth, "truth_source": source,
-                    **{name: record.get(name) for name in _RATER_NAMES}})
-    return {"scope": scope, "records": out, "documents_without_truth": sorted(without),
-            "green_audit_passed": audit_passed}
+        out.append(
+            {
+                "doc_id": doc_id,
+                "truth": truth,
+                "truth_source": source,
+                **{name: record.get(name) for name in _RATER_NAMES},
+            }
+        )
+    return {
+        "scope": scope,
+        "records": out,
+        "documents_without_truth": sorted(without),
+        "green_audit_passed": audit_passed,
+    }
 
 
 def unpaired_f1_delta(
@@ -1207,6 +1274,7 @@ def unpaired_f1_delta(
 ) -> dict[str, Any]:
     """F1 change from one batch to the next: different documents, so each batch is
     resampled on its own (`paired_delta` is for the same documents twice)."""
+
     def counts(mapping):
         return [(int(v["tp"]), int(v["fp"]), int(v["fn"])) for _, v in sorted(mapping.items())]
 
@@ -1224,9 +1292,13 @@ def unpaired_f1_delta(
     low, high = _interval(deltas)
     verdict = "improved" if low > 0 else "regressed" if high < 0 else "inconclusive"
     return {
-        "delta": point, "lower_2_5": low, "upper_97_5": high,
+        "delta": point,
+        "lower_2_5": low,
+        "upper_97_5": high,
         "probability_delta_gt_zero": sum(1 for d in deltas if d > 0) / samples,
-        "previous_documents": len(before), "current_documents": len(after),
-        "samples": samples, "seed": seed, "verdict": verdict,
+        "previous_documents": len(before),
+        "current_documents": len(after),
+        "samples": samples,
+        "seed": seed,
+        "verdict": verdict,
     }
-

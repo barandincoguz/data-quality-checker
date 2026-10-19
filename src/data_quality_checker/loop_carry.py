@@ -112,7 +112,9 @@ def carry_decisions(
         raise ContractError(f"source database not found: {source_database}")
     source_sha = sha256_file(source_database)
     source = _source_rows(source_database, batch_id)
-    to_carry = sorted(d for d, row in source["reviews"].items() if row["status"] in CARRIED_STATUSES)
+    to_carry = sorted(
+        d for d, row in source["reviews"].items() if row["status"] in CARRIED_STATUSES
+    )
     manifest_path = config.public_root / "batches" / batch_id / "carried_decisions.json"
 
     with Store(config.database_path, busy_timeout_ms=config.runtime.busy_timeout_ms) as store:
@@ -130,7 +132,9 @@ def carry_decisions(
             if project(json.loads(mine["human_references_json"])) != project(
                 json.loads(theirs["human_references_json"])
             ):
-                raise IntegrityError(f"{doc_id}: the annotator's list differs between the two batches")
+                raise IntegrityError(
+                    f"{doc_id}: the annotator's list differs between the two batches"
+                )
             if mine["router_bucket"] is None:
                 raise GateBlocked(f"{doc_id} is not routed yet")
 
@@ -140,12 +144,16 @@ def carry_decisions(
                 manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
                 if manifest.get("source_database_sha256") == source_sha:
                     return manifest
-            raise IntegrityError("decisions were already carried into this batch from another source")
+            raise IntegrityError(
+                "decisions were already carried into this batch from another source"
+            )
         reviews = {row["internal_doc_id"]: row for row in store.list_reviews(batch_id)}
         for doc_id in to_carry:
             review = reviews[doc_id]
             if review["status"] != "pending" or review["row_version"] != 0:
-                raise GateBlocked(f"{doc_id} was already reviewed here; nothing is carried over a decision")
+                raise GateBlocked(
+                    f"{doc_id} was already reviewed here; nothing is carried over a decision"
+                )
 
         from .judges import ensure_green_audit_plan
 
@@ -174,11 +182,19 @@ def carry_decisions(
                 store.connection.execute(
                     "INSERT INTO batch_events(batch_id, event_type, payload_json, created_at_epoch) "
                     "VALUES (?, 'expert_review_updated', ?, ?)",
-                    (batch_id, json.dumps(payload, ensure_ascii=False, sort_keys=True), event["created_at_epoch"]),
+                    (
+                        batch_id,
+                        json.dumps(payload, ensure_ascii=False, sort_keys=True),
+                        event["created_at_epoch"],
+                    ),
                 )
             for doc_id in to_carry:
                 row = source["reviews"][doc_id]
-                final = project(None if row["final_references_json"] is None else json.loads(row["final_references_json"]))
+                final = project(
+                    None
+                    if row["final_references_json"] is None
+                    else json.loads(row["final_references_json"])
+                )
                 cursor = store.connection.execute(
                     """UPDATE reviews
                           SET status=?, action=?, final_references_json=?, reason=?, reviewer=?,
@@ -187,7 +203,9 @@ def carry_decisions(
                     (
                         row["status"],
                         row["action"],
-                        None if final is None else json.dumps(final, ensure_ascii=False, separators=(",", ":")),
+                        None
+                        if final is None
+                        else json.dumps(final, ensure_ascii=False, separators=(",", ":")),
                         row["reason"],
                         row["reviewer"],
                         row["row_version"],
@@ -208,15 +226,27 @@ def carry_decisions(
                         "in_green_audit_sample": doc_id in set(audit["sample_internal_doc_ids"]),
                         "final_references_fingerprint": fingerprint_json(final),
                         "events": sum(
-                            1 for e in source["events"] if json.loads(e["payload_json"]).get("internal_doc_id") == doc_id
+                            1
+                            for e in source["events"]
+                            if json.loads(e["payload_json"]).get("internal_doc_id") == doc_id
                         ),
                     }
                 )
             store.connection.execute(
                 "INSERT INTO batch_events(batch_id, event_type, payload_json, created_at_epoch) "
                 "VALUES (?, 'expert_decisions_carried', ?, strftime('%s','now'))",
-                (batch_id, json.dumps({"source": source_label, "source_database_sha256": source_sha,
-                                       "documents": len(carried), "projection": PROJECTION}, sort_keys=True)),
+                (
+                    batch_id,
+                    json.dumps(
+                        {
+                            "source": source_label,
+                            "source_database_sha256": source_sha,
+                            "documents": len(carried),
+                            "projection": PROJECTION,
+                        },
+                        sort_keys=True,
+                    ),
+                ),
             )
 
         from .hitl import _trigger_green_escalation
@@ -228,7 +258,11 @@ def carry_decisions(
             review = store.get_review(batch_id, row["internal_doc_id"])
             final = json.loads(review["final_references_json"])
             if _trigger_green_escalation(
-                config=config, store=store, batch_id=batch_id, document=documents[row["internal_doc_id"]], final=final
+                config=config,
+                store=store,
+                batch_id=batch_id,
+                document=documents[row["internal_doc_id"]],
+                final=final,
             ):
                 escalated.append(row["internal_doc_id"])
 

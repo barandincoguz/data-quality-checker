@@ -36,9 +36,17 @@ CANONICAL_LAW_BY_NO = {
 }
 # Names that more than one law has carried (a repealed law and its successor):
 # a name alone never decides between them.
-SHARED_LAW_NAMES = {"İş Kanunu", "Türk Ticaret Kanunu", "Gümrük Kanunu", "İmar Kanunu", "Kurumlar Vergisi Kanunu"}
+SHARED_LAW_NAMES = {
+    "İş Kanunu",
+    "Türk Ticaret Kanunu",
+    "Gümrük Kanunu",
+    "İmar Kanunu",
+    "Kurumlar Vergisi Kanunu",
+}
 CANONICAL_NO_BY_NAME = {
-    **{name: number for number, name in CANONICAL_LAW_BY_NO.items() if name not in SHARED_LAW_NAMES},
+    **{
+        name: number for number, name in CANONICAL_LAW_BY_NO.items() if name not in SHARED_LAW_NAMES
+    },
     # One law carries this name; the number 7338 is shared (the 2021 amending law), so it
     # is absent from CANONICAL_LAW_BY_NO (number -> name) but the name decides the number.
     "Veraset ve İntikal Vergisi Kanunu": "7338",
@@ -222,9 +230,15 @@ def normalize_law_name(value: Any, *, law_number: str = "") -> str:
     folded = _SPACE_RE.sub(" ", text.casefold()).strip(_LAW_NAME_PUNCT)
     folded_ascii = _fold(folded)
     # A dotted abbreviation ("G.V.K.", "V.U.K.") is the abbreviation.
-    undotted = folded.replace(".", "") if re.fullmatch(r"(?:[^\W\d_]\.\s*)+[^\W\d_]?", folded) else folded
-    alias = (LAW_NAME_ALIASES.get(folded) or LAW_NAME_ALIASES.get(folded_ascii)
-             or LAW_NAME_ALIASES.get(undotted) or LAW_NAME_ALIASES.get(_fold(undotted)))
+    undotted = (
+        folded.replace(".", "") if re.fullmatch(r"(?:[^\W\d_]\.\s*)+[^\W\d_]?", folded) else folded
+    )
+    alias = (
+        LAW_NAME_ALIASES.get(folded)
+        or LAW_NAME_ALIASES.get(folded_ascii)
+        or LAW_NAME_ALIASES.get(undotted)
+        or LAW_NAME_ALIASES.get(_fold(undotted))
+    )
     if alias:
         return alias
     if law_number in CANONICAL_LAW_BY_NO and (
@@ -390,7 +404,9 @@ def normalize_article(value: Any) -> str:
     return text
 
 
-def normalize_reference(raw: dict[str, Any], *, resolve_number_from_name: bool = True) -> dict[str, str]:
+def normalize_reference(
+    raw: dict[str, Any], *, resolve_number_from_name: bool = True
+) -> dict[str, str]:
     """One reference in one spelling.
 
     `resolve_number_from_name=False` keeps the number as written (a number the
@@ -402,13 +418,19 @@ def normalize_reference(raw: dict[str, Any], *, resolve_number_from_name: bool =
     validated = validate_reference_list([raw])[0]
     law_number = normalize_law_number(validated["kanun_no"])
     raw_name = validated["kanun_ad"]
-    if (not law_number and validated["kanun_no"].strip() and not raw_name.strip()
-            and validated["kanun_no"].strip().casefold() not in EMPTY_LAW_NUMBER_WORDS):
+    if (
+        not law_number
+        and validated["kanun_no"].strip()
+        and not raw_name.strip()
+        and validated["kanun_no"].strip().casefold() not in EMPTY_LAW_NUMBER_WORDS
+    ):
         # A name written into the number field ("Gelir Vergisi Kanunu") is the name.
         raw_name = validated["kanun_no"]
     if not law_number:
         # "6183 sayılı Kanun" in the name field carries the number.
-        numbered = re.match(r"^\s*(\d{1,4})\s*(?:sayılı|sayili)\b", normalize_text(raw_name), re.IGNORECASE)
+        numbered = re.match(
+            r"^\s*(\d{1,4})\s*(?:sayılı|sayili)\b", normalize_text(raw_name), re.IGNORECASE
+        )
         if numbered:
             law_number = numbered.group(1).lstrip("0") or "0"
     law_name = normalize_law_name(raw_name, law_number=law_number)

@@ -24,17 +24,30 @@ def test_documents_above_500_are_scored(tmp_path) -> None:
     from data_quality_checker.g0_training import canonical_evaluate
 
     split = json.loads((GT.parent / "SPLIT.json").read_text())
-    ids = sorted(int(d) for d in split["train"] if 500 < int(d))[:3] + sorted(int(d) for d in split["train"] if int(d) <= 500)[:3]
+    ids = (
+        sorted(int(d) for d in split["train"] if 500 < int(d))[:3]
+        + sorted(int(d) for d in split["train"] if int(d) <= 500)[:3]
+    )
     predictions = []
     for doc_id in ids:
         refs = json.loads((GT / f"doc_{doc_id}.json").read_text())["references"]
-        predictions.append({"doc_id": doc_id, "status": "success",
-                            "references": [{k: r[k] for k in ("kanun_no", "kanun_ad", "madde")} for r in refs]})
+        predictions.append(
+            {
+                "doc_id": doc_id,
+                "status": "success",
+                "references": [{k: r[k] for k in ("kanun_no", "kanun_ad", "madde")} for r in refs],
+            }
+        )
     (tmp_path / "p.json").write_text(json.dumps(predictions, ensure_ascii=False))
     (tmp_path / "ids.json").write_text(json.dumps(ids))
     config = load_config(ROOT / "configs/presets/gt750_law_article_loop.json")
-    report = canonical_evaluate(config=config, predictions_path=tmp_path / "p.json", doc_ids_path=tmp_path / "ids.json",
-                                output_dir=tmp_path / "out", expected_doc_count=len(ids))
+    report = canonical_evaluate(
+        config=config,
+        predictions_path=tmp_path / "p.json",
+        doc_ids_path=tmp_path / "ids.json",
+        output_dir=tmp_path / "out",
+        expected_doc_count=len(ids),
+    )
     result = report["results"][0]
     assert result["evaluated_doc_count"] == 6
     assert result["core_law_article_strict"]["f1"] == 1.0

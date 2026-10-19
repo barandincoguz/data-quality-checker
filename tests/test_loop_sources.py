@@ -22,9 +22,12 @@ def _write_universe(root: Path, n: int = N_DOCS) -> tuple[Path, Path]:
     gt.mkdir(parents=True)
     ids = list(range(1, n + 1))
     for doc_id in ids:
-        (gt / f"doc_{doc_id}.json").write_text(json.dumps({
-            "doc_id": doc_id, "ozelge_no": "", "text": f"metin {doc_id}",
-            "references": []}, ensure_ascii=False))
+        (gt / f"doc_{doc_id}.json").write_text(
+            json.dumps(
+                {"doc_id": doc_id, "ozelge_no": "", "text": f"metin {doc_id}", "references": []},
+                ensure_ascii=False,
+            )
+        )
     held = [i for i in ids if i not in EXEMPLAR_DOC_IDS][:20]
     split = {"train": [i for i in ids if i not in held], "test": held[:10], "val": held[10:]}
     split_path = root / "SPLIT.json"
@@ -35,7 +38,9 @@ def _write_universe(root: Path, n: int = N_DOCS) -> tuple[Path, Path]:
 def _config(tmp_path: Path, gt: Path, split_path: Path, **loop_overrides):
     raw = json.loads(PRESET.read_text())
     raw["canonical_gt_dir"] = str(gt)
-    raw["example_bank_path"] = str(REPO / "benchmark/reference/example_sets/few_shot_cot_v3_en_examples.json")
+    raw["example_bank_path"] = str(
+        REPO / "benchmark/reference/example_sets/few_shot_cot_v3_en_examples.json"
+    )
     raw["sensitive_root"] = str(tmp_path / "sensitive")
     raw["public_root"] = str(tmp_path / "public")
     raw["training_runs_root"] = str(tmp_path / "runs")
@@ -43,7 +48,11 @@ def _config(tmp_path: Path, gt: Path, split_path: Path, **loop_overrides):
     raw["loop"] = {
         "split_path": str(split_path),
         "expected_documents": N_DOCS,
-        "sizes": {"train": len(split["train"]), "valid": len(split["val"]), "test": len(split["test"])},
+        "sizes": {
+            "train": len(split["train"]),
+            "valid": len(split["val"]),
+            "test": len(split["test"]),
+        },
         "gt_manifest_sha256": repository_manifest_sha256(gt),
         "split_sha256": sha256_file(split_path),
         **loop_overrides,
@@ -68,7 +77,9 @@ def test_sources_read_the_sealed_split(tmp_path):
 def test_an_edited_ground_truth_is_refused(tmp_path):
     gt, split_path = _write_universe(tmp_path)
     config = _config(tmp_path, gt, split_path)
-    (gt / "doc_3.json").write_text(json.dumps({"doc_id": 3, "ozelge_no": "", "text": "değişti", "references": []}))
+    (gt / "doc_3.json").write_text(
+        json.dumps({"doc_id": 3, "ozelge_no": "", "text": "değişti", "references": []})
+    )
 
     with pytest.raises(IntegrityError):
         loop_sources.validate_loop_sources(config)
@@ -119,7 +130,10 @@ def test_the_law_article_loop_reads_gt_v8_with_every_quote_and_no_paragraph_fiel
     source = loop_sources.validate_loop_sources(config)
     references = [r for doc in source["documents"].values() for r in doc["references"]]
     assert source["summary"]["canonical_reference_count"] == 3557 == len(references)
-    assert all(set(r) <= {"kanun_no", "kanun_ad", "madde", "source_text", "source_texts"} for r in references)
+    assert all(
+        set(r) <= {"kanun_no", "kanun_ad", "madde", "source_text", "source_texts"}
+        for r in references
+    )
     assert all(r["source_texts"][0] == r["source_text"] for r in references if "source_texts" in r)
     assert sum(len(r.get("source_texts", [])) > 1 for r in references) > 0
 
@@ -128,7 +142,9 @@ def test_a_malformed_quote_list_is_refused(tmp_path):
     gt, split_path = _write_universe(tmp_path)
     path = gt / "doc_1.json"
     payload = json.loads(path.read_text())
-    payload["references"] = [{"kanun_no": "193", "madde": "94", "source_text": "a", "source_texts": [""]}]
+    payload["references"] = [
+        {"kanun_no": "193", "madde": "94", "source_text": "a", "source_texts": [""]}
+    ]
     path.write_text(json.dumps(payload))
     with pytest.raises(ContractError, match="source_texts"):
         loop_sources.validate_loop_sources(_config(tmp_path, gt, split_path))

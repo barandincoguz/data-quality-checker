@@ -18,14 +18,25 @@ def ref(no: str, md: str) -> dict[str, str]:
 
 
 def record(final, annotator, model, judge=None, action="revise", status="finalized") -> dict:
-    return {"status": status, "action": action, "final": final, "annotator": annotator, "model": model, "judge": judge}
+    return {
+        "status": status,
+        "action": action,
+        "final": final,
+        "annotator": annotator,
+        "model": model,
+        "judge": judge,
+    }
 
 
 def test_each_truth_reference_is_counted_by_who_found_it() -> None:
-    records = [record(final=[ref("193", "94"), ref("193", "61"), ref("213", "230"), ref("5520", "10")],
-                      annotator=[ref("193", "94"), ref("193", "61"), ref("3065", "1")],
-                      model=[ref("193", "94"), ref("213", "230"), ref("3065", "1")],
-                      judge=[ref("5520", "10")])]
+    records = [
+        record(
+            final=[ref("193", "94"), ref("193", "61"), ref("213", "230"), ref("5520", "10")],
+            annotator=[ref("193", "94"), ref("193", "61"), ref("3065", "1")],
+            model=[ref("193", "94"), ref("213", "230"), ref("3065", "1")],
+            judge=[ref("5520", "10")],
+        )
+    ]
     c = complementarity(records)["all_finalized"]
     assert c["truth_references"] == 4
     assert (c["found_by_annotator"], c["found_by_model"]) == (2, 2)
@@ -36,16 +47,20 @@ def test_each_truth_reference_is_counted_by_who_found_it() -> None:
 
 
 def test_revisions_are_reported_on_their_own() -> None:
-    records = [record([ref("193", "94")], [ref("193", "94")], [ref("193", "94")], action="accept_human"),
-               record([ref("193", "61")], [], [])]
+    records = [
+        record([ref("193", "94")], [ref("193", "94")], [ref("193", "94")], action="accept_human"),
+        record([ref("193", "61")], [], []),
+    ]
     c = complementarity(records)
     assert c["all_finalized"]["documents"] == 2 and c["revise"]["documents"] == 1
     assert c["revise"]["found_by_neither"] == 1
 
 
 def test_deferred_and_pending_rows_are_not_truth() -> None:
-    records = [record(None, [ref("193", "94")], [], status="deferred", action="defer"),
-               record(None, [ref("193", "94")], [], status="pending", action=None)]
+    records = [
+        record(None, [ref("193", "94")], [], status="deferred", action="defer"),
+        record(None, [ref("193", "94")], [], status="pending", action=None),
+    ]
     assert complementarity(records)["all_finalized"]["documents"] == 0
 
 
@@ -70,9 +85,20 @@ def test_workload_timing_leaves_carried_decisions_out() -> None:
     from data_quality_checker.loop_metrics import expert_workload
 
     def row(doc, seconds, carried=False):
-        return {"internal_doc_id": doc, "router_bucket": "RED", "in_green_audit_sample": False, "status": "finalized",
-                "action": "accept_human", "created_at_epoch": 0.0, "updated_at_epoch": 1.0, "seconds_on_page": seconds,
-                "annotator": [], "model": [], "final": [], "carried": carried}
+        return {
+            "internal_doc_id": doc,
+            "router_bucket": "RED",
+            "in_green_audit_sample": False,
+            "status": "finalized",
+            "action": "accept_human",
+            "created_at_epoch": 0.0,
+            "updated_at_epoch": 1.0,
+            "seconds_on_page": seconds,
+            "annotator": [],
+            "model": [],
+            "final": [],
+            "carried": carried,
+        }
 
     w = expert_workload([row("d1", 60.0), row("d2", 120.0), row("d3", 5000.0, carried=True)])
     assert w["carried_decision_count"] == 1

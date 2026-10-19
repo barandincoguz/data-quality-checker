@@ -13,8 +13,7 @@ from data_quality_checker.processing import (
 
 def _objects(*tuples: tuple[str, str]) -> str:
     return ",".join(
-        '{"kanun_no":"%s","kanun_ad":"K","madde":"%s"}' % (no, madde)
-        for no, madde in tuples
+        '{"kanun_no":"%s","kanun_ad":"K","madde":"%s"}' % (no, madde) for no, madde in tuples
     )
 
 

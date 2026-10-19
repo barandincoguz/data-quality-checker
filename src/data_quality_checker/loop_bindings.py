@@ -344,7 +344,10 @@ def round_records(
     # Decisions carried from an earlier loop (`loop-carry-decisions`): reported apart.
     carried_path = public_batch / "carried_decisions.json"
     carried = (
-        {str(item["internal_doc_id"]) for item in json.loads(carried_path.read_text(encoding="utf-8"))["documents"]}
+        {
+            str(item["internal_doc_id"])
+            for item in json.loads(carried_path.read_text(encoding="utf-8"))["documents"]
+        }
         if carried_path.is_file()
         else set()
     )

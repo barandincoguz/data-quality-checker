@@ -32,7 +32,14 @@ TOKEN = "t" * 32
 
 
 def _ref(no: str, madde: str) -> dict[str, str]:
-    return {"kanun_no": no, "kanun_ad": "", "madde": madde, "fikra": "", "bent": "", "source_text": ""}
+    return {
+        "kanun_no": no,
+        "kanun_ad": "",
+        "madde": madde,
+        "fikra": "",
+        "bent": "",
+        "source_text": "",
+    }
 
 
 def _loop_batch(tmp_path, *, buckets: dict[str, int]):
@@ -55,12 +62,19 @@ def _audit_ids(config) -> set[str]:
     from data_quality_checker.judges import ensure_green_audit_plan
 
     with Store(config.database_path) as store:
-        return set(ensure_green_audit_plan(config=config, store=store, batch_id="batch")["sample_internal_doc_ids"])
+        return set(
+            ensure_green_audit_plan(config=config, store=store, batch_id="batch")[
+                "sample_internal_doc_ids"
+            ]
+        )
 
 
 def _queue(config) -> list[str]:
     with Store(config.database_path) as store:
-        return [row["internal_doc_id"] for row in review_queue(config=config, store=store, batch_id="batch")]
+        return [
+            row["internal_doc_id"]
+            for row in review_queue(config=config, store=store, batch_id="batch")
+        ]
 
 
 def test_the_loop_judge_is_gemma_4_and_nothing_else(tmp_path) -> None:
@@ -74,8 +88,12 @@ def test_the_loop_judge_is_gemma_4_and_nothing_else(tmp_path) -> None:
     assert stored == payload
     assert fix_loop_judge(config=config, batch_id="batch") == payload  # idempotent
     with Store(config.database_path) as store:
-        events = [row[0] for row in store.connection.execute(
-            "SELECT event_type FROM batch_events WHERE batch_id='batch'")]
+        events = [
+            row[0]
+            for row in store.connection.execute(
+                "SELECT event_type FROM batch_events WHERE batch_id='batch'"
+            )
+        ]
     # No "judge_locked": nothing the expert decides is ever made after seeing the judge.
     assert "judge_fixed" in events and "judge_locked" not in events
 
@@ -96,8 +114,13 @@ def test_the_expert_queue_has_no_pilot_in_the_loop(tmp_path) -> None:
 def test_the_loop_refuses_the_pilot_and_the_old_lock(tmp_path) -> None:
     config, _ = _loop_batch(tmp_path, buckets={"RED": 2})
     with pytest.raises(GateBlocked, match="loop-judge"):
-        run_judge_pilot(config=config, batch_id="batch", allow_external_judge=True,
-                        provider=FakeJudgeProvider(), judge_models=(JUDGE_MODEL_KEY,))
+        run_judge_pilot(
+            config=config,
+            batch_id="batch",
+            allow_external_judge=True,
+            provider=FakeJudgeProvider(),
+            judge_models=(JUDGE_MODEL_KEY,),
+        )
     with pytest.raises(GateBlocked, match="loop-judge"):
         lock_judge(config=config, batch_id="batch", model=JUDGE_MODEL_KEY, reason="x")
 
@@ -105,35 +128,53 @@ def test_the_loop_refuses_the_pilot_and_the_old_lock(tmp_path) -> None:
 def test_the_loop_judge_covers_every_document_the_expert_reviews(tmp_path) -> None:
     config, routed = _loop_batch(tmp_path, buckets={"RED": 2, "YELLOW": 1, "GREEN": 35})
     fix_loop_judge(config=config, batch_id="batch")
-    summary = run_judge_pilot(config=config, batch_id="batch", allow_external_judge=True,
-                              provider=FakeJudgeProvider())
+    summary = run_judge_pilot(
+        config=config, batch_id="batch", allow_external_judge=True, provider=FakeJudgeProvider()
+    )
     reviewed = set(_queue(config))
     with Store(config.database_path) as store:
-        judged = {row["internal_doc_id"] for row in store.list_judge_results("batch", model=JUDGE_MODEL_KEY)
-                  if row["status"] == "valid"}
+        judged = {
+            row["internal_doc_id"]
+            for row in store.list_judge_results("batch", model=JUDGE_MODEL_KEY)
+            if row["status"] == "valid"
+        }
     assert reviewed <= judged
     assert summary["required_document_count"] == len(reviewed) and summary["coverage_complete"]
 
 
 def _client(config):
-    app = create_hitl_app(config=config, batch_id="batch", testing=True, session_secret=SECRET, access_token=TOKEN)
+    app = create_hitl_app(
+        config=config, batch_id="batch", testing=True, session_secret=SECRET, access_token=TOKEN
+    )
     client = app.test_client()
-    csrf = client.get("/api/session", headers={"Authorization": f"Bearer {TOKEN}"}).get_json()["csrf_token"]
+    csrf = client.get("/api/session", headers={"Authorization": f"Bearer {TOKEN}"}).get_json()[
+        "csrf_token"
+    ]
     return client, csrf
 
 
 def test_the_expert_never_sees_the_loop_judge(tmp_path) -> None:
     config, routed = _loop_batch(tmp_path, buckets={"RED": 2})
     fix_loop_judge(config=config, batch_id="batch")
-    run_judge_pilot(config=config, batch_id="batch", allow_external_judge=True, provider=FakeJudgeProvider())
+    run_judge_pilot(
+        config=config, batch_id="batch", allow_external_judge=True, provider=FakeJudgeProvider()
+    )
     doc_id = sorted(routed)[0]
     client, csrf = _client(config)
     page = client.get(f"/review/{doc_id}").get_data(as_text=True)
-    for hidden in ("Hakemin önerisi", 'value="judge_override"', "Yardımcı görüşten başla", "Otomatik yardımcı görüş"):
+    for hidden in (
+        "Hakemin önerisi",
+        'value="judge_override"',
+        "Yardımcı görüşten başla",
+        "Otomatik yardımcı görüş",
+    ):
         assert hidden not in page
     assert client.get(f"/api/documents/{doc_id}").get_json()["judge_suggestion"] is None
-    response = client.post(f"/api/reviews/{doc_id}", json={"row_version": 0, "action": "judge_override"},
-                           headers={"X-CSRF-Token": csrf})
+    response = client.post(
+        f"/api/reviews/{doc_id}",
+        json={"row_version": 0, "action": "judge_override"},
+        headers={"X-CSRF-Token": csrf},
+    )
     assert response.status_code >= 400
     with Store(config.database_path) as store:
         assert store.get_review("batch", doc_id)["status"] == "pending"
@@ -147,7 +188,9 @@ def test_release_needs_the_judge_on_every_reviewed_document(tmp_path) -> None:
     audit = sorted(_audit_ids(config))
     red = [d for d, b in routed.items() if b == "RED"]
     # Judge only the RED document, then finalize everything the expert must see.
-    run_judge_pilot(config=config, batch_id="batch", allow_external_judge=True, provider=FakeJudgeProvider())
+    run_judge_pilot(
+        config=config, batch_id="batch", allow_external_judge=True, provider=FakeJudgeProvider()
+    )
     with Store(config.database_path) as store:
         store.connection.execute(
             "DELETE FROM judge_results WHERE batch_id='batch' AND internal_doc_id=?", (audit[0],)
@@ -155,10 +198,18 @@ def test_release_needs_the_judge_on_every_reviewed_document(tmp_path) -> None:
         store.connection.commit()
         for doc_id in red + audit:
             review = store.get_review("batch", doc_id)
-            store.update_review(batch_id="batch", internal_doc_id=doc_id, expected_version=review["row_version"],
-                                status="finalized", action="accept_human",
-                                final_references=json.loads(store.get_document("batch", doc_id)["human_references_json"]),
-                                reason=None, reviewer="fixture")
+            store.update_review(
+                batch_id="batch",
+                internal_doc_id=doc_id,
+                expected_version=review["row_version"],
+                status="finalized",
+                action="accept_human",
+                final_references=json.loads(
+                    store.get_document("batch", doc_id)["human_references_json"]
+                ),
+                reason=None,
+                reviewer="fixture",
+            )
     with pytest.raises(GateBlocked, match="judge"):
         release_batch(config=config, batch_id="batch")
 
@@ -166,16 +217,32 @@ def test_release_needs_the_judge_on_every_reviewed_document(tmp_path) -> None:
 def test_every_expert_decision_in_the_loop_is_blind_to_the_judge(tmp_path) -> None:
     config, routed = _loop_batch(tmp_path, buckets={"RED": 3})
     fix_loop_judge(config=config, batch_id="batch")
-    run_judge_pilot(config=config, batch_id="batch", allow_external_judge=True, provider=FakeJudgeProvider())
+    run_judge_pilot(
+        config=config, batch_id="batch", allow_external_judge=True, provider=FakeJudgeProvider()
+    )
     with Store(config.database_path) as store:
         for doc_id in routed:
             review = store.get_review("batch", doc_id)
-            store.update_review(batch_id="batch", internal_doc_id=doc_id, expected_version=review["row_version"],
-                                status="finalized", action="accept_human",
-                                final_references=json.loads(store.get_document("batch", doc_id)["human_references_json"]),
-                                reason=None, reviewer="fixture")
-    report = write_error_report(config, round_index=1, batch_id="batch", generation="G0",
-                                judge_model=JUDGE_MODEL_KEY, path=tmp_path / "errors.json")
+            store.update_review(
+                batch_id="batch",
+                internal_doc_id=doc_id,
+                expected_version=review["row_version"],
+                status="finalized",
+                action="accept_human",
+                final_references=json.loads(
+                    store.get_document("batch", doc_id)["human_references_json"]
+                ),
+                reason=None,
+                reviewer="fixture",
+            )
+    report = write_error_report(
+        config,
+        round_index=1,
+        batch_id="batch",
+        generation="G0",
+        judge_model=JUDGE_MODEL_KEY,
+        path=tmp_path / "errors.json",
+    )
     assert report["judge_visible_to_expert"] is False
     assert report["before_judge_lock"]["document_count"] == 3
     assert report["after_judge_lock"]["document_count"] == 0
@@ -206,7 +273,9 @@ def test_loop_judge_fixes_runs_and_marks_the_round_judged(tmp_path, monkeypatch)
         write_round_state,
     )
 
-    config = prepared_processed_fixture(tmp_path, count=3, generation="M000", references=[_ref("193", "94")])
+    config = prepared_processed_fixture(
+        tmp_path, count=3, generation="M000", references=[_ref("193", "94")]
+    )
     config.raw["loop"] = {}
     with Store(config.database_path) as store:
         for row in store.list_documents("batch"):
@@ -223,7 +292,12 @@ def test_loop_judge_fixes_runs_and_marks_the_round_judged(tmp_path, monkeypatch)
     summary = loop_ops.judge_round(config, round_index=1, fake_backend=True)
     assert summary["coverage_complete"] and summary["required_document_count"] == 3
     assert resume_round(state_dir, 1).stage == "judged"
-    assert json.loads((config.public_root / "batches" / "batch" / "judge_lock.json").read_text())["model"] == JUDGE_MODEL_KEY
+    assert (
+        json.loads((config.public_root / "batches" / "batch" / "judge_lock.json").read_text())[
+            "model"
+        ]
+        == JUDGE_MODEL_KEY
+    )
 
 
 def test_a_quarantined_document_is_reviewed_by_the_expert(tmp_path) -> None:

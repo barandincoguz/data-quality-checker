@@ -309,7 +309,10 @@ class MlxG0Backend:
         if input_tokens > self.max_input_tokens:
             recovered, attempt = self._window_fallback(
                 messages,
-                primary={"error": f"input_token_count={input_tokens} exceeds max_sequence_length", "finish_reason": "input_too_long"},
+                primary={
+                    "error": f"input_token_count={input_tokens} exceeds max_sequence_length",
+                    "finish_reason": "input_too_long",
+                },
                 input_tokens=input_tokens,
                 started=time.perf_counter(),
             )
@@ -407,7 +410,11 @@ class MlxG0Backend:
             # never re-generated, so its output is byte-identical to before.
             recovered, fallback_attempt = self._window_fallback(
                 messages,
-                primary={"error": error, "finish_reason": finish_reason, "output_tokens": output_tokens},
+                primary={
+                    "error": error,
+                    "finish_reason": finish_reason,
+                    "output_tokens": output_tokens,
+                },
                 input_tokens=input_tokens,
                 started=started,
             )
@@ -493,11 +500,18 @@ class MlxG0Backend:
             except Exception:
                 pass
         fallback = dict(generated.get("fallback") or {})
-        windows = [{k: v for k, v in w.items() if k != "raw_output"} for w in fallback.pop("windows", [])]
+        windows = [
+            {k: v for k, v in w.items() if k != "raw_output"} for w in fallback.pop("windows", [])
+        ]
         recovered = bool(generated["parse_ok"]) and generated.get("finish_reason") != "length"
         if not recovered:
-            return None, {"attempted": True, "recovered": False, "error": generated.get("parse_error"),
-                          **fallback, "windows": windows}
+            return None, {
+                "attempted": True,
+                "recovered": False,
+                "error": generated.get("parse_error"),
+                **fallback,
+                "windows": windows,
+            }
         return PredictionResult(
             status="success",
             references=list(generated["parsed_references"]),
@@ -505,7 +519,8 @@ class MlxG0Backend:
             error=None,
             operational={
                 "input_tokens": input_tokens,
-                "output_tokens": int(primary.get("output_tokens", 0)) + int(generated["output_tokens"]),
+                "output_tokens": int(primary.get("output_tokens", 0))
+                + int(generated["output_tokens"]),
                 "latency_seconds": time.perf_counter() - started,
                 "truncated": False,
                 "finish_reason": "window_fallback_complete",
@@ -515,7 +530,10 @@ class MlxG0Backend:
                 "window_fallback": {
                     "attempted": True,
                     "recovered": True,
-                    "primary": {"error": primary.get("error"), "finish_reason": primary.get("finish_reason")},
+                    "primary": {
+                        "error": primary.get("error"),
+                        "finish_reason": primary.get("finish_reason"),
+                    },
                     **fallback,
                     "windows": windows,
                 },

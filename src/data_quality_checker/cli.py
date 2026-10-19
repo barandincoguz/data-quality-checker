@@ -292,7 +292,9 @@ def build_parser() -> argparse.ArgumentParser:
         "(user decision 7 Oct 2026); a dry run unless --write",
     )
     loop_correct_ranges.add_argument("--round", type=int, required=True)
-    loop_correct_ranges.add_argument("--decision", help="the user's decision, quoted (required with --write)")
+    loop_correct_ranges.add_argument(
+        "--decision", help="the user's decision, quoted (required with --write)"
+    )
     loop_correct_ranges.add_argument("--write", action="store_true")
     loop_correct_ranges.set_defaults(handler=commands.loop_correct_ranges)
 
@@ -302,8 +304,12 @@ def build_parser() -> argparse.ArgumentParser:
         "a JSON list of fixes); a dry run unless --write",
     )
     loop_correct_rows.add_argument("--round", type=int, required=True)
-    loop_correct_rows.add_argument("--fixes", required=True, help="JSON file: the fixes (see write_row_fixes)")
-    loop_correct_rows.add_argument("--decision", help="the user's decision, quoted (required with --write)")
+    loop_correct_rows.add_argument(
+        "--fixes", required=True, help="JSON file: the fixes (see write_row_fixes)"
+    )
+    loop_correct_rows.add_argument(
+        "--decision", help="the user's decision, quoted (required with --write)"
+    )
     loop_correct_rows.add_argument("--write", action="store_true")
     loop_correct_rows.set_defaults(handler=commands.loop_correct_rows)
 
@@ -357,9 +363,15 @@ def build_parser() -> argparse.ArgumentParser:
         "loop-prompt-screen",
         help="stage 1 of the prompt screen: every registered prompt on 100 training documents, untrained model",
     )
-    prompt_screen.add_argument("--base-run-id", required=True, help="a loop run whose model snapshot and sequence length to use")
+    prompt_screen.add_argument(
+        "--base-run-id",
+        required=True,
+        help="a loop run whose model snapshot and sequence length to use",
+    )
     prompt_screen.add_argument("--stage", type=int, choices=(1, 2), default=1)
-    prompt_screen.add_argument("--candidate-config", type=Path, nargs="*", help="stage 2: the candidates' configs")
+    prompt_screen.add_argument(
+        "--candidate-config", type=Path, nargs="*", help="stage 2: the candidates' configs"
+    )
     prompt_screen.set_defaults(handler=commands.loop_prompt_screen)
 
     loop_mark = subparsers.add_parser("loop-mark", help="record a human-driven round stage")

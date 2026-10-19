@@ -26,7 +26,9 @@ CORE = ("tp", "fp", "fn", "precision", "recall", "f1")
 
 
 def _doc_ids(candidate: Path) -> Path:
-    for request in sorted(candidate.glob("workers/validate_*/attempt_*/request.json"), reverse=True):
+    for request in sorted(
+        candidate.glob("workers/validate_*/attempt_*/request.json"), reverse=True
+    ):
         payload = json.loads(request.read_text(encoding="utf-8"))
         path = Path(payload["doc_ids_path"])
         if sha256_file(path) != payload["doc_ids_sha256"]:
@@ -37,13 +39,19 @@ def _doc_ids(candidate: Path) -> Path:
 
 def _commit(repo: Path) -> str:
     try:
-        return subprocess.run(["git", "-C", str(repo), "rev-parse", "--short", "HEAD"],
-                              capture_output=True, text=True, check=True).stdout.strip()
+        return subprocess.run(
+            ["git", "-C", str(repo), "rev-parse", "--short", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
     except (OSError, subprocess.CalledProcessError):
         return ""
 
 
-def rescore_run(config: Any, *, run_id: str, label: str, reason: str, evaluator=None) -> dict[str, Any]:
+def rescore_run(
+    config: Any, *, run_id: str, label: str, reason: str, evaluator=None
+) -> dict[str, Any]:
     from .g0_training import canonical_evaluate
     from .loop_ops import LOOP_CANDIDATE
 
@@ -61,14 +69,21 @@ def rescore_run(config: Any, *, run_id: str, label: str, reason: str, evaluator=
     for directory in checkpoints:
         predictions = directory / "predictions.json"
         old = json.loads((directory / "evaluation.json").read_text(encoding="utf-8"))["results"][0]
-        new = evaluator(config=config, predictions_path=predictions, doc_ids_path=doc_ids,
-                        output_dir=out / directory.name, expected_doc_count=expected)["results"][0]
-        rows.append({
-            "checkpoint": directory.name,
-            "predictions_sha256": sha256_file(predictions),
-            **{f"old_{k}": old["core_law_article_strict"][k] for k in CORE},
-            **{f"new_{k}": new["core_law_article_strict"][k] for k in CORE},
-        })
+        new = evaluator(
+            config=config,
+            predictions_path=predictions,
+            doc_ids_path=doc_ids,
+            output_dir=out / directory.name,
+            expected_doc_count=expected,
+        )["results"][0]
+        rows.append(
+            {
+                "checkpoint": directory.name,
+                "predictions_sha256": sha256_file(predictions),
+                **{f"old_{k}": old["core_law_article_strict"][k] for k in CORE},
+                **{f"new_{k}": new["core_law_article_strict"][k] for k in CORE},
+            }
+        )
     state = json.loads((candidate / "state.json").read_text(encoding="utf-8"))
     best = max(rows, key=lambda r: (r["new_f1"], r["new_recall"]))
     summary = {
@@ -80,7 +95,9 @@ def rescore_run(config: Any, *, run_id: str, label: str, reason: str, evaluator=
         "gt_manifest_sha256": config.raw.get("loop", {}).get("gt_manifest_sha256", ""),
         "evaluator_commit": _commit(Path(__file__).resolve().parents[2]),
         "documents": expected,
-        "selected_before": f"update_{int(state['best_update']):07d}" if state.get("best_update") else "",
+        "selected_before": f"update_{int(state['best_update']):07d}"
+        if state.get("best_update")
+        else "",
         "selected_by_new_f1_for_information_only": best["checkpoint"],
         "generated_at": datetime.now(UTC).isoformat(),
         "rows": rows,

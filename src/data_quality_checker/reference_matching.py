@@ -70,7 +70,10 @@ has exactly the identity it always had."""
 
 def canonical_reference(reference: Mapping[str, Any]) -> dict[str, str]:
     """The comparison's one spelling of a row, with the law number as written."""
-    raw = {name: str(reference.get(name, "") or "") for name in ("kanun_no", "kanun_ad", "madde", "source_text")}
+    raw = {
+        name: str(reference.get(name, "") or "")
+        for name in ("kanun_no", "kanun_ad", "madde", "source_text")
+    }
     return normalize_reference(raw, resolve_number_from_name=False)
 
 
@@ -89,7 +92,8 @@ _CANONICAL_NUMBER_BY_NAME_KEY = {
     re.sub(r"[^0-9a-z]+", "", _fold(name)): number for name, number in CANONICAL_NO_BY_NAME.items()
 }
 _VALID_NUMBERS_BY_NAME_KEY = {
-    re.sub(r"[^0-9a-z]+", "", _fold(name)): numbers for name, numbers in VALID_LAW_NUMBERS_BY_NAME.items()
+    re.sub(r"[^0-9a-z]+", "", _fold(name)): numbers
+    for name, numbers in VALID_LAW_NUMBERS_BY_NAME.items()
 }
 
 
@@ -164,7 +168,9 @@ class Comparison:
         return self.tp / total if total else 1.0
 
 
-def _claims(rows: Sequence[dict[str, str]], context: DocumentContext) -> tuple[dict[Identity, dict[str, str]], set[Identity], int]:
+def _claims(
+    rows: Sequence[dict[str, str]], context: DocumentContext
+) -> tuple[dict[Identity, dict[str, str]], set[Identity], int]:
     """A list's references by identity (one row each, the first written), the
     law-only ones that are extra (an article of their law is in the same list),
     and how many rows repeated a reference."""
@@ -172,7 +178,9 @@ def _claims(rows: Sequence[dict[str, str]], context: DocumentContext) -> tuple[d
     for row in rows:
         by_identity.setdefault(context.identity(row), row)
     laws_with_an_article = {law_of(i) for i in by_identity if i[3] and has_law(i)}
-    redundant = {i for i in by_identity if not i[3] and has_law(i) and law_of(i) in laws_with_an_article}
+    redundant = {
+        i for i in by_identity if not i[3] and has_law(i) and law_of(i) in laws_with_an_article
+    }
     return by_identity, redundant, len(rows) - len(by_identity)
 
 
@@ -210,7 +218,10 @@ def expand_ranges(references: Iterable[Mapping[str, Any]]) -> list[dict[str, Any
         if articles is None:
             expanded.append(dict(reference))
             continue
-        expanded.extend({**reference, "madde": article, "expanded_from": str(reference.get("madde", ""))} for article in articles)
+        expanded.extend(
+            {**reference, "madde": article, "expanded_from": str(reference.get("madde", ""))}
+            for article in articles
+        )
     return expanded
 
 
@@ -230,7 +241,9 @@ def compare_reference_lists(
     reference_rows = [canonical_reference(r) for r in expand_ranges(reference)]
     candidate_rows = [canonical_reference(r) for r in expand_ranges(candidate)]
     context = DocumentContext(
-        reference_rows, candidate_rows, *([canonical_reference(r) for r in expand_ranges(rows)] for rows in context_lists)
+        reference_rows,
+        candidate_rows,
+        *([canonical_reference(r) for r in expand_ranges(rows)] for rows in context_lists),
     )
     ref_claims, ref_redundant, ref_repeated = _claims(reference_rows, context)
     cand_claims, cand_redundant, cand_repeated = _claims(candidate_rows, context)
@@ -245,7 +258,9 @@ def compare_reference_lists(
     diagnostics["invalid_prediction_missing_law_count"] = len(no_law_candidates)
     for side, ids in (("gold", ref_ids), ("prediction", cand_ids)):
         diagnostics[f"eligible_{side}_count"] = len(ids)
-        for kind, count in Counter(LAW_ARTICLE_KIND if i[3] else LAW_LEVEL_KIND for i in ids).items():
+        for kind, count in Counter(
+            LAW_ARTICLE_KIND if i[3] else LAW_LEVEL_KIND for i in ids
+        ).items():
             diagnostics[f"eligible_{side}_{kind}_count"] = count
 
     # The truth's claims leave out its own law-only rows beside an article of
@@ -301,7 +316,9 @@ def reference_identities(
     one identity per reference, law-only rows beside an article of their law left
     out (extra, not a claim)."""
     rows = [canonical_reference(r) for r in expand_ranges(references)]
-    context = DocumentContext(rows, *([canonical_reference(r) for r in expand_ranges(other)] for other in context_lists))
+    context = DocumentContext(
+        rows, *([canonical_reference(r) for r in expand_ranges(other)] for other in context_lists)
+    )
     claims, redundant, _ = _claims(rows, context)
     return {i for i in claims if i not in redundant}
 
@@ -355,5 +372,8 @@ def compare_with_policy(
     from .reference_policy import DEFAULT_REFERENCE_POLICY_ID, apply_reference_policy
 
     policy = policy_id or DEFAULT_REFERENCE_POLICY_ID
-    kept = [apply_reference_policy(list(rows), policy_id=policy)[0] for rows in (reference, candidate, *context_lists)]
+    kept = [
+        apply_reference_policy(list(rows), policy_id=policy)[0]
+        for rows in (reference, candidate, *context_lists)
+    ]
     return compare_reference_lists(kept[0], kept[1], context_lists=kept[2:])

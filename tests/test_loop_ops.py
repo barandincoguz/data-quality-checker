@@ -158,34 +158,58 @@ def _second_line_fakes(monkeypatch, *, seen=None):
     def fake_train(config, **kw):
         if seen is not None:
             seen.update(kw)
-        return {"run_id": "dqcheck_loop_x", "training_documents": 500,
-                "selection": {"core_f1": 0.9, "selected_update": 125, "adapter_path": "/runs/x/update_125"}}
+        return {
+            "run_id": "dqcheck_loop_x",
+            "training_documents": 500,
+            "selection": {
+                "core_f1": 0.9,
+                "selected_update": 125,
+                "adapter_path": "/runs/x/update_125",
+            },
+        }
 
     monkeypatch.setattr(loop_ops, "_train_and_select", fake_train)
     monkeypatch.setattr(loop_ops, "seal_round_model", lambda **kw: pytest.fail("sealed"))
     monkeypatch.setattr(
         loop_ops,
         "_base_run_context",
-        lambda config, run_id: {"run_config": {"model_snapshot": {"snapshot_path": "/snap"},
-                                               "selected_sequence_length": 10240}},
+        lambda config, run_id: {
+            "run_config": {
+                "model_snapshot": {"snapshot_path": "/snap"},
+                "selected_sequence_length": 10240,
+            }
+        },
     )
     monkeypatch.setattr(
         loop_ops,
         "build_g0_registry",
-        lambda **kw: {"adapter_path": str(kw["adapter_path"]), "adapter_sha256": "ab" * 32,
-                      "max_sequence_length": kw["max_sequence_length"]},
+        lambda **kw: {
+            "adapter_path": str(kw["adapter_path"]),
+            "adapter_sha256": "ab" * 32,
+            "max_sequence_length": kw["max_sequence_length"],
+        },
     )
 
 
-def test_the_whole_document_line_is_trained_on_the_same_round_and_never_sealed(tmp_path, monkeypatch):
+def test_the_whole_document_line_is_trained_on_the_same_round_and_never_sealed(
+    tmp_path, monkeypatch
+):
     """Every round also trains the kept whole-document model (28 Sep 2026): same
     round, same data, its own run; nothing may touch round_NNN_model.json or g0/,
     and its inference registry (adapter checksum included) is kept beside it."""
     config = _config(tmp_path)
     seen = {}
     _second_line_fakes(monkeypatch, seen=seen)
-    record = loop_ops.train_loop_candidate(config, round_index=0, resume=False, view="full_documents")
-    assert seen == {"round_index": 0, "resume": False, "view": "full_documents", "stop_at": None, "labels": "clean"}
+    record = loop_ops.train_loop_candidate(
+        config, round_index=0, resume=False, view="full_documents"
+    )
+    assert seen == {
+        "round_index": 0,
+        "resume": False,
+        "view": "full_documents",
+        "stop_at": None,
+        "labels": "clean",
+    }
     path = tmp_path / "public" / "loop" / "candidates" / "round_000_full_documents.json"
     assert json.loads(path.read_text()) == record
     assert record["sealed"] is False and record["training_view_mode"] == "full_documents"
@@ -197,21 +221,29 @@ def test_the_whole_document_line_is_trained_on_the_same_round_and_never_sealed(t
 
 
 @pytest.mark.parametrize("stage", ["adjudicated", "trained", "sealed"])
-def test_second_line_can_follow_main_training_without_changing_its_seal(tmp_path, monkeypatch, stage):
+def test_second_line_can_follow_main_training_without_changing_its_seal(
+    tmp_path, monkeypatch, stage
+):
     config = _config(tmp_path)
     _second_line_fakes(monkeypatch)
     monkeypatch.setattr(loop_ops, "resume_round", lambda d, k: SimpleNamespace(stage=stage))
     model = tmp_path / "public/loop/rounds/round_001_model.json"
     model.parent.mkdir(parents=True, exist_ok=True)
     model.write_bytes(b"original sealed model record")
-    record = loop_ops.train_loop_candidate(config, round_index=1, resume=True, view="full_documents")
+    record = loop_ops.train_loop_candidate(
+        config, round_index=1, resume=True, view="full_documents"
+    )
     assert record["sealed"] is False
     assert model.read_bytes() == b"original sealed model record"
 
 
 def test_the_training_view_reaches_the_trainer(tmp_path, monkeypatch):
     seen = {}
-    monkeypatch.setattr(loop_ops, "validate_loop_sources", lambda c: {"split": {"train": [], "valid": [], "test": []}})
+    monkeypatch.setattr(
+        loop_ops,
+        "validate_loop_sources",
+        lambda c: {"split": {"train": [], "valid": [], "test": []}},
+    )
 
     def fake_train_round(config, **kwargs):
         seen.update(kwargs)
@@ -219,7 +251,9 @@ def test_the_training_view_reaches_the_trainer(tmp_path, monkeypatch):
 
     monkeypatch.setattr(loop_ops, "train_round", fake_train_round)
     with pytest.raises(RuntimeError):
-        loop_ops._train_and_select(_config(tmp_path), round_index=1, resume=False, view="full_documents")
+        loop_ops._train_and_select(
+            _config(tmp_path), round_index=1, resume=False, view="full_documents"
+        )
     assert seen["view"] == "full_documents" and seen["cleaned_batch_ids"] == ["R01"]
 
 
@@ -237,20 +271,31 @@ def test_the_view_flag_never_seals_the_whole_document_line(monkeypatch):
     from data_quality_checker import commands
 
     calls = []
-    monkeypatch.setattr(loop_ops, "train_loop_candidate", lambda config, **kw: calls.append(("candidate", kw)) or {})
-    monkeypatch.setattr(loop_ops, "train_loop_round", lambda config, **kw: calls.append(("sealed", kw)) or {})
+    monkeypatch.setattr(
+        loop_ops, "train_loop_candidate", lambda config, **kw: calls.append(("candidate", kw)) or {}
+    )
+    monkeypatch.setattr(
+        loop_ops, "train_loop_round", lambda config, **kw: calls.append(("sealed", kw)) or {}
+    )
     args = SimpleNamespace(round=1, resume=True, no_seal=False, view="full_documents")
     commands.loop_train(args, None)
     commands.loop_train(SimpleNamespace(round=1, resume=False, no_seal=False, view=None), None)
     assert calls == [
-        ("candidate", {"round_index": 1, "resume": True, "view": "full_documents", "stop_at": None}),
+        (
+            "candidate",
+            {"round_index": 1, "resume": True, "view": "full_documents", "stop_at": None},
+        ),
         ("sealed", {"round_index": 1, "resume": False}),
     ]
 
 
 def _write_line(tmp_path, *, round_index, view, run_id, selected, updates):
     public = tmp_path / "public" / "loop"
-    record = {"run_id": run_id, "training_documents": 500, "selection": {"selected_update": selected}}
+    record = {
+        "run_id": run_id,
+        "training_documents": 500,
+        "selection": {"selected_update": selected},
+    }
     if view == "windows":
         path = public / "rounds" / f"round_{round_index:03d}_model.json"
     else:
@@ -259,9 +304,13 @@ def _write_line(tmp_path, *, round_index, view, run_id, selected, updates):
     path.write_text(json.dumps(record))
     run = tmp_path / "runs" / run_id
     run.mkdir(parents=True)
-    (run / "run_config.json").write_text(json.dumps({"recurrence": None if view == "windows" else "wy"}))
+    (run / "run_config.json").write_text(
+        json.dumps({"recurrence": None if view == "windows" else "wy"})
+    )
     for update, tp in updates.items():
-        directory = run / "development" / loop_ops.LOOP_CANDIDATE / "validation" / f"update_{update:07d}"
+        directory = (
+            run / "development" / loop_ops.LOOP_CANDIDATE / "validation" / f"update_{update:07d}"
+        )
         directory.mkdir(parents=True)
         (directory / "predictions.json").write_text(json.dumps({"tp": tp}))
     ids = tmp_path / "sensitive" / "loop" / run_id / "data"
@@ -273,32 +322,49 @@ def test_a_round_compares_both_lines_and_each_with_its_previous_round(tmp_path, 
     """Validation only: each line's checkpoints re-scored, the lines paired against
     each other, and from round 1 each line against its own previous round."""
     config = _config(tmp_path)
-    _write_line(tmp_path, round_index=0, view="windows", run_id="w0", selected=50, updates={25: 1, 50: 2})
-    _write_line(tmp_path, round_index=0, view="full_documents", run_id="f0", selected=25, updates={25: 2})
+    _write_line(
+        tmp_path, round_index=0, view="windows", run_id="w0", selected=50, updates={25: 1, 50: 2}
+    )
+    _write_line(
+        tmp_path, round_index=0, view="full_documents", run_id="f0", selected=25, updates={25: 2}
+    )
     _write_line(tmp_path, round_index=1, view="windows", run_id="w1", selected=25, updates={25: 3})
-    _write_line(tmp_path, round_index=1, view="full_documents", run_id="f1", selected=25, updates={25: 4})
+    _write_line(
+        tmp_path, round_index=1, view="full_documents", run_id="f1", selected=25, updates={25: 4}
+    )
     scored = []
 
     def fake_metrics(*, config, predictions_path, doc_ids_path, output_dir, expected_doc_count):
         tp = json.loads(predictions_path.read_text())["tp"]
         scored.append(predictions_path.parts[-6])
-        per_doc = {d: {"tp": 1 if d <= tp else 0, "fp": 0, "fn": 0 if d <= tp else 1} for d in (1, 2, 3, 4)}
+        per_doc = {
+            d: {"tp": 1 if d <= tp else 0, "fp": 0, "fn": 0 if d <= tp else 1} for d in (1, 2, 3, 4)
+        }
         metric = {"tp": tp, "fp": 0, "fn": 4 - tp, "precision": 1.0, "recall": tp / 4, "f1": tp / 4}
-        return {"core": metric, "full": metric, "core_per_document": per_doc,
-                "docwise_f1_distribution": {"perfect_f1_count": tp, "total_docs": 4}}
+        return {
+            "core": metric,
+            "full": metric,
+            "core_per_document": per_doc,
+            "docwise_f1_distribution": {"perfect_f1_count": tp, "total_docs": 4},
+        }
 
     monkeypatch.setattr(loop_ops, "model_round_metrics", fake_metrics)
     round0 = loop_ops.compare_views(config, round_index=0)
     assert [p["update"] for p in round0["validation_curves"]["windows"]] == [25, 50]
     assert round0["selected"]["windows"]["core"]["tp"] == 2
-    assert round0["runs"]["windows"]["sealed_as"] == "M000" and round0["runs"]["full_documents"]["sealed_as"] is None
+    assert (
+        round0["runs"]["windows"]["sealed_as"] == "M000"
+        and round0["runs"]["full_documents"]["sealed_as"] is None
+    )
     assert round0["paired_bootstrap_full_minus_windows"]["document_count"] == 4
     assert "paired_bootstrap_vs_previous_round" not in round0
 
     scored.clear()
     round1 = loop_ops.compare_views(config, round_index=1)
-    assert round1["previous_round"] == {"windows": {"run_id": "w0", "selected_update": 50},
-                                        "full_documents": {"run_id": "f0", "selected_update": 25}}
+    assert round1["previous_round"] == {
+        "windows": {"run_id": "w0", "selected_update": 50},
+        "full_documents": {"run_id": "f0", "selected_update": 25},
+    }
     # The previous round's selected checkpoint only, not its whole curve.
     assert sorted(scored) == ["f0", "f1", "w0", "w1"]
     gains = round1["paired_bootstrap_vs_previous_round"]
@@ -333,7 +399,11 @@ def test_the_raw_label_arm_is_a_candidate_and_never_sealed(tmp_path, monkeypatch
 
 def test_the_label_source_reaches_the_trainer(tmp_path, monkeypatch):
     seen = {}
-    monkeypatch.setattr(loop_ops, "validate_loop_sources", lambda c: {"split": {"train": [], "valid": [], "test": []}})
+    monkeypatch.setattr(
+        loop_ops,
+        "validate_loop_sources",
+        lambda c: {"split": {"train": [], "valid": [], "test": []}},
+    )
 
     def fake_train_round(config, **kwargs):
         seen.update(kwargs)
@@ -349,11 +419,20 @@ def test_the_labels_flag_never_seals_the_raw_arm(monkeypatch):
     from data_quality_checker import commands
 
     calls = []
-    monkeypatch.setattr(loop_ops, "train_loop_candidate", lambda config, **kw: calls.append(("candidate", kw)) or {})
-    monkeypatch.setattr(loop_ops, "train_loop_round", lambda config, **kw: calls.append(("sealed", kw)) or {})
-    commands.loop_train(SimpleNamespace(round=1, resume=False, no_seal=False, view=None, labels="raw"), None)
+    monkeypatch.setattr(
+        loop_ops, "train_loop_candidate", lambda config, **kw: calls.append(("candidate", kw)) or {}
+    )
+    monkeypatch.setattr(
+        loop_ops, "train_loop_round", lambda config, **kw: calls.append(("sealed", kw)) or {}
+    )
+    commands.loop_train(
+        SimpleNamespace(round=1, resume=False, no_seal=False, view=None, labels="raw"), None
+    )
     assert calls == [
-        ("candidate", {"round_index": 1, "resume": False, "view": None, "stop_at": None, "labels": "raw"}),
+        (
+            "candidate",
+            {"round_index": 1, "resume": False, "view": None, "stop_at": None, "labels": "raw"},
+        ),
     ]
 
 
@@ -367,7 +446,9 @@ def test_loop_train_takes_a_labels_flag():
         build_parser().parse_args(["loop-train", "--round", "1", "--labels", "noisy"])
 
 
-def test_the_raw_arm_trains_once_the_batch_is_routed_without_waiting_for_the_expert(tmp_path, monkeypatch):
+def test_the_raw_arm_trains_once_the_batch_is_routed_without_waiting_for_the_expert(
+    tmp_path, monkeypatch
+):
     """Its labels are the annotator's: no expert decision enters it (5 Oct 2026)."""
     config = _config(tmp_path)
     seen = {}
@@ -409,14 +490,17 @@ def test_a_raw_run_trained_before_the_release_is_checked_against_it(tmp_path, mo
     config = _config(tmp_path)
     _raw_candidate(tmp_path, [1, 2, "d1", "d2"])
     write_sealed_release(
-        tmp_path / "sensitive", "R01",
+        tmp_path / "sensitive",
+        "R01",
         [{"internal_doc_id": "d2", "text": "iki", "references": []}],
         [{"internal_doc_id": "d1", "text": "bir", "references": []}],
     )
     report = loop_ops.check_raw_candidate_against_release(config, round_index=1)
     assert report["same_documents"] is True
     assert report["run_documents"] == report["release_documents"] == 2
-    written = tmp_path / "public" / "loop" / "candidates" / "round_001_windows_raw_release_check.json"
+    written = (
+        tmp_path / "public" / "loop" / "candidates" / "round_001_windows_raw_release_check.json"
+    )
     assert json.loads(written.read_text()) == report
 
 
@@ -426,7 +510,8 @@ def test_a_raw_run_whose_documents_differ_from_the_release_is_flagged(tmp_path, 
     config = _config(tmp_path)
     _raw_candidate(tmp_path, [1, 2, "d1", "d2", "d3"])
     write_sealed_release(
-        tmp_path / "sensitive", "R01",
+        tmp_path / "sensitive",
+        "R01",
         [{"internal_doc_id": "d2", "text": "iki", "references": []}],
         [{"internal_doc_id": "d1", "text": "bir", "references": []}],
     )
@@ -441,8 +526,11 @@ def test_loop_raw_check_is_a_command(monkeypatch):
 
     args = build_parser().parse_args(["loop-raw-check", "--round", "1"])
     seen = []
-    monkeypatch.setattr(loop_ops, "check_raw_candidate_against_release",
-                        lambda config, **kw: seen.append(kw) or {"same_documents": True})
+    monkeypatch.setattr(
+        loop_ops,
+        "check_raw_candidate_against_release",
+        lambda config, **kw: seen.append(kw) or {"same_documents": True},
+    )
     assert args.handler(args, None) == 0
     assert seen == [{"round_index": 1}]
     assert args.handler is commands.loop_raw_check

@@ -297,11 +297,13 @@ def train_round(
             # The release's documents once it exists, the whole batch before it
             # (`round_raw_training_documents`); in id order either way.
             batch_documents = {
-                doc_id: raw_documents[doc_id] for doc_id in raw_label_audit["documents_by_batch"][batch_id]
+                doc_id: raw_documents[doc_id]
+                for doc_id in raw_label_audit["documents_by_batch"][batch_id]
             }
         else:
             batch_documents = {
-                doc_id: clean_documents[doc_id] for doc_id, row in released_rows.items()
+                doc_id: clean_documents[doc_id]
+                for doc_id, row in released_rows.items()
                 if row["batch_id"] == batch_id
             }
         cleaned_batches.append(list(batch_documents))
@@ -377,7 +379,9 @@ def train_round(
         fingerprint_payload["raw_training_sha256"] = fingerprint_json(
             {
                 "documents_by_batch": raw_label_audit["documents_by_batch"],
-                "references": {doc_id: raw_documents[doc_id]["references"] for doc_id in raw_documents},
+                "references": {
+                    doc_id: raw_documents[doc_id]["references"] for doc_id in raw_documents
+                },
             }
         )
     run_fingerprint = fingerprint_json(fingerprint_payload)

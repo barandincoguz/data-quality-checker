@@ -42,7 +42,9 @@ def test_a_paragraph_difference_in_a_stored_row_is_no_difference() -> None:
     """1 Oct 2026: a reference is a law and an article. Lists stored before
     that day still carry paragraph fields; the screen must not show them as
     a difference -- no flag is raised for them."""
-    rows = ab_diff([_ref(fikra="1", bent="a", src="metin A")], [_ref(fikra="2", bent="a", src="metin B")])
+    rows = ab_diff(
+        [_ref(fikra="1", bent="a", src="metin A")], [_ref(fikra="2", bent="a", src="metin B")]
+    )
     assert [(row["status"], row["status_label"]) for row in rows] == [("same", "Aynı")]
 
 
@@ -179,8 +181,10 @@ def test_ab_diff_shows_the_expert_what_was_actually_written() -> None:
 
 
 def test_a_part_of_the_article_written_into_madde_pairs_with_the_article() -> None:
-    """"94/1", "94 (1)" and "94-a" name article 94; the screen pairs them."""
-    rows = ab_diff([_ref(madde="94/1"), _ref(madde="95 (2)")], [_ref(madde="94"), _ref(madde="95-a")])
+    """ "94/1", "94 (1)" and "94-a" name article 94; the screen pairs them."""
+    rows = ab_diff(
+        [_ref(madde="94/1"), _ref(madde="95 (2)")], [_ref(madde="94"), _ref(madde="95-a")]
+    )
     assert [row["status"] for row in rows] == ["same", "same"]
 
 
@@ -207,7 +211,10 @@ def test_a_law_only_row_beside_an_article_of_its_law_is_flagged_not_a_difference
     assert [row["status"] for row in rows] == ["same", "same"]
     flagged = next(row for row in rows if row["core"]["madde"] == "")
     assert flagged["subsumed"] == {"a": 0, "b": 1} and flagged["b"] == [law_only]
-    assert flagged["status_label"] == "Aynı · model çıktısında kanunun bir maddesi de yazıldığı için ayrıca sayılmaz"
+    assert (
+        flagged["status_label"]
+        == "Aynı · model çıktısında kanunun bir maddesi de yazıldığı için ayrıca sayılmaz"
+    )
     # A law-only row with no article of its law on that side is a real claim.
     assert [row["status"] for row in ab_diff([law_only], [])] == ["only_a"]
 
@@ -233,9 +240,16 @@ def test_a_reference_written_twice_is_the_same_reference_and_is_flagged() -> Non
 
 
 def test_a_duplicate_does_not_hide_a_real_difference() -> None:
-    a = [_ref("193", "", "94", src=""), _ref("193", "", "94", src=""), _ref("193", "", "95", src="")]
+    a = [
+        _ref("193", "", "94", src=""),
+        _ref("193", "", "94", src=""),
+        _ref("193", "", "95", src=""),
+    ]
     rows = ab_diff(a, [_ref("193", "", "94", src="")])
-    assert [(row["status"], row["duplicates"]) for row in rows] == [("same", {"a": 1, "b": 0}), ("only_a", {"a": 0, "b": 0})]
+    assert [(row["status"], row["duplicates"]) for row in rows] == [
+        ("same", {"a": 1, "b": 0}),
+        ("only_a", {"a": 0, "b": 0}),
+    ]
 
 
 def test_one_article_written_four_times_is_counted_as_one_reference() -> None:

@@ -600,10 +600,31 @@ def test_loop_scoring_drops_the_footnote_from_predictions(tmp_path):
     from data_quality_checker.g0_training import policy_filtered_predictions
 
     predictions = tmp_path / "predictions.json"
-    predictions.write_text(json.dumps([{"doc_id": 7, "references": [
-        {"kanun_no": "213", "kanun_ad": "Vergi Usul Kanunu", "madde": "413", "fikra": "", "bent": ""},
-        {"kanun_no": "193", "kanun_ad": "Gelir Vergisi Kanunu", "madde": "94", "fikra": "1", "bent": ""},
-    ]}]))
+    predictions.write_text(
+        json.dumps(
+            [
+                {
+                    "doc_id": 7,
+                    "references": [
+                        {
+                            "kanun_no": "213",
+                            "kanun_ad": "Vergi Usul Kanunu",
+                            "madde": "413",
+                            "fikra": "",
+                            "bent": "",
+                        },
+                        {
+                            "kanun_no": "193",
+                            "kanun_ad": "Gelir Vergisi Kanunu",
+                            "madde": "94",
+                            "fikra": "1",
+                            "bent": "",
+                        },
+                    ],
+                }
+            ]
+        )
+    )
 
     filtered = json.loads(policy_filtered_predictions(predictions, tmp_path / "out").read_text())
 
